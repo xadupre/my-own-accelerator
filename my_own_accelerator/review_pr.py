@@ -9,6 +9,8 @@ from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+PAGE_SIZE = 100
+
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
     headers = {
@@ -18,7 +20,7 @@ def _fetch_json(url: str, token: str | None = None) -> Any:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(url, headers=headers)
-    with request.urlopen(req) as response:  # noqa: S310
+    with request.urlopen(req) as response:
         return json.load(response)
 
 
@@ -26,12 +28,14 @@ def _fetch_files(base_url: str, token: str | None = None) -> list[dict[str, Any]
     files: list[dict[str, Any]] = []
     page = 1
     while True:
-        page_url = f"{base_url}?{parse.urlencode({'per_page': 100, 'page': page})}"
+        page_url = f"{base_url}?{parse.urlencode({'per_page': PAGE_SIZE, 'page': page})}"
         data = _fetch_json(page_url, token)
         if not isinstance(data, list) or not data:
             break
-        files.extend(item for item in data if isinstance(item, dict))
-        if len(data) < 100:
+        if any(not isinstance(item, dict) for item in data):
+            raise ValueError("Unexpected pull request file payload returned by API.")
+        files.extend(data)
+        if len(data) < PAGE_SIZE:
             break
         page += 1
     return files
@@ -45,8 +49,14 @@ def build_pull_request_review_markdown(pr: dict[str, Any], files: list[dict[str,
     body = (pr.get("body") or "").strip()
     html_url = pr.get("html_url", "")
     changed_files = int(pr.get("changed_files", len(files)))
-    additions = int(pr.get("additions", sum(int(f.get("additions", 0)) for f in files)))
-    deletions = int(pr.get("deletions", sum(int(f.get("deletions", 0)) for f in files)))
+    raw_additions = pr.get("additions")
+    if raw_additions is None:
+        raw_additions = sum(int(f.get("additions", 0)) for f in files)
+    additions = int(raw_additions)
+    raw_deletions = pr.get("deletions")
+    if raw_deletions is None:
+        raw_deletions = sum(int(f.get("deletions", 0)) for f in files)
+    deletions = int(raw_deletions)
 
     lines = [
         "# Pull Request Review",
@@ -112,7 +122,14 @@ def main(argv: list[str] | None = None) -> int:
             api_url=args.api_url,
         )
     except (HTTPError, URLError, ValueError) as e:
-        print(f"Unable to review pull request: {e}", file=sys.stderr)
+        print(
+            (
+                f"Unable to review pull request {args.owner}/{args.repo}#{args.pull_request} "
+                f"({type(e).__name__}). Check repository access, PR number, "
+                "and network/auth settings."
+            ),
+            file=sys.stderr,
+        )
         return 1
 
     print(markdown)

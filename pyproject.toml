@@ -19,6 +19,16 @@ dev = [
     "pytest>=7",
     "ruff",
 ]
+docs = [
+    "matplotlib",
+    "pydata-sphinx-theme",
+    "sphinx>=7",
+    "sphinx-copybutton",
+    "sphinx-gallery",
+    "sphinx-issues",
+    "sphinx-runpython",
+    "sphinxcontrib-mermaid",
+]
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -27,3 +27,8 @@ mypy my_own_accelerator
 pyrefly check
 pytest -q
 ```
+
+## Documentation
+
+The documentation uses reStructuredText (`docs/index.rst`) and a Sphinx configuration
+aligned with `yet-another-onnx-builder` extensions.

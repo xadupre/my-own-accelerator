@@ -23,6 +23,12 @@ project = create_empty_project()
 print(project["name"])  # my-own-accelerator
 ```
 
+Command line pull request review:
+
+```bash
+review-pr xadupre my-own-accelerator 1
+```
+
 ## Development checks
 
 ```bash

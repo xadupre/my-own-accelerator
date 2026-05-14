@@ -1,6 +1,10 @@
 # my-own-accelerator
 
 [![CI](https://github.com/xadupre/my-own-accelerator/actions/workflows/ci.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/ci.yml)
+[![black](https://github.com/xadupre/my-own-accelerator/actions/workflows/black.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/black.yml)
+[![ruff](https://github.com/xadupre/my-own-accelerator/actions/workflows/ruff.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/ruff.yml)
+[![mypy](https://github.com/xadupre/my-own-accelerator/actions/workflows/mypy.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/mypy.yml)
+[![pyrefly](https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml)
 
 Minimal Python project scaffold.
 

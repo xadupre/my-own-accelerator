@@ -30,3 +30,7 @@ extensions = [
 exclude_patterns = ["_build"]
 html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
+
+
+def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
+    return None

@@ -1,5 +1,5 @@
 my-own-accelerator documentation
-===============================
+================================
 
 ``my-own-accelerator`` is a minimal empty Python project scaffold.
 

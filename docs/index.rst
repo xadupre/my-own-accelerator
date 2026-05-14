@@ -29,4 +29,5 @@ API documentation
 .. toctree::
     :maxdepth: 2
 
+    command_line
     commands/index

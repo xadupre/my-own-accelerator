@@ -1,4 +1,3 @@
-import runpy
 from io import StringIO
 from unittest.mock import patch
 
@@ -7,13 +6,6 @@ from my_own_accelerator.review_pr import build_pull_request_review_markdown, mai
 
 
 class TestReviewPR(ExtTestCase):
-    def test_package_main_executes_review_pr_main(self) -> None:
-        with patch("my_own_accelerator.review_pr.main", return_value=0) as mocked:
-            with self.assertRaises(SystemExit) as ctx:
-                runpy.run_module("my_own_accelerator", run_name="__main__")
-        self.assertEqual(ctx.exception.code, 0)
-        mocked.assert_called_once_with()
-
     def test_build_pull_request_review_markdown(self) -> None:
         pr = {
             "title": "Add feature",

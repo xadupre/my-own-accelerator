@@ -22,3 +22,11 @@ Main helper
 -----------
 
 * :func:`my_own_accelerator.create_empty_project`
+
+API documentation
+-----------------
+
+.. toctree::
+    :maxdepth: 2
+
+    commands/index

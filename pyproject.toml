@@ -11,6 +11,9 @@ license = { file = "LICENSE" }
 requires-python = ">=3.10"
 dependencies = []
 
+[project.scripts]
+review-pr = "my_own_accelerator.commands.review_pr:main"
+
 [project.optional-dependencies]
 dev = [
     "black",

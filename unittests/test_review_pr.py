@@ -1,11 +1,17 @@
 from io import StringIO
 from unittest.mock import patch
 
+from my_own_accelerator import review_pr
 from my_own_accelerator.ext_test_case import ExtTestCase
 from my_own_accelerator.review_pr import build_pull_request_review_markdown, main
 
 
 class TestReviewPR(ExtTestCase):
+    def test_package_main_points_to_review_pr_main(self) -> None:
+        from my_own_accelerator.__main__ import main as package_main
+
+        self.assertIs(package_main, review_pr.main)
+
     def test_build_pull_request_review_markdown(self) -> None:
         pr = {
             "title": "Add feature",

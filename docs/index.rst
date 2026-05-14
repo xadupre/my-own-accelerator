@@ -21,7 +21,7 @@ my-own-accelerator documentation
 Main helper
 -----------
 
-* :func:`my_own_accelerator.create_empty_project`
+* :func:`moa.create_empty_project`
 
 API documentation
 -----------------

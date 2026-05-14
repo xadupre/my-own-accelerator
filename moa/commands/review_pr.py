@@ -15,7 +15,7 @@ PAGE_SIZE = 100
 def _fetch_json(url: str, token: str | None = None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
-        "User-Agent": "my-own-accelerator/review-pr",
+        "User-Agent": "moa/review-pr",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"

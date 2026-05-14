@@ -1,5 +1,5 @@
-from my_own_accelerator import create_empty_project
-from my_own_accelerator.ext_test_case import ExtTestCase
+from moa import create_empty_project
+from moa.ext_test_case import ExtTestCase
 
 
 class TestProject(ExtTestCase):

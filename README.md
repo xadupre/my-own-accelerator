@@ -17,7 +17,7 @@ pip install -e ".[dev]"
 ## Quick usage
 
 ```python
-from my_own_accelerator import create_empty_project
+from moa import create_empty_project
 
 project = create_empty_project()
 print(project["name"])  # my-own-accelerator
@@ -34,7 +34,7 @@ review-pr xadupre my-own-accelerator 1
 ```bash
 black --check .
 ruff check .
-mypy my_own_accelerator
+mypy moa
 pyrefly check
 pytest -q
 ```

@@ -1,8 +1,8 @@
-import my_own_accelerator
+import moa
 
 project = "my-own-accelerator"
 author = "my-own-accelerator contributors"
-release = my_own_accelerator.__version__
+release = moa.__version__
 
 extensions = [
     "sphinx.ext.autodoc",

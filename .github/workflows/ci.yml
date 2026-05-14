@@ -89,4 +89,4 @@ jobs:
       - name: Install package
         run: pip install -e .
       - name: Skill smoke test
-        run: python -c "from my_own_accelerator import create_empty_project; assert create_empty_project()['files'] == []"
+        run: python -c "from moa import create_empty_project; assert create_empty_project()['files'] == []"

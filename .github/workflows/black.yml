@@ -12,7 +12,12 @@ concurrency:
 
 jobs:
   black:
-    runs-on: ubuntu-latest
+    name: black (${{ matrix.os }}, ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest]
+        python-version: ["3.12"]
     permissions:
       contents: read
     steps:
@@ -20,7 +25,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: ${{ matrix.python-version }}
       - name: Install dependencies
         run: pip install -e ".[dev]"
       - name: Run black

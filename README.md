@@ -1,7 +1,8 @@
 # my-own-accelerator
 
-Minimal Python project scaffold inspired by
-[yet-another-onnx-builder](https://github.com/xadupre/yet-another-onnx-builder).
+[![CI](https://github.com/xadupre/my-own-accelerator/actions/workflows/ci.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/ci.yml)
+
+Minimal Python project scaffold.
 
 ## Install
 

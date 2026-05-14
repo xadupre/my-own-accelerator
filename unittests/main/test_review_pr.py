@@ -1,8 +1,8 @@
 from io import StringIO
 from unittest.mock import patch
 
+from my_own_accelerator.commands.review_pr import build_pull_request_review_markdown, main
 from my_own_accelerator.ext_test_case import ExtTestCase
-from my_own_accelerator.review_pr import build_pull_request_review_markdown, main
 
 
 class TestReviewPR(ExtTestCase):
@@ -34,7 +34,8 @@ class TestReviewPR(ExtTestCase):
         out = StringIO()
         with (
             patch(
-                "my_own_accelerator.review_pr.review_pull_request", return_value="# review"
+                "my_own_accelerator.commands.review_pr.review_pull_request",
+                return_value="# review",
             ) as mocked,
             patch("sys.stdout", out),
         ):

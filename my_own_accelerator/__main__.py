@@ -2,6 +2,6 @@
 
 import sys
 
-from .review_pr import main
+from .commands.review_pr import main
 
 sys.exit(main())

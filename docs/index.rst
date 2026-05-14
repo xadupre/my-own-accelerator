@@ -22,3 +22,9 @@ Main helper
 -----------
 
 * :func:`my_own_accelerator.create_empty_project`
+
+API documentation
+-----------------
+
+.. automodule:: my_own_accelerator.commands.review_pr
+    :members:

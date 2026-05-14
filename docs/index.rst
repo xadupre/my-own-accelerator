@@ -26,5 +26,7 @@ Main helper
 API documentation
 -----------------
 
-.. automodule:: my_own_accelerator.commands.review_pr
-    :members:
+.. toctree::
+    :maxdepth: 2
+
+    commands/index

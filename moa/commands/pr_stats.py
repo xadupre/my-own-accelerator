@@ -180,12 +180,14 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
         "</Types>"
     )
+    office_document_type = (
+        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
+    )
     rels = (
         '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
         '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
         '<Relationship Id="rId1" '
-        "Type="
-        '"http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" '
+        f'Type="{office_document_type}" '
         'Target="xl/workbook.xml"/>'
         "</Relationships>"
     )

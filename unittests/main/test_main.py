@@ -1,4 +1,5 @@
 import runpy
+from io import StringIO
 from unittest.mock import patch
 
 from moa.ext_test_case import ExtTestCase
@@ -34,3 +35,15 @@ class TestMain(ExtTestCase):
             runpy.run_module("moa", run_name="__main__")
         self.assertEqual(ctx.exception.code, 0)
         mocked.assert_called_once_with(["owner", "repo", "1"])
+
+    def test_package_main_help(self) -> None:
+        out = StringIO()
+        with (
+            patch("sys.argv", ["-m", "--help"]),
+            patch("sys.stdout", out),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            runpy.run_module("moa", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertIn("review-pr", out.getvalue())
+        self.assertIn("review-local", out.getvalue())

@@ -30,4 +30,5 @@ API documentation
     :maxdepth: 2
 
     cmds/command_line
+    cmds/github_token
     commands/index

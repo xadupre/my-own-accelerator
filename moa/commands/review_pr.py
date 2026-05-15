@@ -12,6 +12,9 @@ from urllib.error import HTTPError, URLError
 
 PAGE_SIZE = 100
 
+MODELS_API_URL = "https://models.inference.ai.azure.com"
+DEFAULT_MODEL = "openai/gpt-4o-mini"
+
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
     headers = {
@@ -94,13 +97,73 @@ def review_pull_request(
     pull_request: int,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    copilot_review: bool = False,
+    model: str = DEFAULT_MODEL,
 ) -> str:
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_request}"
     pr = _fetch_json(base, token)
     if not isinstance(pr, dict):
         raise ValueError("Unexpected pull request payload returned by API.")
     files = _fetch_files(f"{base}/files", token)
-    return build_pull_request_review_markdown(pr, files)
+    markdown = build_pull_request_review_markdown(pr, files)
+    if copilot_review:
+        if not token:
+            raise ValueError(
+                "A GitHub token (--token or GITHUB_TOKEN env var) "
+                "is required for --copilot-review."
+            )
+        ai_text = _call_copilot_review(markdown, token, model)
+        markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
+    return markdown
+
+
+def _call_copilot_review(
+    pr_markdown: str,
+    token: str,
+    model: str = DEFAULT_MODEL,
+    models_url: str = MODELS_API_URL,
+) -> str:
+    """Send the PR summary to the GitHub Models API for an AI-powered review.
+
+    :param pr_markdown: Markdown text describing the pull request.
+    :param token: GitHub personal access token with models access.
+    :param model: Model identifier accepted by the GitHub Models API.
+    :param models_url: Base URL of the GitHub Models API.
+    :return: AI-generated review text as a plain string.
+    :raises ValueError: If the API returns no choices or empty content.
+    :raises urllib.error.HTTPError: If the HTTP request fails.
+    """
+    url = f"{models_url.rstrip('/')}/chat/completions"
+    system_prompt = (
+        "You are an expert software engineer and code reviewer. "
+        "Review the following pull request summary and provide constructive feedback. "
+        "Highlight potential issues, suggest improvements, and note relevant best practices."
+    )
+    payload: dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": pr_markdown},
+        ],
+    }
+    data = json.dumps(payload).encode()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "moa/review-pr",
+    }
+    req = request.Request(url, data=data, headers=headers, method="POST")
+    with request.urlopen(req) as response:
+        result = json.load(response)
+    choices = result.get("choices", [])
+    if not choices:
+        raise ValueError("No response choices returned by the AI model.")
+    message = choices[0].get("message", {})
+    content = message.get("content", "")
+    if not content:
+        raise ValueError("Empty content in AI model response.")
+    return content
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -124,6 +187,23 @@ def main(argv: list[str] | None = None) -> int:
             "otherwise https://api.github.com."
         ),
     )
+    parser.add_argument(
+        "--copilot-review",
+        action="store_true",
+        default=False,
+        help=(
+            "Use GitHub Copilot (via GitHub Models API) to generate an AI review of the PR. "
+            "Requires a GitHub token with models access."
+        ),
+    )
+    parser.add_argument(
+        "--model",
+        default=DEFAULT_MODEL,
+        help=(
+            f"AI model used for --copilot-review (default: {DEFAULT_MODEL}). "
+            "Any model available on the GitHub Models API is accepted."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -133,6 +213,8 @@ def main(argv: list[str] | None = None) -> int:
             pull_request=args.pull_request,
             token=args.token,
             api_url=args.api_url,
+            copilot_review=args.copilot_review,
+            model=args.model,
         )
     except (HTTPError, URLError, ValueError) as e:
         print(

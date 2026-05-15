@@ -3,7 +3,8 @@ Command Line
 
 The ``my-own-accelerator`` package exposes a ``review-pr`` command that
 fetches information about a GitHub pull request and prints a Markdown
-summary to standard output.
+summary to standard output.  Pass ``--copilot-review`` to include an
+AI-generated review produced by GitHub Copilot.
 
 Installation
 ------------
@@ -20,7 +21,7 @@ Synopsis
 
 .. code-block:: text
 
-    review-pr [--token TOKEN] [--api-url URL] owner repo pull_request
+    review-pr [--token TOKEN] [--api-url URL] [--copilot-review] [--model MODEL] owner repo pull_request
 
 Positional Arguments
 --------------------
@@ -45,10 +46,13 @@ Optional Arguments
     workflows).  If neither is provided, requests are unauthenticated
     and subject to lower rate limits.  For private repositories or to
     avoid rate limiting, a token with at least ``repo:read`` scope is
-    required::
+    required.
+
+    See :doc:`github_token` for instructions on how to obtain a token.
+
+    Example::
 
         review-pr --token ghp_xxxxxxxxxxxx owner repo 42
-
 ``--api-url URL``
     Base URL of the GitHub API.  When omitted the tool falls back to
     the ``GITHUB_API_URL`` environment variable (automatically set in
@@ -57,6 +61,23 @@ Optional Arguments
     GitHub Enterprise instance::
 
         review-pr --api-url https://github.example.com/api/v3 owner repo 42
+
+``--copilot-review``
+    After fetching the pull request data, send the summary to the
+    GitHub Models API (powered by GitHub Copilot) to obtain an
+    AI-generated code review.  The review is appended to the Markdown
+    output as a ``## Copilot Review`` section.  A valid GitHub token
+    is required (see ``--token``)::
+
+        review-pr --copilot-review xadupre my-own-accelerator 1
+
+``--model MODEL``
+    AI model to use when ``--copilot-review`` is set.  Accepts any
+    model identifier available on the
+    `GitHub Models API <https://docs.github.com/en/github-models>`_.
+    Defaults to ``openai/gpt-4o-mini``::
+
+        review-pr --copilot-review --model openai/gpt-4o xadupre my-own-accelerator 1
 
 ``-h``, ``--help``
     Print a short help message and exit.
@@ -77,6 +98,10 @@ repositories or to increase the API rate limit)::
 
     review-pr --token "$GITHUB_TOKEN" xadupre my-own-accelerator 1
 
+Include an AI-powered Copilot review::
+
+    review-pr --copilot-review --token "$GITHUB_TOKEN" xadupre my-own-accelerator 1
+
 Review a pull request on a GitHub Enterprise server::
 
     review-pr \
@@ -88,13 +113,16 @@ Output Format
 -------------
 
 The command prints a Markdown document to standard output.  The document
-contains three sections:
+contains three sections (plus an optional Copilot Review section when
+``--copilot-review`` is used):
 
 * **Summary** – title, state, author, URL, number of changed files,
   and total additions/deletions.
 * **Description** – the body text of the pull request.
 * **Changed Files** – list of every file touched by the pull request
   together with the number of added and deleted lines.
+* **Copilot Review** *(optional)* – AI-generated review produced by the
+  GitHub Models API when ``--copilot-review`` is passed.
 
 Example output (values are illustrative)::
 
@@ -114,6 +142,11 @@ Example output (values are illustrative)::
     ## Changed Files
     - `README.md` (+10/-3)
     - `docs/index.rst` (+1/-0)
+
+    ## Copilot Review
+
+    The change looks straightforward. Consider adding a test to ensure
+    the README renders correctly in CI.
 
 Exit Codes
 ----------
@@ -136,6 +169,7 @@ The command can also be invoked programmatically:
 
     from moa.commands.review_pr import review_pull_request
 
+    # Basic summary
     markdown = review_pull_request(
         owner="xadupre",
         repo="my-own-accelerator",
@@ -145,4 +179,16 @@ The command can also be invoked programmatically:
     )
     print(markdown)
 
+    # With Copilot review
+    markdown = review_pull_request(
+        owner="xadupre",
+        repo="my-own-accelerator",
+        pull_request=1,
+        token="ghp_xxxxxxxxxxxx",
+        copilot_review=True,
+        model="openai/gpt-4o-mini",  # optional, this is the default
+    )
+    print(markdown)
+
 See the :mod:`moa.commands.review_pr` API reference for full details.
+

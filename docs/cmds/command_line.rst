@@ -40,15 +40,19 @@ Optional Arguments
 
 ``--token TOKEN``
     GitHub personal access token used to authenticate API requests.
-    When omitted the tool issues unauthenticated requests, which are
-    subject to lower rate limits.  For private repositories or to
-    avoid rate limiting, pass a token with at least ``repo:read``
-    scope::
+    When omitted the tool falls back to the ``GITHUB_TOKEN``
+    environment variable (automatically set in GitHub Actions
+    workflows).  If neither is provided, requests are unauthenticated
+    and subject to lower rate limits.  For private repositories or to
+    avoid rate limiting, a token with at least ``repo:read`` scope is
+    required::
 
         review-pr --token ghp_xxxxxxxxxxxx owner repo 42
 
 ``--api-url URL``
-    Base URL of the GitHub API.  Defaults to
+    Base URL of the GitHub API.  When omitted the tool falls back to
+    the ``GITHUB_API_URL`` environment variable (automatically set in
+    GitHub Actions workflows).  If neither is provided the default is
     ``https://api.github.com``.  Override this when working against a
     GitHub Enterprise instance::
 

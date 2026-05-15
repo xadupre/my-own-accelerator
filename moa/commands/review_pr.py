@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from typing import Any
 from urllib import parse, request
@@ -109,8 +110,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("owner", help="GitHub repository owner")
     parser.add_argument("repo", help="GitHub repository name")
     parser.add_argument("pull_request", type=int, help="Pull request number")
-    parser.add_argument("--token", default=None, help="GitHub token (optional)")
-    parser.add_argument("--api-url", default="https://api.github.com", help="GitHub API base URL")
+    parser.add_argument(
+        "--token",
+        default=os.environ.get("GITHUB_TOKEN"),
+        help="GitHub personal access token. Defaults to the GITHUB_TOKEN environment variable.",
+    )
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        help=(
+            "Base URL of the GitHub API. "
+            "Defaults to the GITHUB_API_URL environment variable when set, "
+            "otherwise https://api.github.com."
+        ),
+    )
     args = parser.parse_args(argv)
 
     try:

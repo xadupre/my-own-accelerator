@@ -3,6 +3,7 @@
 import argparse
 import sys
 
+from .commands.pr_stats import main as main_pr_stats
 from .commands.review_local import main as main_local
 from .commands.review_pr import main as main_pr
 
@@ -14,13 +15,14 @@ def _build_parser() -> argparse.ArgumentParser:
         epilog=(
             "Commands:\n"
             "  review-pr     Review a GitHub pull request and print markdown.\n"
-            "  review-local  Review local files and print markdown."
+            "  review-local  Review local files and print markdown.\n"
+            "  pr-stats      Build pull request activity reports (CSV, Excel, graphs)."
         ),
     )
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("review-pr", "review-local"),
+        choices=("review-pr", "review-local", "pr-stats"),
         help="Command to run (defaults to review-pr when omitted).",
     )
     return parser
@@ -39,6 +41,8 @@ def main(argv: list[str] | None = None) -> int:
         return main_local(argv[1:])
     if argv and argv[0] == "review-pr":
         return main_pr(argv[1:])
+    if argv and argv[0] == "pr-stats":
+        return main_pr_stats(argv[1:])
     return main_pr(argv)
 
 

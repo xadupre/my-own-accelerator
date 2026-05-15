@@ -29,6 +29,5 @@ API documentation
 .. toctree::
     :maxdepth: 2
 
-    cmds/command_line
-    cmds/github_token
+    cmds/index
     commands/index

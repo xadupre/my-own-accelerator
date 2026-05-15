@@ -19,7 +19,7 @@ CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
 
 
 def _load_cache() -> dict[str, str]:
-    """Load cached settings (token, api_url) from the config file.
+    """Load cached settings (token, api_url, user) from the config file.
 
     :return: Dictionary with cached values, or an empty dict if the file
         does not exist or cannot be parsed.
@@ -32,12 +32,45 @@ def _load_cache() -> dict[str, str]:
         return {}
 
 
+def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
+    """Inject *user* as the first positional (owner) when only two positionals are given.
+
+    This lets callers omit ``owner`` when their GitHub username is already cached
+    (e.g. ``review-pr my-repo 42`` instead of ``review-pr myname my-repo 42``).
+
+    :param argv: Argument list as would be passed to ``argparse``.
+    :param user: GitHub username to inject as ``owner`` when it is absent.
+    :return: Possibly modified argument list.
+    """
+    if user is None:
+        return argv
+    # Flags that consume the following token as their value.
+    VALUE_FLAGS = {"--token", "--api-url", "--model", "--user"}
+    positional_indices: list[int] = []
+    skip_next = False
+    for i, token in enumerate(argv):
+        if skip_next:
+            skip_next = False
+            continue
+        if token in VALUE_FLAGS:
+            skip_next = True
+        elif token.startswith("-"):
+            pass  # boolean flag, consumes no extra token
+        else:
+            positional_indices.append(i)
+    if len(positional_indices) == 2:
+        insert_at = positional_indices[0]
+        return list(argv[:insert_at]) + [user] + list(argv[insert_at:])
+    return argv
+
+
 def _save_cache(data: dict[str, str]) -> None:
     """Persist settings to the config file with owner-only read permissions.
 
     Existing keys not present in *data* are preserved.
 
-    :param data: Mapping of keys to save (e.g. ``{"token": "...", "api_url": "..."}``)
+    :param data: Mapping of keys to save
+        (e.g. ``{"token": "...", "api_url": "...", "user": "..."}``)
     """
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = _load_cache()
@@ -198,12 +231,25 @@ def _call_copilot_review(
 
 
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
     # Priority: CLI flag > env var > config file cache > built-in default
     cache = _load_cache()
     token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
     api_url_default = (
         os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
     )
+    user_default = os.environ.get("GITHUB_USER") or cache.get("user") or None
+
+    # Pre-parse to discover the effective --user value before injecting owner.
+    _pre = argparse.ArgumentParser(add_help=False)
+    _pre.add_argument("--user", default=user_default)
+    _pre_args, _ = _pre.parse_known_args(argv)
+    effective_user = _pre_args.user
+
+    # Allow omitting owner when the GitHub username is cached / in env.
+    argv = _resolve_positional_argv(argv, effective_user)
 
     parser = argparse.ArgumentParser(
         description="Reviews a GitHub pull request and prints markdown."
@@ -231,11 +277,21 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     parser.add_argument(
+        "--user",
+        default=user_default,
+        help=(
+            "GitHub username of the authenticated user. "
+            "Resolution order: flag > GITHUB_USER env var > cached value "
+            f"({CONFIG_FILE}). "
+            "When set and owner is omitted, the username is used as the repository owner."
+        ),
+    )
+    parser.add_argument(
         "--save",
         action="store_true",
         default=False,
         help=(
-            f"Save the resolved --token and --api-url to {CONFIG_FILE} "
+            f"Save the resolved --token, --api-url, and --user to {CONFIG_FILE} "
             "so they are used automatically in future invocations. "
             "The file is created with owner-only read permissions (0600)."
         ),
@@ -265,6 +321,8 @@ def main(argv: list[str] | None = None) -> int:
             to_save["token"] = args.token
         if args.api_url:
             to_save["api_url"] = args.api_url
+        if args.user:
+            to_save["user"] = args.user
         _save_cache(to_save)
 
     try:

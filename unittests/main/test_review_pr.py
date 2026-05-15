@@ -10,6 +10,7 @@ from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
     _load_cache,
+    _resolve_positional_argv,
     _save_cache,
     build_pull_request_review_markdown,
     main,
@@ -307,3 +308,105 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(saved["token"], "saved_tok")
         self.assertEqual(saved["api_url"], "https://ghe.example.com/api/v3")
+
+    # ------------------------------------------------------------------
+    # User caching
+    # ------------------------------------------------------------------
+
+    def test_resolve_positional_argv_injects_user_for_two_positionals(self) -> None:
+        result = _resolve_positional_argv(["myrepo", "42"], "alice")
+        self.assertEqual(result, ["alice", "myrepo", "42"])
+
+    def test_resolve_positional_argv_no_inject_for_three_positionals(self) -> None:
+        result = _resolve_positional_argv(["owner", "myrepo", "42"], "alice")
+        self.assertEqual(result, ["owner", "myrepo", "42"])
+
+    def test_resolve_positional_argv_no_inject_when_user_is_none(self) -> None:
+        result = _resolve_positional_argv(["myrepo", "42"], None)
+        self.assertEqual(result, ["myrepo", "42"])
+
+    def test_resolve_positional_argv_handles_flags(self) -> None:
+        # --token and its value must not be counted as positionals.
+        result = _resolve_positional_argv(["--token", "tok", "myrepo", "42"], "alice")
+        self.assertEqual(result, ["--token", "tok", "alice", "myrepo", "42"])
+
+    def test_main_uses_cached_user_as_owner(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k)
+            for k in ("GITHUB_TOKEN", "GITHUB_API_URL", "GITHUB_USER")
+            if k in os.environ
+        }
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={"user": "cached_user"},
+                ),
+            ):
+                # Only repo and pull_request provided; owner should come from cache.
+                code = main(["myrepo", "7"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="cached_user",
+            repo="myrepo",
+            pull_request=7,
+            token=None,
+            api_url="https://api.github.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+        )
+
+    def test_main_save_flag_persists_user(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k)
+            for k in ("GITHUB_TOKEN", "GITHUB_API_URL", "GITHUB_USER")
+            if k in os.environ
+        }
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                fake_config = pathlib.Path(tmp) / "review_pr.json"
+                with (
+                    patch(
+                        "moa.commands.review_pr.review_pull_request",
+                        return_value="# review",
+                    ),
+                    patch("sys.stdout", out),
+                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                ):
+                    code = main(
+                        [
+                            "--user",
+                            "myname",
+                            "--save",
+                            "myname",
+                            "repo",
+                            "1",
+                        ]
+                    )
+                saved = json.loads(fake_config.read_text())
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["user"], "myname")
+
+    def test_save_cache_includes_user(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+                _save_cache(
+                    {"token": "tok", "api_url": "https://api.github.com", "user": "alice"}
+                )
+                loaded = _load_cache()
+
+        self.assertEqual(loaded["user"], "alice")

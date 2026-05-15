@@ -21,7 +21,7 @@ Synopsis
 
 .. code-block:: text
 
-    review-pr [--token TOKEN] [--api-url URL] [--save] [--copilot-review] [--model MODEL] owner repo pull_request
+    review-pr [--token TOKEN] [--api-url URL] [--user USERNAME] [--save] [--copilot-review] [--model MODEL] owner repo pull_request
 
 Positional Arguments
 --------------------
@@ -51,6 +51,7 @@ Optional Arguments
     Example::
 
         review-pr --token ghp_xxxxxxxxxxxx owner repo 42
+
 ``--api-url URL``
     Base URL of the GitHub API.  Resolution order: explicit flag value →
     ``GITHUB_API_URL`` environment variable (automatically set in GitHub
@@ -60,8 +61,21 @@ Optional Arguments
 
         review-pr --api-url https://github.example.com/api/v3 owner repo 42
 
+``--user USERNAME``
+    Your GitHub username.
+    Resolution order: explicit flag value → ``GITHUB_USER`` environment
+    variable → value cached with ``--save``.  When set and ``owner`` is
+    omitted from the command line, the username is used as the repository
+    owner automatically.
+
+    Example – save your username once, then omit ``owner`` in future calls::
+
+        review-pr --user myname --token "$GITHUB_TOKEN" --save myname my-repo 1
+
+        review-pr my-repo 2
+
 ``--save``
-    Persist the resolved ``--token`` and ``--api-url`` values to
+    Persist the resolved ``--token``, ``--api-url``, and ``--user`` values to
     ``~/.config/moa/review_pr.json`` so they are used automatically in
     future invocations (without needing to pass the flags again).  The file
     is created with owner-read-only permissions (``0600``).

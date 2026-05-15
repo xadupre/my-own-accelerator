@@ -5,5 +5,6 @@ Command Line Tools
     :maxdepth: 2
 
     github_token
+    pr_stats
     review_local
     review_pr

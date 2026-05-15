@@ -29,7 +29,7 @@ Synopsis:
 
 .. code-block:: text
 
-    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] file [file ...]
+    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] [--prompt PROMPT] file [file ...]
 
 Examples::
 
@@ -48,7 +48,7 @@ Synopsis
 
 .. code-block:: text
 
-    review-pr [--token TOKEN] [--api-url URL] [--user USERNAME] [--save] [--copilot-review] [--model MODEL] owner repo pull_request
+    review-pr [--token TOKEN] [--api-url URL] [--user USERNAME] [--save] [--copilot-review] [--model MODEL] [--prompt PROMPT] owner repo pull_request
 
 Positional Arguments
 --------------------
@@ -129,6 +129,21 @@ Optional Arguments
     is required (see ``--token``)::
 
         review-pr --copilot-review xadupre my-own-accelerator 1
+
+``--prompt PROMPT``
+    Add a follow-up prompt to the Copilot review session.  The prompt
+    is sent as a continuation of the same conversation so the model has
+    full context from the initial review.  The flag can be repeated to
+    ask several follow-up questions in sequence.  Only meaningful when
+    ``--copilot-review`` is also set::
+
+        review-pr --copilot-review \
+            --prompt "What are the security implications?" \
+            --prompt "Are there any performance concerns?" \
+            xadupre my-own-accelerator 1
+
+    Each follow-up response is appended to the ``## Copilot Review``
+    section, preceded by a separator and the prompt text.
 
 ``--model MODEL``
     AI model to use when ``--copilot-review`` is set.  Accepts any
@@ -246,6 +261,20 @@ The command can also be invoked programmatically:
         token="ghp_xxxxxxxxxxxx",
         copilot_review=True,
         model="openai/gpt-4o-mini",  # optional, this is the default
+    )
+    print(markdown)
+
+    # With Copilot review and follow-up prompts (session)
+    markdown = review_pull_request(
+        owner="xadupre",
+        repo="my-own-accelerator",
+        pull_request=1,
+        token="ghp_xxxxxxxxxxxx",
+        copilot_review=True,
+        extra_prompts=[
+            "What are the security implications?",
+            "Are there any performance concerns?",
+        ],
     )
     print(markdown)
 

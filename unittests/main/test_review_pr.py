@@ -12,6 +12,7 @@ from moa.commands.review_pr import (
     _load_cache,
     _resolve_positional_argv,
     _save_cache,
+    _send_chat_request,
     build_pull_request_review_markdown,
     main,
     review_pull_request,
@@ -71,6 +72,7 @@ class TestReviewPR(ExtTestCase):
             api_url="https://api.github.com",
             copilot_review=False,
             model=DEFAULT_MODEL,
+            extra_prompts=None,
         )
         self.assertEqual(out.getvalue(), "# review\n")
 
@@ -106,6 +108,7 @@ class TestReviewPR(ExtTestCase):
             api_url="https://github.example.com/api/v3",
             copilot_review=False,
             model=DEFAULT_MODEL,
+            extra_prompts=None,
         )
 
     def test_call_copilot_review_returns_content(self) -> None:
@@ -271,6 +274,7 @@ class TestReviewPR(ExtTestCase):
             api_url="https://cached.example.com",
             copilot_review=False,
             model=DEFAULT_MODEL,
+            extra_prompts=None,
         )
 
     def test_main_save_flag_persists_values(self) -> None:
@@ -363,6 +367,7 @@ class TestReviewPR(ExtTestCase):
             api_url="https://api.github.com",
             copilot_review=False,
             model=DEFAULT_MODEL,
+            extra_prompts=None,
         )
 
     def test_main_save_flag_persists_user(self) -> None:
@@ -410,3 +415,91 @@ class TestReviewPR(ExtTestCase):
                 loaded = _load_cache()
 
         self.assertEqual(loaded["user"], "alice")
+
+    # ------------------------------------------------------------------
+    # Multi-turn session (--prompt)
+    # ------------------------------------------------------------------
+
+    def test_send_chat_request_returns_content(self) -> None:
+        fake_response = {"choices": [{"message": {"content": "Hello!"}}]}
+        messages = [{"role": "user", "content": "Hi"}]
+        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: False
+            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+                result = _send_chat_request(messages, "mytoken")
+        self.assertEqual(result, "Hello!")
+
+    def test_call_copilot_review_no_extra_prompts_single_call(self) -> None:
+        fake_response = {"choices": [{"message": {"content": "Initial review."}}]}
+        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: False
+            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+                result = _call_copilot_review("## PR", "tok")
+        self.assertEqual(result, "Initial review.")
+        # Only one HTTP call should be made when no extra prompts are given.
+        self.assertEqual(mock_urlopen.call_count, 1)
+
+    def test_call_copilot_review_with_extra_prompts_multi_turn(self) -> None:
+        responses = [
+            {"choices": [{"message": {"content": "Initial review."}}]},
+            {"choices": [{"message": {"content": "Follow-up answer."}}]},
+        ]
+        call_count = {"n": 0}
+
+        def fake_json_load(_response: object) -> dict:
+            resp = responses[call_count["n"]]
+            call_count["n"] += 1
+            return resp
+
+        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: False
+            with patch("moa.commands.review_pr.json.load", side_effect=fake_json_load):
+                result = _call_copilot_review(
+                    "## PR", "tok", extra_prompts=["Focus on security."]
+                )
+        # Two HTTP calls: one initial, one follow-up.
+        self.assertEqual(mock_urlopen.call_count, 2)
+        self.assertIn("Initial review.", result)
+        self.assertIn("Follow-up answer.", result)
+        self.assertIn("Focus on security.", result)
+
+    def test_main_prompt_flag_passed_to_review(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        os.environ["GITHUB_TOKEN"] = "tok"
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch("moa.commands.review_pr._load_cache", return_value={}),
+            ):
+                code = main(
+                    [
+                        "--copilot-review",
+                        "--prompt",
+                        "What are the security implications?",
+                        "--prompt",
+                        "Any performance concerns?",
+                        "owner",
+                        "repo",
+                        "12",
+                    ]
+                )
+        finally:
+            os.environ.pop("GITHUB_TOKEN", None)
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        call_kwargs = mocked.call_args.kwargs
+        self.assertEqual(
+            call_kwargs["extra_prompts"],
+            ["What are the security implications?", "Any performance concerns?"],
+        )

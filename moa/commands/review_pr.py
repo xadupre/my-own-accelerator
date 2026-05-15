@@ -163,6 +163,7 @@ def review_pull_request(
     api_url: str = "https://api.github.com",
     copilot_review: bool = False,
     model: str = DEFAULT_MODEL,
+    extra_prompts: list[str] | None = None,
 ) -> str:
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_request}"
     pr = _fetch_json(base, token)
@@ -176,40 +177,29 @@ def review_pull_request(
                 "A GitHub token (--token or GITHUB_TOKEN env var) "
                 "is required for --copilot-review."
             )
-        ai_text = _call_copilot_review(markdown, token, model)
+        ai_text = _call_copilot_review(markdown, token, model, extra_prompts=extra_prompts)
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
 
 
-def _call_copilot_review(
-    pr_markdown: str,
+def _send_chat_request(
+    messages: list[dict[str, str]],
     token: str,
     model: str = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
 ) -> str:
-    """Send the PR summary to the GitHub Models API for an AI-powered review.
+    """Send a chat completion request to the GitHub Models API.
 
-    :param pr_markdown: Markdown text describing the pull request.
+    :param messages: List of message dicts with ``role`` and ``content`` keys.
     :param token: GitHub personal access token with models access.
     :param model: Model identifier accepted by the GitHub Models API.
     :param models_url: Base URL of the GitHub Models API.
-    :return: AI-generated review text as a plain string.
+    :return: Content string from the first choice in the API response.
     :raises ValueError: If the API returns no choices or empty content.
     :raises urllib.error.HTTPError: If the HTTP request fails.
     """
     url = f"{models_url.rstrip('/')}/chat/completions"
-    system_prompt = (
-        "You are an expert software engineer and code reviewer. "
-        "Review the following pull request summary and provide constructive feedback. "
-        "Highlight potential issues, suggest improvements, and note relevant best practices."
-    )
-    payload: dict[str, Any] = {
-        "model": model,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": pr_markdown},
-        ],
-    }
+    payload: dict[str, Any] = {"model": model, "messages": messages}
     data = json.dumps(payload).encode()
     headers = {
         "Content-Type": "application/json",
@@ -228,6 +218,55 @@ def _call_copilot_review(
     if not content:
         raise ValueError("Empty content in AI model response.")
     return content
+
+
+def _call_copilot_review(
+    pr_markdown: str,
+    token: str,
+    model: str = DEFAULT_MODEL,
+    models_url: str = MODELS_API_URL,
+    extra_prompts: list[str] | None = None,
+) -> str:
+    """Send the PR summary to the GitHub Models API for an AI-powered review.
+
+    When *extra_prompts* are provided each prompt is sent as a follow-up
+    message in the same conversation session (the assistant reply from the
+    previous turn is included in subsequent requests so the model has full
+    context).  The returned string contains the initial review and any
+    follow-up responses separated by a heading for each prompt.
+
+    :param pr_markdown: Markdown text describing the pull request.
+    :param token: GitHub personal access token with models access.
+    :param model: Model identifier accepted by the GitHub Models API.
+    :param models_url: Base URL of the GitHub Models API.
+    :param extra_prompts: Optional list of follow-up prompts to continue the
+        conversation after the initial review.
+    :return: AI-generated review text as a plain string.
+    :raises ValueError: If the API returns no choices or empty content.
+    :raises urllib.error.HTTPError: If the HTTP request fails.
+    """
+    system_prompt = (
+        "You are an expert software engineer and code reviewer. "
+        "Review the following pull request summary and provide constructive feedback. "
+        "Highlight potential issues, suggest improvements, and note relevant best practices."
+    )
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": pr_markdown},
+    ]
+    initial_review = _send_chat_request(messages, token, model, models_url)
+
+    if not extra_prompts:
+        return initial_review
+
+    parts = [initial_review]
+    messages.append({"role": "assistant", "content": initial_review})
+    for prompt in extra_prompts:
+        messages.append({"role": "user", "content": prompt})
+        reply = _send_chat_request(messages, token, model, models_url)
+        parts.append(f"**Prompt:** {prompt}\n\n{reply}")
+        messages.append({"role": "assistant", "content": reply})
+    return "\n\n---\n\n".join(parts)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -313,6 +352,20 @@ def main(argv: list[str] | None = None) -> int:
             "Any model available on the GitHub Models API is accepted."
         ),
     )
+    parser.add_argument(
+        "--prompt",
+        dest="extra_prompts",
+        action="append",
+        default=None,
+        metavar="PROMPT",
+        help=(
+            "Add a follow-up prompt to the Copilot review session. "
+            "The prompt is sent as a continuation of the same conversation so "
+            "the model has full context from the initial review. "
+            "Can be used multiple times to ask several follow-up questions. "
+            "Only meaningful when --copilot-review is also set."
+        ),
+    )
     args = parser.parse_args(argv)
 
     if args.save:
@@ -334,6 +387,7 @@ def main(argv: list[str] | None = None) -> int:
             api_url=args.api_url,
             copilot_review=args.copilot_review,
             model=args.model,
+            extra_prompts=args.extra_prompts,
         )
     except (HTTPError, URLError, ValueError) as e:
         print(

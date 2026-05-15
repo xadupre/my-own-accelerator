@@ -40,6 +40,7 @@ def review_local_files(
     copilot_review: bool = False,
     token: str | None = None,
     model: str = DEFAULT_MODEL,
+    extra_prompts: list[str] | None = None,
 ) -> str:
     """Reviews local files by building a markdown report and optional AI feedback."""
     if not files:
@@ -57,7 +58,7 @@ def review_local_files(
                 "A GitHub token (--token or GITHUB_TOKEN env var) "
                 "is required for --copilot-review."
             )
-        ai_text = _call_copilot_review(markdown, token, model)
+        ai_text = _call_copilot_review(markdown, token, model, extra_prompts=extra_prompts)
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
 
@@ -106,6 +107,20 @@ def main(argv: list[str] | None = None) -> int:
             "Any model available on the GitHub Models API is accepted."
         ),
     )
+    parser.add_argument(
+        "--prompt",
+        dest="extra_prompts",
+        action="append",
+        default=None,
+        metavar="PROMPT",
+        help=(
+            "Add a follow-up prompt to the Copilot review session. "
+            "The prompt is sent as a continuation of the same conversation so "
+            "the model has full context from the initial review. "
+            "Can be used multiple times to ask several follow-up questions. "
+            "Only meaningful when --copilot-review is also set."
+        ),
+    )
     args = parser.parse_args(argv)
     if args.save and args.token:
         _save_cache({"token": args.token})
@@ -115,6 +130,7 @@ def main(argv: list[str] | None = None) -> int:
             copilot_review=args.copilot_review,
             token=args.token,
             model=args.model,
+            extra_prompts=args.extra_prompts,
         )
     except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError) as e:
         print(f"Unable to review local files ({type(e).__name__}).", file=sys.stderr)

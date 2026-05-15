@@ -121,3 +121,30 @@ class TestReviewLocal(ExtTestCase):
             os.environ.update(env_backup)
         self.assertEqual(code, 0)
         self.assertEqual(saved["token"], "saved_tok")
+
+    def test_main_prompt_flag_passed_to_review(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch(
+                    "moa.commands.review_local._call_copilot_review",
+                    return_value="AI review",
+                ) as mock_ai,
+                patch("sys.stdout", out),
+            ):
+                code = main(
+                    [
+                        "--copilot-review",
+                        "--token",
+                        "tok",
+                        "--prompt",
+                        "Any security issues?",
+                        str(file1),
+                    ]
+                )
+        self.assertEqual(code, 0)
+        mock_ai.assert_called_once()
+        call_kwargs = mock_ai.call_args.kwargs
+        self.assertEqual(call_kwargs.get("extra_prompts"), ["Any security issues?"])

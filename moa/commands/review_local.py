@@ -57,7 +57,7 @@ def review_local_files(
                 "A GitHub token (--token or GITHUB_TOKEN env var) "
                 "is required for --copilot-review."
             )
-        ai_text = _call_copilot_review(markdown, token, model)
+        ai_text = _call_copilot_review(markdown, token, model, command_name="review-local")
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
 

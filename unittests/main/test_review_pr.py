@@ -3,6 +3,7 @@ import json
 import os
 import pathlib
 import tempfile
+from datetime import datetime
 from io import StringIO
 from unittest.mock import patch
 
@@ -10,6 +11,7 @@ from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
     _load_cache,
+    _log_copilot_request_and_answer,
     _resolve_positional_argv,
     _save_cache,
     build_pull_request_review_markdown,
@@ -120,6 +122,38 @@ class TestReviewPR(ExtTestCase):
                 result = _call_copilot_review("## PR Summary", "mytoken")
 
         self.assertEqual(result, "Looks good to me!")
+
+    def test_call_copilot_review_logs_request_and_answer(self) -> None:
+        fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
+        with (
+            patch("moa.commands.review_pr.request.urlopen") as mock_urlopen,
+            patch("moa.commands.review_pr._log_copilot_request_and_answer") as mocked_log,
+        ):
+            mock_urlopen.return_value.__enter__ = lambda s: s
+            mock_urlopen.return_value.__exit__ = lambda s, *a: False
+            mock_urlopen.return_value.read = lambda: json.dumps(fake_response).encode()
+            mock_urlopen.return_value.__iter__ = lambda s: iter([])
+            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+                _call_copilot_review("## PR Summary", "mytoken")
+        mocked_log.assert_called_once()
+        self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-pr")
+
+    def test_log_copilot_request_and_answer_creates_weekly_timestamped_files(self) -> None:
+        now = datetime(2026, 5, 15, 11, 33, 30)
+        payload = {"model": "m", "messages": [{"role": "user", "content": "hello"}]}
+        result = {"choices": [{"message": {"content": "world"}}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            logs_dir = pathlib.Path(tmp)
+            _log_copilot_request_and_answer(payload, result, logs_dir=logs_dir, now=now)
+
+            target_dir = logs_dir / "2026" / "05" / "week-20" / "review-pr"
+            request_file = target_dir / "2026-05-15_11-33-30_request.json"
+            answer_file = target_dir / "2026-05-15_11-33-30_answer.json"
+            self.assertTrue(target_dir.exists())
+            self.assertTrue(request_file.exists())
+            self.assertTrue(answer_file.exists())
+            self.assertEqual(json.loads(request_file.read_text(encoding="utf-8")), payload)
+            self.assertEqual(json.loads(answer_file.read_text(encoding="utf-8")), result)
 
     def test_review_pull_request_with_copilot_review(self) -> None:
         pr_data = {

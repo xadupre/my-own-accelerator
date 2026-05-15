@@ -245,9 +245,7 @@ def _log_copilot_request_and_answer(
     """Logs Copilot request/answer JSON payloads to timestamped files."""
     if now is None:
         now = datetime.datetime.now()
-    log_folder = (
-        logs_dir / f"{now:%Y}" / f"{now:%m}" / f"week-{now.isocalendar().week:02d}"
-    )
+    log_folder = logs_dir / f"{now:%Y}" / f"{now:%m}" / f"week-{now.isocalendar().week:02d}"
     log_folder.mkdir(parents=True, exist_ok=True)
     timestamp = f"{now:%Y-%m-%d_%H-%M-%S}"
     (log_folder / f"{timestamp}_request.json").write_text(

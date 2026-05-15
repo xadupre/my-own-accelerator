@@ -60,6 +60,7 @@ class TestReviewLocal(ExtTestCase):
 
         self.assertIn("## Copilot Review", got)
         mocked_log.assert_called_once()
+        self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-local")
 
     def test_main_prints_markdown(self) -> None:
         out = StringIO()
@@ -88,6 +89,7 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("AI review", out.getvalue())
         mock_ai.assert_called_once()
         self.assertEqual(mock_ai.call_args.args[2], DEFAULT_MODEL)
+        self.assertEqual(mock_ai.call_args.kwargs["command_name"], "review-local")
 
     def test_main_uses_cached_token_when_no_env(self) -> None:
         out = StringIO()

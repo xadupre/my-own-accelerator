@@ -136,6 +136,7 @@ class TestReviewPR(ExtTestCase):
             with patch("moa.commands.review_pr.json.load", return_value=fake_response):
                 _call_copilot_review("## PR Summary", "mytoken")
         mocked_log.assert_called_once()
+        self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-pr")
 
     def test_log_copilot_request_and_answer_creates_weekly_timestamped_files(self) -> None:
         now = datetime(2026, 5, 15, 11, 33, 30)
@@ -145,7 +146,7 @@ class TestReviewPR(ExtTestCase):
             logs_dir = pathlib.Path(tmp)
             _log_copilot_request_and_answer(payload, result, logs_dir=logs_dir, now=now)
 
-            target_dir = logs_dir / "2026" / "05" / "week-20"
+            target_dir = logs_dir / "2026" / "05" / "week-20" / "review-pr"
             request_file = target_dir / "2026-05-15_11-33-30_request.json"
             answer_file = target_dir / "2026-05-15_11-33-30_answer.json"
             self.assertTrue(target_dir.exists())

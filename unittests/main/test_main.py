@@ -47,6 +47,8 @@ class TestMain(ExtTestCase):
         self.assertEqual(ctx.exception.code, 0)
         self.assertIn("review-pr", out.getvalue())
         self.assertIn("review-local", out.getvalue())
+        self.assertIn("Review a GitHub pull request and print markdown.", out.getvalue())
+        self.assertIn("Review local files and print markdown.", out.getvalue())
 
     def test_package_main_help_short_flag(self) -> None:
         self._assert_package_main_help("-h")

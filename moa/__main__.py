@@ -8,7 +8,15 @@ from .commands.review_pr import main as main_pr
 
 
 def _build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="python -m moa")
+    parser = argparse.ArgumentParser(
+        prog="python -m moa",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "Commands:\n"
+            "  review-pr     Review a GitHub pull request and print markdown.\n"
+            "  review-local  Review local files and print markdown."
+        ),
+    )
     parser.add_argument(
         "command",
         nargs="?",

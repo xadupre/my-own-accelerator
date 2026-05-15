@@ -104,6 +104,7 @@ class TestReviewLocal(ExtTestCase):
                 file1.write_text("print('a')", encoding="utf-8")
                 with (
                     patch("sys.stdout", out),
+                    patch("moa.commands.review_local.CONFIG_FILE", fake_config),
                     patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
                 ):
                     code = main(["--token", "saved_tok", "--save", str(file1)])

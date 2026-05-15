@@ -72,7 +72,11 @@ class TestReviewLocal(ExtTestCase):
 
     def test_main_uses_cached_token_when_no_env(self) -> None:
         out = StringIO()
-        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        env_backup = (
+            {"GITHUB_TOKEN": os.environ.pop("GITHUB_TOKEN")}
+            if "GITHUB_TOKEN" in os.environ
+            else {}
+        )
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 file1 = pathlib.Path(tmp) / "a.py"
@@ -96,7 +100,11 @@ class TestReviewLocal(ExtTestCase):
 
     def test_main_save_flag_persists_token(self) -> None:
         out = StringIO()
-        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        env_backup = (
+            {"GITHUB_TOKEN": os.environ.pop("GITHUB_TOKEN")}
+            if "GITHUB_TOKEN" in os.environ
+            else {}
+        )
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 fake_config = pathlib.Path(tmp) / "review_pr.json"

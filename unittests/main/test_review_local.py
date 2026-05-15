@@ -42,6 +42,26 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("AI feedback", got)
         mock_ai.assert_called_once()
 
+    def test_review_local_copilot_logs_request_and_answer(self) -> None:
+        fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch("moa.commands.review_pr.request.urlopen") as mock_urlopen,
+                patch("moa.commands.review_pr._log_copilot_request_and_answer") as mocked_log,
+                patch("moa.commands.review_pr.json.load", return_value=fake_response),
+            ):
+                mock_urlopen.return_value.__enter__ = lambda s: s
+                mock_urlopen.return_value.__exit__ = lambda s, *a: False
+                mock_urlopen.return_value.read = lambda: json.dumps(fake_response).encode()
+                mock_urlopen.return_value.__iter__ = lambda s: iter([])
+                got = review_local_files([str(file1)], copilot_review=True, token="tok")
+
+        self.assertIn("## Copilot Review", got)
+        mocked_log.assert_called_once()
+        self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-local")
+
     def test_main_prints_markdown(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -69,6 +89,7 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("AI review", out.getvalue())
         mock_ai.assert_called_once()
         self.assertEqual(mock_ai.call_args.args[2], DEFAULT_MODEL)
+        self.assertEqual(mock_ai.call_args.kwargs["command_name"], "review-local")
 
     def test_main_uses_cached_token_when_no_env(self) -> None:
         out = StringIO()

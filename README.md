@@ -8,7 +8,7 @@
 
 Minimal Python project scaffold.
 
-![my-own-accelerator logo](docs/_static/logo.svg)
+<img src="docs/_static/logo.svg" alt="my-own-accelerator logo" width="300">
 
 ## Install
 

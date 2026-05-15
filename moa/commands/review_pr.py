@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import datetime
 import json
 import os
 import pathlib
@@ -16,6 +17,7 @@ PAGE_SIZE = 100
 MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
+LOGS_DIR = CONFIG_FILE.parent / "logs"
 
 
 def _load_cache() -> dict[str, str]:
@@ -187,6 +189,7 @@ def _send_chat_request(
     token: str,
     model: str = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
+    command_name: str = "review-pr",
 ) -> str:
     """Send a chat completion request to the GitHub Models API.
 
@@ -217,7 +220,36 @@ def _send_chat_request(
     content = message.get("content", "")
     if not content:
         raise ValueError("Empty content in AI model response.")
+    try:
+        _log_copilot_request_and_answer(payload, result, command_name=command_name)
+    except OSError:
+        pass
     return content
+
+
+def _log_copilot_request_and_answer(
+    payload: dict[str, Any],
+    result: dict[str, Any],
+    logs_dir: pathlib.Path = LOGS_DIR,
+    now: datetime.datetime | None = None,
+    command_name: str = "review-pr",
+) -> None:
+    """Logs Copilot request/answer JSON payloads to timestamped files."""
+    if now is None:
+        now = datetime.datetime.now()
+    log_folder = (
+        logs_dir / f"{now:%Y}" / f"{now:%m}" / f"week-{now.isocalendar().week:02d}" / command_name
+    )
+    log_folder.mkdir(parents=True, exist_ok=True)
+    timestamp = f"{now:%Y-%m-%d_%H-%M-%S}"
+    (log_folder / f"{timestamp}_request.json").write_text(
+        json.dumps(payload, indent=2),
+        encoding="utf-8",
+    )
+    (log_folder / f"{timestamp}_answer.json").write_text(
+        json.dumps(result, indent=2),
+        encoding="utf-8",
+    )
 
 
 def _call_copilot_review(
@@ -226,6 +258,7 @@ def _call_copilot_review(
     model: str = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     extra_prompts: list[str] | None = None,
+    command_name: str = "review-pr",
 ) -> str:
     """Send the PR summary to the GitHub Models API for an AI-powered review.
 
@@ -254,7 +287,9 @@ def _call_copilot_review(
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": pr_markdown},
     ]
-    initial_review = _send_chat_request(messages, token, model, models_url)
+    initial_review = _send_chat_request(
+        messages, token, model, models_url, command_name=command_name
+    )
 
     if not extra_prompts:
         return initial_review
@@ -263,7 +298,7 @@ def _call_copilot_review(
     messages.append({"role": "assistant", "content": initial_review})
     for prompt in extra_prompts:
         messages.append({"role": "user", "content": prompt})
-        reply = _send_chat_request(messages, token, model, models_url)
+        reply = _send_chat_request(messages, token, model, models_url, command_name=command_name)
         parts.append(f"**Prompt:** {prompt}\n\n{reply}")
         messages.append({"role": "assistant", "content": reply})
     return "\n\n---\n\n".join(parts)

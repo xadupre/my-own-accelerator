@@ -36,6 +36,16 @@ class TestMain(ExtTestCase):
         self.assertEqual(ctx.exception.code, 0)
         mocked.assert_called_once_with(["owner", "repo", "1"])
 
+    def test_package_main_routes_pr_stats(self) -> None:
+        with (
+            patch("sys.argv", ["-m", "pr-stats", "owner", "repo"]),
+            patch("moa.commands.pr_stats.main", return_value=0) as mocked,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            runpy.run_module("moa", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)
+        mocked.assert_called_once_with(["owner", "repo"])
+
     def _assert_package_main_help(self, flag: str) -> None:
         out = StringIO()
         with (
@@ -47,8 +57,10 @@ class TestMain(ExtTestCase):
         self.assertEqual(ctx.exception.code, 0)
         self.assertIn("review-pr", out.getvalue())
         self.assertIn("review-local", out.getvalue())
+        self.assertIn("pr-stats", out.getvalue())
         self.assertIn("Review a GitHub pull request and print markdown.", out.getvalue())
         self.assertIn("Review local files and print markdown.", out.getvalue())
+        self.assertIn("Build pull request activity reports", out.getvalue())
 
     def test_package_main_help_short_flag(self) -> None:
         self._assert_package_main_help("-h")

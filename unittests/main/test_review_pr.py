@@ -4,6 +4,8 @@ from unittest.mock import patch
 from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
+    _load_cache,
+    _save_cache,
     build_pull_request_review_markdown,
     main,
     review_pull_request,
@@ -50,6 +52,7 @@ class TestReviewPR(ExtTestCase):
                     return_value="# review",
                 ) as mocked,
                 patch("sys.stdout", out),
+                patch("moa.commands.review_pr._load_cache", return_value={}),
             ):
                 code = main(["owner", "repo", "12"])
         finally:
@@ -84,6 +87,7 @@ class TestReviewPR(ExtTestCase):
                     return_value="# review",
                 ) as mocked,
                 patch("sys.stdout", out),
+                patch("moa.commands.review_pr._load_cache", return_value={}),
             ):
                 code = main(["owner", "repo", "12"])
         finally:
@@ -188,6 +192,7 @@ class TestReviewPR(ExtTestCase):
                     return_value="# review with AI",
                 ) as mocked,
                 patch("sys.stdout", out),
+                patch("moa.commands.review_pr._load_cache", return_value={}),
             ):
                 code = main(["--copilot-review", "owner", "repo", "12"])
         finally:
@@ -199,3 +204,126 @@ class TestReviewPR(ExtTestCase):
         self.assertTrue(call_kwargs["copilot_review"])
         self.assertEqual(call_kwargs["model"], DEFAULT_MODEL)
         self.assertIn("# review with AI", out.getvalue())
+
+    def test_load_cache_missing_file(self) -> None:
+        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+            mock_path.open.side_effect = FileNotFoundError
+            result = _load_cache()
+        self.assertEqual(result, {})
+
+    def test_load_cache_invalid_json(self) -> None:
+        import io
+        import json
+
+        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+            mock_path.open.return_value.__enter__ = lambda s: io.StringIO("not-json")
+            mock_path.open.return_value.__exit__ = lambda s, *a: False
+            with patch(
+                "moa.commands.review_pr.json.load", side_effect=json.JSONDecodeError("x", "", 0)
+            ):
+                result = _load_cache()
+        self.assertEqual(result, {})
+
+    def test_save_cache_writes_and_is_readable(self) -> None:
+        import pathlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+                _save_cache({"token": "mytoken", "api_url": "https://api.github.com"})
+                loaded = _load_cache()
+
+        self.assertEqual(loaded["token"], "mytoken")
+        self.assertEqual(loaded["api_url"], "https://api.github.com")
+
+    def test_save_cache_merges_existing_keys(self) -> None:
+        import pathlib
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+                _save_cache({"token": "tok1", "api_url": "https://a.example.com"})
+                # Update only the token; api_url should be preserved
+                _save_cache({"token": "tok2"})
+                loaded = _load_cache()
+
+        self.assertEqual(loaded["token"], "tok2")
+        self.assertEqual(loaded["api_url"], "https://a.example.com")
+
+    def test_main_uses_cached_token_when_no_env(self) -> None:
+        import os
+
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={"token": "cached_tok", "api_url": "https://cached.example.com"},
+                ),
+            ):
+                code = main(["owner", "repo", "5"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=5,
+            token="cached_tok",
+            api_url="https://cached.example.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+        )
+
+    def test_main_save_flag_persists_values(self) -> None:
+        import os
+        import pathlib
+        import tempfile
+
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                fake_config = pathlib.Path(tmp) / "review_pr.json"
+                with (
+                    patch(
+                        "moa.commands.review_pr.review_pull_request",
+                        return_value="# review",
+                    ),
+                    patch("sys.stdout", out),
+                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                ):
+                    code = main(
+                        [
+                            "--token",
+                            "saved_tok",
+                            "--api-url",
+                            "https://ghe.example.com/api/v3",
+                            "--save",
+                            "owner",
+                            "repo",
+                            "3",
+                        ]
+                    )
+                import json as _json
+
+                saved = _json.loads(fake_config.read_text())
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["token"], "saved_tok")
+        self.assertEqual(saved["api_url"], "https://ghe.example.com/api/v3")

@@ -21,7 +21,7 @@ Synopsis
 
 .. code-block:: text
 
-    review-pr [--token TOKEN] [--api-url URL] [--copilot-review] [--model MODEL] owner repo pull_request
+    review-pr [--token TOKEN] [--api-url URL] [--save] [--copilot-review] [--model MODEL] owner repo pull_request
 
 Positional Arguments
 --------------------
@@ -41,12 +41,10 @@ Optional Arguments
 
 ``--token TOKEN``
     GitHub personal access token used to authenticate API requests.
-    When omitted the tool falls back to the ``GITHUB_TOKEN``
-    environment variable (automatically set in GitHub Actions
-    workflows).  If neither is provided, requests are unauthenticated
-    and subject to lower rate limits.  For private repositories or to
-    avoid rate limiting, a token with at least ``repo:read`` scope is
-    required.
+    Resolution order: explicit flag value → ``GITHUB_TOKEN`` environment
+    variable (automatically set in GitHub Actions workflows) → value cached
+    with ``--save`` → unauthenticated.  For private repositories or to avoid
+    rate limiting, a token with at least ``repo:read`` scope is required.
 
     See :doc:`github_token` for instructions on how to obtain a token.
 
@@ -54,13 +52,33 @@ Optional Arguments
 
         review-pr --token ghp_xxxxxxxxxxxx owner repo 42
 ``--api-url URL``
-    Base URL of the GitHub API.  When omitted the tool falls back to
-    the ``GITHUB_API_URL`` environment variable (automatically set in
-    GitHub Actions workflows).  If neither is provided the default is
+    Base URL of the GitHub API.  Resolution order: explicit flag value →
+    ``GITHUB_API_URL`` environment variable (automatically set in GitHub
+    Actions workflows) → value cached with ``--save`` →
     ``https://api.github.com``.  Override this when working against a
     GitHub Enterprise instance::
 
         review-pr --api-url https://github.example.com/api/v3 owner repo 42
+
+``--save``
+    Persist the resolved ``--token`` and ``--api-url`` values to
+    ``~/.config/moa/review_pr.json`` so they are used automatically in
+    future invocations (without needing to pass the flags again).  The file
+    is created with owner-read-only permissions (``0600``).
+
+    .. warning::
+
+        This stores your token in plain text.  Only use ``--save`` on a
+        personal workstation that you control.  In CI environments, rely on
+        ``GITHUB_TOKEN`` instead.
+
+    Example – authenticate once and save::
+
+        review-pr --token "$GITHUB_TOKEN" --save xadupre my-own-accelerator 1
+
+    Subsequent invocations on the same machine no longer need ``--token``::
+
+        review-pr xadupre my-own-accelerator 2
 
 ``--copilot-review``
     After fetching the pull request data, send the summary to the

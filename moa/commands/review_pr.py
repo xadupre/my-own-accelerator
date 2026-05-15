@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import pathlib
 import sys
 from typing import Any
 from urllib import parse, request
@@ -14,6 +15,36 @@ PAGE_SIZE = 100
 
 MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
+CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
+
+
+def _load_cache() -> dict[str, str]:
+    """Load cached settings (token, api_url) from the config file.
+
+    :return: Dictionary with cached values, or an empty dict if the file
+        does not exist or cannot be parsed.
+    """
+    try:
+        with CONFIG_FILE.open() as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return {}
+
+
+def _save_cache(data: dict[str, str]) -> None:
+    """Persist settings to the config file with owner-only read permissions.
+
+    Existing keys not present in *data* are preserved.
+
+    :param data: Mapping of keys to save (e.g. ``{"token": "...", "api_url": "..."}``)
+    """
+    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+    existing = _load_cache()
+    existing.update({k: v for k, v in data.items() if v})
+    with CONFIG_FILE.open("w") as f:
+        json.dump(existing, f, indent=2)
+    CONFIG_FILE.chmod(0o600)
 
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
@@ -167,6 +198,13 @@ def _call_copilot_review(
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Priority: CLI flag > env var > config file cache > built-in default
+    cache = _load_cache()
+    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
+    api_url_default = (
+        os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
+    )
+
     parser = argparse.ArgumentParser(
         description="Reviews a GitHub pull request and prints markdown."
     )
@@ -175,16 +213,31 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("pull_request", type=int, help="Pull request number")
     parser.add_argument(
         "--token",
-        default=os.environ.get("GITHUB_TOKEN"),
-        help="GitHub personal access token. Defaults to the GITHUB_TOKEN environment variable.",
+        default=token_default,
+        help=(
+            "GitHub personal access token. "
+            "Resolution order: flag > GITHUB_TOKEN env var > cached value "
+            f"({CONFIG_FILE}). "
+            "See :doc:`github_token` for how to obtain one."
+        ),
     )
     parser.add_argument(
         "--api-url",
-        default=os.environ.get("GITHUB_API_URL", "https://api.github.com"),
+        default=api_url_default,
         help=(
             "Base URL of the GitHub API. "
-            "Defaults to the GITHUB_API_URL environment variable when set, "
-            "otherwise https://api.github.com."
+            "Resolution order: flag > GITHUB_API_URL env var > cached value "
+            f"({CONFIG_FILE}) > https://api.github.com."
+        ),
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        default=False,
+        help=(
+            f"Save the resolved --token and --api-url to {CONFIG_FILE} "
+            "so they are used automatically in future invocations. "
+            "The file is created with owner-only read permissions (0600)."
         ),
     )
     parser.add_argument(
@@ -205,6 +258,14 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+
+    if args.save:
+        to_save: dict[str, str] = {}
+        if args.token:
+            to_save["token"] = args.token
+        if args.api_url:
+            to_save["api_url"] = args.api_url
+        _save_cache(to_save)
 
     try:
         markdown = review_pull_request(

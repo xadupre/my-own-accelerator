@@ -269,29 +269,21 @@ def _call_copilot_review(
     return "\n\n---\n\n".join(parts)
 
 
-def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
+def _build_parser(
+    token_default: str | None = None,
+    api_url_default: str = "https://api.github.com",
+    user_default: str | None = None,
+) -> argparse.ArgumentParser:
+    """Build the argument parser for the ``review-pr`` command.
 
-    # Priority: CLI flag > env var > config file cache > built-in default
-    cache = _load_cache()
-    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
-    api_url_default = (
-        os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
-    )
-    user_default = os.environ.get("GITHUB_USER") or cache.get("user") or None
-
-    # Pre-parse to discover the effective --user value before injecting owner.
-    _pre = argparse.ArgumentParser(add_help=False)
-    _pre.add_argument("--user", default=user_default)
-    _pre_args, _ = _pre.parse_known_args(argv)
-    effective_user = _pre_args.user
-
-    # Allow omitting owner when the GitHub username is cached / in env.
-    argv = _resolve_positional_argv(argv, effective_user)
-
+    :param token_default: Default value for the ``--token`` argument.
+    :param api_url_default: Default value for the ``--api-url`` argument.
+    :param user_default: Default value for the ``--user`` argument.
+    :return: Configured :class:`argparse.ArgumentParser` instance.
+    """
     parser = argparse.ArgumentParser(
-        description="Reviews a GitHub pull request and prints markdown."
+        prog="review-pr",
+        description="Reviews a GitHub pull request and prints markdown.",
     )
     parser.add_argument("owner", help="GitHub repository owner")
     parser.add_argument("repo", help="GitHub repository name")
@@ -299,6 +291,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--token",
         default=token_default,
+        metavar="TOKEN",
         help=(
             "GitHub personal access token. "
             "Resolution order: flag > GITHUB_TOKEN env var > cached value "
@@ -309,6 +302,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--api-url",
         default=api_url_default,
+        metavar="URL",
         help=(
             "Base URL of the GitHub API. "
             "Resolution order: flag > GITHUB_API_URL env var > cached value "
@@ -318,6 +312,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--user",
         default=user_default,
+        metavar="USERNAME",
         help=(
             "GitHub username of the authenticated user. "
             "Resolution order: flag > GITHUB_USER env var > cached value "
@@ -365,6 +360,35 @@ def main(argv: list[str] | None = None) -> int:
             "Can be used multiple times to ask several follow-up questions. "
             "Only meaningful when --copilot-review is also set."
         ),
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+
+    # Priority: CLI flag > env var > config file cache > built-in default
+    cache = _load_cache()
+    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
+    api_url_default = (
+        os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
+    )
+    user_default = os.environ.get("GITHUB_USER") or cache.get("user") or None
+
+    # Pre-parse to discover the effective --user value before injecting owner.
+    _pre = argparse.ArgumentParser(add_help=False)
+    _pre.add_argument("--user", default=user_default)
+    _pre_args, _ = _pre.parse_known_args(argv)
+    effective_user = _pre_args.user
+
+    # Allow omitting owner when the GitHub username is cached / in env.
+    argv = _resolve_positional_argv(argv, effective_user)
+
+    parser = _build_parser(
+        token_default=token_default,
+        api_url_default=api_url_default,
+        user_default=user_default,
     )
     args = parser.parse_args(argv)
 

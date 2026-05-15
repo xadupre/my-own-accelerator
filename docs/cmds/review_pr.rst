@@ -31,9 +31,14 @@ command.
 Synopsis
 --------
 
-.. code-block:: text
+.. runpython::
+    :rst:
 
-    review-pr [--token TOKEN] [--api-url URL] [--user USERNAME] [--save] [--copilot-review] [--model MODEL] [--prompt PROMPT] owner repo pull_request
+    from moa.commands.review_pr import _build_parser
+    parser = _build_parser()
+    usage = parser.format_usage().strip().replace("usage: ", "", 1)
+    indented = "\n".join("    " + line for line in usage.splitlines())
+    print(f".. code-block:: text\n\n{indented}")
 
 Positional Arguments
 --------------------

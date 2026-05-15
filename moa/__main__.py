@@ -25,9 +25,8 @@ def main(argv: list[str] | None = None) -> int:
     """
     if argv is None:
         argv = sys.argv[1:]
-    if argv and argv[0].startswith("-"):
+    if argv and argv[0] in {"-h", "--help"}:
         _build_parser().parse_args(argv)
-        return 0
     if argv and argv[0] == "review-local":
         return main_local(argv[1:])
     if argv and argv[0] == "review-pr":

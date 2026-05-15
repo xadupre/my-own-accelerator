@@ -5,4 +5,5 @@ Command Line Tools
     :maxdepth: 2
 
     command_line
+    review_local
     github_token

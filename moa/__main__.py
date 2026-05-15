@@ -19,11 +19,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Routes to the supported command-line implementations."""
+    """Routes to supported command-line implementations.
+
+    When no subcommand is provided, arguments are delegated to ``review-pr``.
+    """
     if argv is None:
         argv = sys.argv[1:]
-    if argv and argv[0] in {"-h", "--help"}:
-        _build_parser().print_help()
+    if argv and argv[0].startswith("-"):
+        _build_parser().parse_args(argv)
         return 0
     if argv and argv[0] == "review-local":
         return main_local(argv[1:])

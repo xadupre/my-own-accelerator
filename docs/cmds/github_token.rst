@@ -31,6 +31,20 @@ GitHub offers two types of personal access tokens:
     Broader access — suitable when fine-grained tokens are not yet
     supported by an integration.
 
+Which token type should I use?
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+**For open-source projects you are contributing to**, use a **fine-grained
+token** scoped to *read-only* ``Pull requests`` and ``Contents`` permissions
+on the target repository.  This follows the principle of least privilege: if
+the token is ever exposed, an attacker can only read public data they could
+access anyway.
+
+Use a **classic token** only if the upstream organisation has disabled
+fine-grained tokens for third-party applications (rare), or if you are
+accessing many repositories at once and the per-repository scoping of
+fine-grained tokens becomes impractical.
+
 Creating a fine-grained token
 ------------------------------
 

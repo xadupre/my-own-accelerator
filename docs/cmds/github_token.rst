@@ -1,9 +1,10 @@
 Obtaining a GitHub Personal Access Token
 ========================================
 
-Several features of the ``review-pr`` command — including authenticated API
-requests and Copilot-powered reviews — require a GitHub
-**Personal Access Token** (PAT).  This page explains how to create one.
+A GitHub **Personal Access Token** (PAT) is optional for basic usage of
+``review-pr`` on public repositories, but is required in some cases and
+strongly recommended in others.  This page explains when you need one and
+how to create it.
 
 Why a token?
 ------------

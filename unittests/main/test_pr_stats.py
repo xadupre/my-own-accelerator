@@ -5,6 +5,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from moa.commands.pr_stats import (
+    _collect_pr_job_duration_seconds,
     _count_comments,
     build_pr_activity_rows,
     main,
@@ -43,6 +44,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(3, 1)),
+            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=240),
         ):
             rows = build_pr_activity_rows("o", "r")
 
@@ -51,6 +53,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["status"], "merged")
         self.assertEqual(rows[0]["manual_comments"], 3)
         self.assertEqual(rows[0]["copilot_commands"], 1)
+        self.assertEqual(rows[0]["total_job_duration_seconds"], 240)
 
     def test_save_pr_activity_report_writes_files(self) -> None:
         fake_rows = [
@@ -64,6 +67,7 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 2,
                 "copilot_commands": 1,
+                "total_job_duration_seconds": 180,
                 "html_url": "https://github.com/o/r/pull/1",
             }
         ]
@@ -80,6 +84,7 @@ class TestPRStats(ExtTestCase):
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
+        self.assertEqual(rows[0]["total_job_duration_seconds"], "180")
         self.assertIn("1", cache["rows"])
 
     def test_build_pr_activity_rows_respects_since_date(self) -> None:
@@ -108,6 +113,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
+            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=30),
         ):
             rows = build_pr_activity_rows("o", "r", since="2026-01-01")
         self.assertEqual(len(rows), 1)
@@ -137,6 +143,7 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 9,
                 "copilot_commands": 4,
+                "total_job_duration_seconds": 456,
                 "html_url": "https://github.com/o/r/pull/22",
             }
         }
@@ -147,6 +154,7 @@ class TestPRStats(ExtTestCase):
             rows = build_pr_activity_rows("o", "r", cached_rows=cached_rows)
         self.assertEqual(rows[0]["manual_comments"], 9)
         self.assertEqual(rows[0]["copilot_commands"], 4)
+        self.assertEqual(rows[0]["total_job_duration_seconds"], 456)
         mocked_collect.assert_not_called()
 
     def test_main_prints_output_paths(self) -> None:
@@ -170,3 +178,29 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
+
+    def test_collect_pr_job_duration_seconds(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "pull_requests": [{"number": 22}]},
+                {"id": 102, "pull_requests": [{"number": 99}]},
+            ]
+        }
+        jobs_run_101 = {
+            "jobs": [
+                {
+                    "started_at": "2026-01-01T00:00:00Z",
+                    "completed_at": "2026-01-01T00:01:30Z",
+                },
+                {
+                    "started_at": "2026-01-01T00:02:00Z",
+                    "completed_at": "2026-01-01T00:03:00Z",
+                },
+            ]
+        }
+        with patch(
+            "moa.commands.pr_stats._fetch_json",
+            side_effect=[runs_payload, jobs_run_101],
+        ):
+            duration = _collect_pr_job_duration_seconds("o", "r", 22, "abc")
+        self.assertEqual(duration, 150)

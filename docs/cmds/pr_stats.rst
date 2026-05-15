@@ -21,7 +21,8 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 * ``<prefix>_comments.svg``
 
 Each row includes pull request author, creation datetime, merge/close status,
-manual comment count, and Copilot command count.
+manual comment count, Copilot command count, and total workflow job duration
+for that PR (in seconds).
 
 Use ``--since`` to only include pull requests created on/after a given date
 (``YYYY-MM-DD`` or ISO datetime), and ``--cache-file`` to control where the

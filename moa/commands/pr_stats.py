@@ -102,6 +102,104 @@ def _collect_pr_comment_stats(
     return _count_comments(bodies)
 
 
+def _fetch_workflow_run_jobs(
+    owner: str,
+    repo: str,
+    run_id: int,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page = 1
+    base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
+    while True:
+        jobs_url = f"{base}/actions/runs/{run_id}/jobs?" + parse.urlencode(
+            {"per_page": PAGE_SIZE, "page": page}
+        )
+        data = _fetch_json(jobs_url, token)
+        if not isinstance(data, dict):
+            break
+        jobs = data.get("jobs")
+        if not isinstance(jobs, list) or not jobs:
+            break
+        if any(not isinstance(item, dict) for item in jobs):
+            raise ValueError("Unexpected workflow jobs payload returned by API.")
+        rows.extend(jobs)
+        if len(jobs) < PAGE_SIZE:
+            break
+        page += 1
+    return rows
+
+
+def _fetch_workflow_runs_by_head_sha(
+    owner: str,
+    repo: str,
+    head_sha: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page = 1
+    base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
+    while True:
+        runs_url = f"{base}/actions/runs?" + parse.urlencode(
+            {
+                "event": "pull_request",
+                "head_sha": head_sha,
+                "per_page": PAGE_SIZE,
+                "page": page,
+            }
+        )
+        data = _fetch_json(runs_url, token)
+        if not isinstance(data, dict):
+            break
+        workflow_runs = data.get("workflow_runs")
+        if not isinstance(workflow_runs, list) or not workflow_runs:
+            break
+        if any(not isinstance(item, dict) for item in workflow_runs):
+            raise ValueError("Unexpected workflow runs payload returned by API.")
+        rows.extend(workflow_runs)
+        if len(workflow_runs) < PAGE_SIZE:
+            break
+        page += 1
+    return rows
+
+
+def _collect_pr_job_duration_seconds(
+    owner: str,
+    repo: str,
+    pull_number: int,
+    head_sha: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> int:
+    if not head_sha:
+        return 0
+    runs = _fetch_workflow_runs_by_head_sha(owner, repo, head_sha, token, api_url)
+    total_seconds = 0
+    for run in runs:
+        pull_requests = run.get("pull_requests")
+        if isinstance(pull_requests, list) and pull_requests:
+            if not any(
+                isinstance(pr, dict) and int(pr.get("number", 0)) == pull_number
+                for pr in pull_requests
+            ):
+                continue
+        run_id = int(run.get("id", 0))
+        if run_id <= 0:
+            continue
+        for job in _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url):
+            started_at = str(job.get("started_at", ""))
+            completed_at = str(job.get("completed_at", ""))
+            if not started_at or not completed_at:
+                continue
+            started_dt = _parse_iso_datetime(started_at)
+            completed_dt = _parse_iso_datetime(completed_at)
+            if completed_dt >= started_dt:
+                total_seconds += int((completed_dt - started_dt).total_seconds())
+    return total_seconds
+
+
 def build_pr_activity_rows(
     owner: str,
     repo: str,
@@ -136,6 +234,14 @@ def build_pr_activity_rows(
             token=token,
             api_url=api_url,
         )
+        total_job_duration_seconds = _collect_pr_job_duration_seconds(
+            owner=owner,
+            repo=repo,
+            pull_number=number,
+            head_sha=str((pr.get("head") or {}).get("sha", "")),
+            token=token,
+            api_url=api_url,
+        )
         merged_at = pr.get("merged_at")
         rows.append(
             {
@@ -148,6 +254,7 @@ def build_pr_activity_rows(
                 "status": "merged" if merged_at else "cancelled",
                 "manual_comments": manual_comments,
                 "copilot_commands": copilot_commands,
+                "total_job_duration_seconds": total_job_duration_seconds,
                 "html_url": pr.get("html_url", ""),
             }
         )
@@ -165,6 +272,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
+        "total_job_duration_seconds",
         "html_url",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -197,6 +305,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
+        "total_job_duration_seconds",
         "html_url",
     ]
     values = [headers] + [[row.get(key, "") for key in headers] for row in rows]

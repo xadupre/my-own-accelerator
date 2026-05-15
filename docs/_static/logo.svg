@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 220" role="img" aria-labelledby="title desc">
+  <title id="title">my-own-accelerator logo</title>
+  <desc id="desc">A stylized head silhouette filled with matrix-like green symbols.</desc>
+  <defs>
+    <clipPath id="headClip">
+      <path d="M75 186h134c30 0 54-23 54-52 0-19-11-36-27-45 7-11 11-24 11-38 0-42-35-76-78-76s-78 34-78 76c0 17 6 33 16 46-18 9-31 27-31 49 0 22 18 40 40 40h10v24H75z"/>
+    </clipPath>
+  </defs>
+  <rect width="420" height="220" fill="#040b07"/>
+  <rect x="18" y="18" width="384" height="184" rx="14" fill="#08150d" stroke="#1b4028" stroke-width="2"/>
+  <g clip-path="url(#headClip)" transform="translate(58 18)">
+    <rect width="240" height="190" fill="#020a05"/>
+    <g fill="#39ff88" font-family="monospace" font-size="14" opacity="0.95">
+      <text x="8" y="18">7A4F0019AC</text>
+      <text x="14" y="36">10B37F2D54</text>
+      <text x="2" y="54">9C2A8E6140</text>
+      <text x="18" y="72">A1F7082BC3</text>
+      <text x="9" y="90">56D09F12EA</text>
+      <text x="20" y="108">CC47A0E621</text>
+      <text x="4" y="126">18B6D39F70</text>
+      <text x="15" y="144">E2045AFD81</text>
+      <text x="7" y="162">93C1B07E2F</text>
+      <text x="24" y="180">4DA8F2601B</text>
+    </g>
+    <path d="M75 186h134c30 0 54-23 54-52 0-19-11-36-27-45 7-11 11-24 11-38 0-42-35-76-78-76s-78 34-78 76c0 17 6 33 16 46-18 9-31 27-31 49 0 22 18 40 40 40h10v24H75z" fill="none" stroke="#7dffc2" stroke-width="4"/>
+  </g>
+</svg>

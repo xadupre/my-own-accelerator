@@ -8,6 +8,8 @@
 
 Minimal Python project scaffold.
 
+![my-own-accelerator logo](docs/_static/logo.svg)
+
 ## Install
 
 ```bash

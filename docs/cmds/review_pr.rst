@@ -25,30 +25,20 @@ available on the path.
 ``review-local``
 ----------------
 
-Synopsis:
-
-.. code-block:: text
-
-    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] file [file ...]
-
-Examples::
-
-    review-local README.md
-    review-local --copilot-review --token "$GITHUB_TOKEN" moa/commands/review_pr.py
-    python -m moa review-local README.md
-
-The command prints a ``# Local Files Review`` markdown report containing
-the provided files and, if requested, a ``## Copilot Review`` section.
-It reuses the same token cache file as ``review-pr``
-(``~/.config/moa/review_pr.json``) and supports ``--save`` to persist
-the resolved token.
+See :doc:`review_local` for the full documentation of the ``review-local``
+command.
 
 Synopsis
 --------
 
-.. code-block:: text
+.. runpython::
+    :rst:
 
-    review-pr [--token TOKEN] [--api-url URL] [--user USERNAME] [--save] [--copilot-review] [--model MODEL] owner repo pull_request
+    from moa.commands.review_pr import _build_parser
+    parser = _build_parser()
+    usage = parser.format_usage().strip().replace("usage: ", "", 1)
+    indented = "\n".join("    " + line for line in usage.splitlines())
+    print(f".. code-block:: text\n\n{indented}")
 
 Positional Arguments
 --------------------
@@ -129,6 +119,21 @@ Optional Arguments
     is required (see ``--token``)::
 
         review-pr --copilot-review xadupre my-own-accelerator 1
+
+``--prompt PROMPT``
+    Add a follow-up prompt to the Copilot review session.  The prompt
+    is sent as a continuation of the same conversation so the model has
+    full context from the initial review.  The flag can be repeated to
+    ask several follow-up questions in sequence.  Only meaningful when
+    ``--copilot-review`` is also set::
+
+        review-pr --copilot-review \
+            --prompt "What are the security implications?" \
+            --prompt "Are there any performance concerns?" \
+            xadupre my-own-accelerator 1
+
+    Each follow-up response is appended to the ``## Copilot Review``
+    section, preceded by a separator and the prompt text.
 
 ``--model MODEL``
     AI model to use when ``--copilot-review`` is set.  Accepts any
@@ -246,6 +251,20 @@ The command can also be invoked programmatically:
         token="ghp_xxxxxxxxxxxx",
         copilot_review=True,
         model="openai/gpt-4o-mini",  # optional, this is the default
+    )
+    print(markdown)
+
+    # With Copilot review and follow-up prompts (session)
+    markdown = review_pull_request(
+        owner="xadupre",
+        repo="my-own-accelerator",
+        pull_request=1,
+        token="ghp_xxxxxxxxxxxx",
+        copilot_review=True,
+        extra_prompts=[
+            "What are the security implications?",
+            "Are there any performance concerns?",
+        ],
     )
     print(markdown)
 

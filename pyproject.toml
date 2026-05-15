@@ -26,6 +26,7 @@ dev = [
     "ruff",
 ]
 docs = [
+    "black",
     "matplotlib",
     "pydata-sphinx-theme",
     "sphinx>=7",

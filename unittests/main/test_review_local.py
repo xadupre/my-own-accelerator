@@ -42,7 +42,7 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("AI feedback", got)
         mock_ai.assert_called_once()
 
-    def test_review_local_files_with_copilot_uses_shared_logger(self) -> None:
+    def test_review_local_copilot_logs_request_and_answer(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
         with tempfile.TemporaryDirectory() as tmp:
             file1 = pathlib.Path(tmp) / "a.py"

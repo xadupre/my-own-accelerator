@@ -13,11 +13,25 @@ or through the package entrypoint:
 
     python -m moa review-local README.md
 
-``review-local`` reuses the same cache file as ``review-pr``
-(``~/.config/moa/review_pr.json``) for ``--token``.
-Use ``--save`` to persist the token.
+Synopsis:
 
-The command supports the same ``--copilot-review``, ``--model``, and
+.. code-block:: text
+
+    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] [--prompt PROMPT] file [file ...]
+
+Examples::
+
+    review-local README.md
+    review-local --copilot-review --token "$GITHUB_TOKEN" moa/commands/review_pr.py
+    python -m moa review-local README.md
+
+The command prints a ``# Local Files Review`` markdown report containing
+the provided files and, if requested, a ``## Copilot Review`` section.
+It reuses the same token cache file as ``review-pr``
+(``~/.config/moa/review_pr.json``) and supports ``--save`` to persist
+the resolved token.
+
+``review-local`` supports the same ``--copilot-review``, ``--model``, and
 ``--prompt`` flags as ``review-pr``.  Use ``--prompt`` one or more times
 to ask follow-up questions as part of the same Copilot conversation
 session::

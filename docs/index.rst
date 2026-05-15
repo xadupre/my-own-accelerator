@@ -16,6 +16,10 @@ my-own-accelerator documentation
 .. image:: https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml/badge.svg
     :target: https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml
 
+.. image:: _static/logo.svg
+    :alt: my-own-accelerator logo
+    :width: 420
+
 ``my-own-accelerator`` is a minimal empty Python project scaffold.
 
 Main helper

@@ -248,11 +248,7 @@ def _log_copilot_request_and_answer(
     if now is None:
         now = datetime.datetime.now()
     log_folder = (
-        logs_dir
-        / f"{now:%Y}"
-        / f"{now:%m}"
-        / f"week-{now.isocalendar().week:02d}"
-        / command_name
+        logs_dir / f"{now:%Y}" / f"{now:%m}" / f"week-{now.isocalendar().week:02d}" / command_name
     )
     log_folder.mkdir(parents=True, exist_ok=True)
     timestamp = f"{now:%Y-%m-%d_%H-%M-%S}"

@@ -13,6 +13,7 @@ dependencies = []
 
 [project.scripts]
 review-pr = "moa.commands.review_pr:main"
+review-local = "moa.commands.review_local:main"
 
 [project.optional-dependencies]
 dev = [

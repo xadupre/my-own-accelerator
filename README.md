@@ -29,6 +29,12 @@ Command line pull request review:
 review-pr xadupre my-own-accelerator 1
 ```
 
+Command line local files review:
+
+```bash
+review-local README.md
+```
+
 ## Development checks
 
 ```bash

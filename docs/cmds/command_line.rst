@@ -1,10 +1,15 @@
 Command Line
 ============
 
-The ``my-own-accelerator`` package exposes a ``review-pr`` command that
-fetches information about a GitHub pull request and prints a Markdown
-summary to standard output.  Pass ``--copilot-review`` to include an
-AI-generated review produced by GitHub Copilot.
+The ``my-own-accelerator`` package exposes:
+
+* ``review-pr`` to fetch information about a GitHub pull request and
+  print a Markdown summary.
+* ``review-local`` to review one or multiple local files and print a
+  Markdown summary.
+
+Both commands support ``--copilot-review`` to append AI-generated
+feedback produced by GitHub Copilot.
 
 Installation
 ------------
@@ -14,7 +19,25 @@ command available::
 
     pip install my-own-accelerator
 
-After installation the ``review-pr`` command is available on the path.
+After installation the ``review-pr`` and ``review-local`` commands are
+available on the path.
+
+``review-local``
+----------------
+
+Synopsis:
+
+.. code-block:: text
+
+    review-local [--token TOKEN] [--copilot-review] [--model MODEL] file [file ...]
+
+Examples::
+
+    review-local README.md
+    review-local --copilot-review --token "$GITHUB_TOKEN" moa/commands/review_pr.py
+
+The command prints a ``# Local Files Review`` markdown report containing
+the provided files and, if requested, a ``## Copilot Review`` section.
 
 Synopsis
 --------
@@ -223,4 +246,3 @@ The command can also be invoked programmatically:
     print(markdown)
 
 See the :mod:`moa.commands.review_pr` API reference for full details.
-

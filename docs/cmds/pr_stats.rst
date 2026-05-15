@@ -22,3 +22,9 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 
 Each row includes pull request author, creation datetime, merge/close status,
 manual comment count, and Copilot command count.
+
+Use ``--since`` to only include pull requests created on/after a given date
+(``YYYY-MM-DD`` or ISO datetime), and ``--cache-file`` to control where the
+PR statistics cache is stored. By default, cache is written to
+``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
+subsequent runs instead of requesting their comment statistics again.

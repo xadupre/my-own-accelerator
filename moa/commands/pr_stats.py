@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import pathlib
 import re
 import sys
 import zipfile
 from collections import Counter
+from datetime import datetime
 from html import escape
 from typing import Any
 from urllib import parse
@@ -50,6 +52,37 @@ def _count_comments(comment_bodies: list[str]) -> tuple[int, int]:
     return manual, copilot
 
 
+def _parse_iso_datetime(value: str) -> datetime:
+    cleaned = value.strip()
+    if not cleaned:
+        raise ValueError("Datetime value cannot be empty.")
+    if "T" not in cleaned:
+        cleaned = f"{cleaned}T00:00:00Z"
+    return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+
+
+def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(payload, dict):
+        return {}
+    entries = payload.get("rows", {})
+    if not isinstance(entries, dict):
+        return {}
+    return {
+        str(pr_number): row
+        for pr_number, row in entries.items()
+        if isinstance(pr_number, str) and isinstance(row, dict)
+    }
+
+
+def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    payload = {"rows": {str(row["number"]): row for row in rows}}
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def _collect_pr_comment_stats(
     owner: str,
     repo: str,
@@ -74,7 +107,11 @@ def build_pr_activity_rows(
     repo: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    since: str | None = None,
+    cached_rows: dict[str, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
+    since_dt = _parse_iso_datetime(since) if since else None
+    cache = cached_rows or {}
     pulls_url = (
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
         "?state=closed&sort=created&direction=desc"
@@ -85,6 +122,13 @@ def build_pr_activity_rows(
         if pr.get("state") != "closed":
             continue
         number = int(pr.get("number", 0))
+        created_at = str(pr.get("created_at", ""))
+        if since_dt and created_at and _parse_iso_datetime(created_at) < since_dt:
+            continue
+        cached = cache.get(str(number))
+        if cached:
+            rows.append(cached)
+            continue
         manual_comments, copilot_commands = _collect_pr_comment_stats(
             owner=owner,
             repo=repo,
@@ -98,7 +142,7 @@ def build_pr_activity_rows(
                 "number": number,
                 "author": (pr.get("user") or {}).get("login", ""),
                 "title": pr.get("title", ""),
-                "created_at": pr.get("created_at", ""),
+                "created_at": created_at,
                 "merged_at": merged_at or "",
                 "closed_at": pr.get("closed_at", ""),
                 "status": "merged" if merged_at else "cancelled",
@@ -259,14 +303,26 @@ def save_pr_activity_report(
     prefix: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    since: str | None = None,
+    cache_file: str | None = None,
 ) -> dict[str, pathlib.Path]:
-    rows = build_pr_activity_rows(owner=owner, repo=repo, token=token, api_url=api_url)
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
+    cached_rows = _load_cache(cache_path)
+    rows = build_pr_activity_rows(
+        owner=owner,
+        repo=repo,
+        token=token,
+        api_url=api_url,
+        since=since,
+        cached_rows=cached_rows,
+    )
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
     status_svg_path = out / f"{prefix}_status.svg"
     comments_svg_path = out / f"{prefix}_comments.svg"
+    _save_cache(cache_path, rows)
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
     status_counts = Counter(row["status"] for row in rows)
@@ -283,6 +339,7 @@ def save_pr_activity_report(
         "xlsx": xlsx_path,
         "status_svg": status_svg_path,
         "comments_svg": comments_svg_path,
+        "cache": cache_path,
     }
 
 
@@ -311,6 +368,22 @@ def main(argv: list[str] | None = None) -> int:
         default="pr_activity",
         help="Filename prefix for generated files.",
     )
+    parser.add_argument(
+        "--since",
+        default=None,
+        help=(
+            "Only include PRs created on/after this datetime "
+            "(YYYY-MM-DD or ISO 8601 datetime)."
+        ),
+    )
+    parser.add_argument(
+        "--cache-file",
+        default=None,
+        help=(
+            "Optional cache file path for PR statistics. "
+            "Defaults to <output-dir>/<prefix>_cache.json."
+        ),
+    )
     args = parser.parse_args(argv)
     try:
         outputs = save_pr_activity_report(
@@ -320,6 +393,8 @@ def main(argv: list[str] | None = None) -> int:
             prefix=args.prefix,
             token=args.token,
             api_url=args.api_url,
+            since=args.since,
+            cache_file=args.cache_file,
         )
     except (HTTPError, URLError, OSError, ValueError) as e:
         print(

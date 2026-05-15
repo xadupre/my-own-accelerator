@@ -1,4 +1,5 @@
 import csv
+import json
 import tempfile
 from io import StringIO
 from unittest.mock import patch
@@ -73,10 +74,80 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["xlsx"].exists())
             self.assertTrue(outputs["status_svg"].exists())
             self.assertTrue(outputs["comments_svg"].exists())
+            self.assertTrue(outputs["cache"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
+            cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
+        self.assertIn("1", cache["rows"])
+
+    def test_build_pr_activity_rows_respects_since_date(self) -> None:
+        pulls = [
+            {
+                "number": 12,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "Old",
+                "created_at": "2025-12-31T12:00:00Z",
+                "merged_at": None,
+                "closed_at": "2025-12-31T13:00:00Z",
+                "html_url": "https://github.com/o/r/pull/12",
+            },
+            {
+                "number": 13,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "New",
+                "created_at": "2026-01-02T12:00:00Z",
+                "merged_at": "2026-01-03T12:00:00Z",
+                "closed_at": "2026-01-03T12:00:00Z",
+                "html_url": "https://github.com/o/r/pull/13",
+            },
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
+        ):
+            rows = build_pr_activity_rows("o", "r", since="2026-01-01")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["number"], 13)
+
+    def test_build_pr_activity_rows_reuses_cache(self) -> None:
+        pulls = [
+            {
+                "number": 22,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "Cached PR",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/22",
+            }
+        ]
+        cached_rows = {
+            "22": {
+                "number": 22,
+                "author": "alice",
+                "title": "Cached PR",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 9,
+                "copilot_commands": 4,
+                "html_url": "https://github.com/o/r/pull/22",
+            }
+        }
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats") as mocked_collect,
+        ):
+            rows = build_pr_activity_rows("o", "r", cached_rows=cached_rows)
+        self.assertEqual(rows[0]["manual_comments"], 9)
+        self.assertEqual(rows[0]["copilot_commands"], 4)
+        mocked_collect.assert_not_called()
 
     def test_main_prints_output_paths(self) -> None:
         out = StringIO()

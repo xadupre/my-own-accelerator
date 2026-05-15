@@ -15,9 +15,13 @@ or through the package entrypoint:
 
 Synopsis:
 
-.. code-block:: text
+.. runpython::
+    :rst:
 
-    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] [--prompt PROMPT] file [file ...]
+    from moa.commands.review_local import _build_parser
+    parser = _build_parser()
+    usage = parser.format_usage().strip().replace("usage: ", "", 1)
+    print(f".. code-block:: text\n\n    {usage}")
 
 Examples::
 

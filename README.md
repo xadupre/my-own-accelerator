@@ -18,13 +18,6 @@ pip install -e ".[dev]"
 
 ## Quick usage
 
-```python
-from moa import create_empty_project
-
-project = create_empty_project()
-print(project["name"])  # my-own-accelerator
-```
-
 Command line pull request review:
 
 ```bash

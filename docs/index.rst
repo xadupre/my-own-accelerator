@@ -22,16 +22,8 @@ my-own-accelerator documentation
 
 ``my-own-accelerator`` is a minimal empty Python project scaffold.
 
-Main helper
------------
-
-* :func:`moa.create_empty_project`
-
-API documentation
------------------
-
 .. toctree::
     :maxdepth: 2
 
     cmds/index
-    commands/index
+    api/index

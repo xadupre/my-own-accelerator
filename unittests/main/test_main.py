@@ -36,15 +36,20 @@ class TestMain(ExtTestCase):
         self.assertEqual(ctx.exception.code, 0)
         mocked.assert_called_once_with(["owner", "repo", "1"])
 
-    def test_package_main_help(self) -> None:
-        for flag in ("-h", "--help"):
-            out = StringIO()
-            with (
-                patch("sys.argv", ["-m", flag]),
-                patch("sys.stdout", out),
-                self.assertRaises(SystemExit) as ctx,
-            ):
-                runpy.run_module("moa", run_name="__main__")
-            self.assertEqual(ctx.exception.code, 0)
-            self.assertIn("review-pr", out.getvalue())
-            self.assertIn("review-local", out.getvalue())
+    def _assert_package_main_help(self, flag: str) -> None:
+        out = StringIO()
+        with (
+            patch("sys.argv", ["-m", flag]),
+            patch("sys.stdout", out),
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            runpy.run_module("moa", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)
+        self.assertIn("review-pr", out.getvalue())
+        self.assertIn("review-local", out.getvalue())
+
+    def test_package_main_help_short_flag(self) -> None:
+        self._assert_package_main_help("-h")
+
+    def test_package_main_help_long_flag(self) -> None:
+        self._assert_package_main_help("--help")

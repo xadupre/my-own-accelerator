@@ -8,7 +8,7 @@ import pathlib
 import sys
 from urllib.error import HTTPError, URLError
 
-from .review_pr import DEFAULT_MODEL, _call_copilot_review
+from .review_pr import CONFIG_FILE, DEFAULT_MODEL, _call_copilot_review, _load_cache, _save_cache
 
 
 def build_local_files_review_markdown(contents: dict[str, str]) -> str:
@@ -66,14 +66,27 @@ def main(argv: list[str] | None = None) -> int:
     """Command line entrypoint for local file reviews."""
     if argv is None:
         argv = sys.argv[1:]
+    cache = _load_cache()
+    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
     parser = argparse.ArgumentParser(description="Reviews local files and prints markdown.")
     parser.add_argument("files", nargs="+", help="Local files to review")
     parser.add_argument(
         "--token",
-        default=os.environ.get("GITHUB_TOKEN") or None,
+        default=token_default,
         help=(
             "GitHub personal access token. "
-            "Resolution order: flag > GITHUB_TOKEN env var > unauthenticated."
+            "Resolution order: flag > GITHUB_TOKEN env var > cached value "
+            f"({CONFIG_FILE}) > unauthenticated."
+        ),
+    )
+    parser.add_argument(
+        "--save",
+        action="store_true",
+        default=False,
+        help=(
+            f"Save the resolved --token to {CONFIG_FILE} so it is used automatically "
+            "in future invocations. The file is created with owner-only read "
+            "permissions (0600)."
         ),
     )
     parser.add_argument(
@@ -94,6 +107,8 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
     args = parser.parse_args(argv)
+    if args.save and args.token:
+        _save_cache({"token": args.token})
     try:
         markdown = review_local_files(
             files=args.files,

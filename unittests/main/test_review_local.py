@@ -1,3 +1,5 @@
+import json
+import os
 import pathlib
 import tempfile
 from io import StringIO
@@ -67,3 +69,46 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("AI review", out.getvalue())
         mock_ai.assert_called_once()
         self.assertEqual(mock_ai.call_args.args[2], DEFAULT_MODEL)
+
+    def test_main_uses_cached_token_when_no_env(self) -> None:
+        out = StringIO()
+        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                file1 = pathlib.Path(tmp) / "a.py"
+                file1.write_text("print('a')", encoding="utf-8")
+                with (
+                    patch(
+                        "moa.commands.review_local._call_copilot_review",
+                        return_value="AI review",
+                    ) as mock_ai,
+                    patch("sys.stdout", out),
+                    patch(
+                        "moa.commands.review_local._load_cache",
+                        return_value={"token": "cached_tok"},
+                    ),
+                ):
+                    code = main(["--copilot-review", str(file1)])
+        finally:
+            os.environ.update(env_backup)
+        self.assertEqual(code, 0)
+        self.assertEqual(mock_ai.call_args.args[1], "cached_tok")
+
+    def test_main_save_flag_persists_token(self) -> None:
+        out = StringIO()
+        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                fake_config = pathlib.Path(tmp) / "review_pr.json"
+                file1 = pathlib.Path(tmp) / "a.py"
+                file1.write_text("print('a')", encoding="utf-8")
+                with (
+                    patch("sys.stdout", out),
+                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                ):
+                    code = main(["--token", "saved_tok", "--save", str(file1)])
+                saved = json.loads(fake_config.read_text())
+        finally:
+            os.environ.update(env_backup)
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["token"], "saved_tok")

@@ -29,15 +29,19 @@ Synopsis:
 
 .. code-block:: text
 
-    review-local [--token TOKEN] [--copilot-review] [--model MODEL] file [file ...]
+    review-local [--token TOKEN] [--save] [--copilot-review] [--model MODEL] file [file ...]
 
 Examples::
 
     review-local README.md
     review-local --copilot-review --token "$GITHUB_TOKEN" moa/commands/review_pr.py
+    python -m moa review-local README.md
 
 The command prints a ``# Local Files Review`` markdown report containing
 the provided files and, if requested, a ``## Copilot Review`` section.
+It reuses the same token cache file as ``review-pr``
+(``~/.config/moa/review_pr.json``) and supports ``--save`` to persist
+the resolved token.
 
 Synopsis
 --------

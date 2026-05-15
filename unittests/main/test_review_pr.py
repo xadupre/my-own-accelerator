@@ -1,3 +1,8 @@
+import io
+import json
+import os
+import pathlib
+import tempfile
 from io import StringIO
 from unittest.mock import patch
 
@@ -39,8 +44,6 @@ class TestReviewPR(ExtTestCase):
         self.assertIn("- `b.py` (+1/-1)", got)
 
     def test_main_prints_markdown_to_stdout(self) -> None:
-        import os
-
         out = StringIO()
         # Remove GITHUB_TOKEN / GITHUB_API_URL so defaults are None / https://api.github.com
         env_overrides = {k: "" for k in ("GITHUB_TOKEN", "GITHUB_API_URL")}
@@ -71,8 +74,6 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(out.getvalue(), "# review\n")
 
     def test_main_uses_env_vars_automatically(self) -> None:
-        import os
-
         out = StringIO()
         env_patch = {
             "GITHUB_TOKEN": "env_token",
@@ -107,8 +108,6 @@ class TestReviewPR(ExtTestCase):
         )
 
     def test_call_copilot_review_returns_content(self) -> None:
-        import json
-
         fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
         with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__ = lambda s: s
@@ -178,8 +177,6 @@ class TestReviewPR(ExtTestCase):
                 )
 
     def test_main_copilot_review_flag(self) -> None:
-        import os
-
         out = StringIO()
         env_backup = {
             k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
@@ -212,9 +209,6 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(result, {})
 
     def test_load_cache_invalid_json(self) -> None:
-        import io
-        import json
-
         with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
             mock_path.open.return_value.__enter__ = lambda s: io.StringIO("not-json")
             mock_path.open.return_value.__exit__ = lambda s, *a: False
@@ -225,9 +219,6 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(result, {})
 
     def test_save_cache_writes_and_is_readable(self) -> None:
-        import pathlib
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
             with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
@@ -238,9 +229,6 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(loaded["api_url"], "https://api.github.com")
 
     def test_save_cache_merges_existing_keys(self) -> None:
-        import pathlib
-        import tempfile
-
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
             with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
@@ -253,8 +241,6 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(loaded["api_url"], "https://a.example.com")
 
     def test_main_uses_cached_token_when_no_env(self) -> None:
-        import os
-
         out = StringIO()
         env_backup = {
             k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
@@ -287,10 +273,6 @@ class TestReviewPR(ExtTestCase):
         )
 
     def test_main_save_flag_persists_values(self) -> None:
-        import os
-        import pathlib
-        import tempfile
-
         out = StringIO()
         env_backup = {
             k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
@@ -318,9 +300,7 @@ class TestReviewPR(ExtTestCase):
                             "3",
                         ]
                     )
-                import json as _json
-
-                saved = _json.loads(fake_config.read_text())
+                saved = json.loads(fake_config.read_text())
         finally:
             os.environ.update(env_backup)
 

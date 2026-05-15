@@ -41,7 +41,7 @@ def _save_cache(data: dict[str, str]) -> None:
     """
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = _load_cache()
-    existing.update({k: v for k, v in data.items() if v})
+    existing.update({k: v for k, v in data.items() if v is not None})
     with CONFIG_FILE.open("w") as f:
         json.dump(existing, f, indent=2)
     CONFIG_FILE.chmod(0o600)
@@ -218,7 +218,7 @@ def main(argv: list[str] | None = None) -> int:
             "GitHub personal access token. "
             "Resolution order: flag > GITHUB_TOKEN env var > cached value "
             f"({CONFIG_FILE}). "
-            "See :doc:`github_token` for how to obtain one."
+            "See the docs/cmds/github_token page for how to obtain one."
         ),
     )
     parser.add_argument(

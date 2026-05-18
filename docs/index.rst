@@ -21,6 +21,7 @@ my-own-accelerator documentation
     :width: 420
 
 ``my-own-accelerator`` is a minimal empty Python project scaffold.
+Sources: `GitHub repository <https://github.com/xadupre/my-own-accelerator>`_.
 
 .. toctree::
     :maxdepth: 2

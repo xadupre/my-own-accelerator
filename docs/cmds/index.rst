@@ -1,7 +1,7 @@
 CMDs
 ====
 
-The library implements a couple of command lines.
+The library implements command line tools.
 
 .. code-block:: bash
 

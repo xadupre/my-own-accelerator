@@ -36,6 +36,8 @@ Command line pull request statistics report:
 pr-stats xadupre my-own-accelerator --output-dir . --prefix pr_activity
 ```
 
+Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
+
 ## Development checks
 
 ```bash

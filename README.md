@@ -30,6 +30,12 @@ Command line local files review:
 review-local README.md
 ```
 
+Command line pull request statistics report:
+
+```bash
+pr-stats xadupre my-own-accelerator --output-dir . --prefix pr_activity
+```
+
 ## Development checks
 
 ```bash

@@ -1,7 +1,8 @@
-CMDs
-====
+CMDs (Command Line Tools)
+=========================
 
-The library implements command line tools.
+The library implements command line tools for GitHub token setup, pull-request
+reviewing, and pull-request activity reporting.
 
 .. code-block:: bash
 
@@ -15,7 +16,7 @@ The library implements command line tools.
 
     proc = subprocess.run(
         [sys.executable, "-m", "moa", "--help"],
-        check=False,
+        check=True,
         capture_output=True,
         text=True,
     )

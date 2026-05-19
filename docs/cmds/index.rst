@@ -28,7 +28,7 @@ reviewing, and pull-request activity reporting.
 
 .. toctree::
     :maxdepth: 1
-    :cpation: Command Lines
+    :caption: Command Lines
 
     github_token
     pr_stats

@@ -20,6 +20,7 @@ from moa.commands.pr_stats import (
     _build_pr_comments_distribution,
     _collect_pr_job_duration_hours,
     _collect_pr_job_info,
+    _collect_pr_job_info_batch,
     _compute_moving_average,
     _count_comments,
     _default_since,
@@ -471,6 +472,51 @@ class TestPRStats(ExtTestCase):
         self.assertEqual([row["number"] for row in rows], [1, 2])
         self.assertEqual([row["manual_comments"] for row in rows], [1, 2])
 
+    def test_build_pr_activity_rows_batches_job_queries_for_many_prs(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            },
+            {
+                "number": 2,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "PR 2",
+                "created_at": "2026-01-03T00:00:00Z",
+                "merged_at": "2026-01-04T00:00:00Z",
+                "closed_at": "2026-01-04T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+            },
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats_batch", return_value={}),
+            patch(
+                "moa.commands.pr_stats._collect_pr_job_info_batch",
+                return_value={1: (0, []), 2: (0, [])},
+            ) as mocked_batch,
+            patch("moa.commands.pr_stats._collect_pr_job_info") as mocked_single,
+        ):
+            rows = build_pr_activity_rows("o", "r")
+        mocked_batch.assert_called_once_with(
+            owner="o",
+            repo="r",
+            pull_head_shas={1: "abc", 2: "def"},
+            token=None,
+            api_url="https://api.github.com",
+        )
+        mocked_single.assert_not_called()
+        self.assertEqual([row["number"] for row in rows], [1, 2])
+
     def test_build_pr_activity_rows_warns_and_keeps_partial_data_on_http_error(self) -> None:
         pulls = [
             {
@@ -724,6 +770,45 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(len(successful), 1)
         self.assertEqual(successful[0]["job_name"], "build")
         self.assertEqual(successful[0]["duration_seconds"], 90)
+
+    def test_collect_pr_job_info_batch(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "head_sha": "sha1", "pull_requests": [{"number": 22}]},
+                {"id": 102, "head_sha": "sha2", "pull_requests": [{"number": 23}]},
+            ]
+        }
+        jobs_run_101 = [
+            {
+                "name": "build",
+                "started_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:30Z",
+                "conclusion": "success",
+            }
+        ]
+        jobs_run_102 = [
+            {
+                "name": "test",
+                "started_at": "2026-01-01T00:02:00Z",
+                "completed_at": "2026-01-01T00:03:00Z",
+                "conclusion": "failure",
+            }
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
+            patch(
+                "moa.commands.pr_stats._fetch_workflow_run_jobs",
+                side_effect=[jobs_run_101, jobs_run_102],
+            ),
+        ):
+            results = _collect_pr_job_info_batch(
+                "o", "r", {22: "sha1", 23: "sha2", 24: "missing"}, token="abc"
+            )
+        self.assertEqual(results[22][0], 90)
+        self.assertEqual(results[22][1][0]["job_name"], "build")
+        self.assertEqual(results[23][0], 60)
+        self.assertEqual(results[23][1], [])
+        self.assertEqual(results[24], (0, []))
 
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [

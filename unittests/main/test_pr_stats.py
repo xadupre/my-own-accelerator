@@ -136,6 +136,7 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["comments_per_week_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_user_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_week_svg"].exists())
+            self.assertTrue(outputs["graphs_html"].exists())
             self.assertTrue(outputs["cache"].exists())
             graph_dir = pathlib.Path(tmp) / "graphs_my_repo_name"
             self.assertEqual(outputs["csv"].parent, pathlib.Path(tmp))
@@ -148,6 +149,7 @@ class TestPRStats(ExtTestCase):
             self.assertEqual(outputs["comments_per_week_svg"].parent, graph_dir)
             self.assertEqual(outputs["avg_duration_per_user_svg"].parent, graph_dir)
             self.assertEqual(outputs["avg_duration_per_week_svg"].parent, graph_dir)
+            self.assertEqual(outputs["graphs_html"].parent, graph_dir)
             job_dur_svgs = outputs["job_duration_svgs"]
             self.assertIn("build", job_dur_svgs)
             self.assertIn("test", job_dur_svgs)
@@ -168,6 +170,7 @@ class TestPRStats(ExtTestCase):
             avg_duration_per_week_svg = outputs["avg_duration_per_week_svg"].read_text(
                 encoding="utf-8"
             )
+            graphs_html = outputs["graphs_html"].read_text(encoding="utf-8")
             job_build_svg = job_dur_svgs["build"].read_text(encoding="utf-8")
             xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
@@ -187,6 +190,16 @@ class TestPRStats(ExtTestCase):
         self.assertIn("Avg PR duration per user", avg_duration_per_user_svg)
         self.assertIn("Duration (hours)", avg_duration_per_user_svg)
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
+        self.assertIn("PR stats graphs for o/my:repo/name", graphs_html)
+        self.assertIn("report_status.svg", graphs_html)
+        self.assertIn("report_comments.svg", graphs_html)
+        self.assertIn("report_prs_per_week.svg", graphs_html)
+        self.assertIn("report_comments_per_pr.svg", graphs_html)
+        self.assertIn("report_comments_per_week.svg", graphs_html)
+        self.assertIn("report_avg_duration_per_user.svg", graphs_html)
+        self.assertIn("report_avg_duration_per_week.svg", graphs_html)
+        self.assertIn("report_job_duration_build.svg", graphs_html)
+        self.assertIn("report_job_duration_test.svg", graphs_html)
         self.assertIn("Job duration: build", job_build_svg)
         self.assertIn("Duration (minutes)", job_build_svg)
         self.assertIn("Completion date", job_build_svg)
@@ -693,6 +706,9 @@ class TestPRStats(ExtTestCase):
                 "comments_svg": tempfile.NamedTemporaryFile(
                     dir=graph_dir, suffix=".svg", delete=False
                 ).name,
+                "graphs_html": tempfile.NamedTemporaryFile(
+                    dir=graph_dir, suffix=".html", delete=False
+                ).name,
             }
             with (
                 patch(
@@ -711,6 +727,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
         self.assertIn("/graphs_repo/", out.getvalue())
+        self.assertIn(".html", out.getvalue())
 
     def test_main_default_prefix_sanitizes_repo_name(self) -> None:
         fake_paths = {

@@ -981,6 +981,32 @@ def _save_job_duration_line_graph(
     path.write_text(svg, encoding="utf-8")
 
 
+def _save_graphs_html_report(
+    path: pathlib.Path, repo: str, graphs: list[tuple[str, pathlib.Path]]
+) -> None:
+    title = f"PR stats graphs for {repo}"
+    sections = "\n".join(
+        (
+            "<section>"
+            f"<h2>{escape(graph_title)}</h2>"
+            f'<img src="{escape(graph_path.name)}" alt="{escape(graph_title)} graph">'
+            "</section>"
+        )
+        for graph_title, graph_path in graphs
+    )
+    html = (
+        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
+        f"<title>{escape(title)}</title>"
+        "<style>body{font-family:Arial,sans-serif;margin:20px;}img{max-width:100%;height:auto;}"
+        "section{margin:24px 0;}h2{margin-bottom:8px;}</style>"
+        "</head><body>"
+        f"<h1>{escape(title)}</h1>"
+        f"{sections}"
+        "</body></html>"
+    )
+    path.write_text(html, encoding="utf-8")
+
+
 def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -1221,6 +1247,7 @@ def save_pr_activity_report(
     comments_per_week_svg_path = graph_dir / f"{prefix}_comments_per_week.svg"
     avg_duration_per_user_svg_path = graph_dir / f"{prefix}_avg_duration_per_user.svg"
     avg_duration_per_week_svg_path = graph_dir / f"{prefix}_avg_duration_per_week.svg"
+    graphs_html_path = graph_dir / f"{prefix}_graphs.html"
     try:
         rows = build_pr_activity_rows(
             owner=owner,
@@ -1312,6 +1339,20 @@ def save_pr_activity_report(
         svg_path = graph_dir / f"{prefix}_job_duration_{safe_name}.svg"
         _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
+    report_graphs: list[tuple[str, pathlib.Path]] = [
+        ("Pull requests by status", status_svg_path),
+        ("Manual comments vs Copilot commands", comments_svg_path),
+        ("Pull requests per week", prs_per_week_svg_path),
+        ("PR count by number of comments", comments_per_pr_svg_path),
+        ("Comments per week", comments_per_week_svg_path),
+        ("Avg PR duration per user (hours)", avg_duration_per_user_svg_path),
+        ("Avg PR duration per week (hours)", avg_duration_per_week_svg_path),
+    ]
+    report_graphs.extend(
+        (f"Job duration: {job_name}", svg_path)
+        for job_name, svg_path in sorted(job_duration_svgs.items())
+    )
+    _save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
@@ -1323,6 +1364,7 @@ def save_pr_activity_report(
         "avg_duration_per_user_svg": avg_duration_per_user_svg_path,
         "avg_duration_per_week_svg": avg_duration_per_week_svg_path,
         "job_duration_svgs": job_duration_svgs,
+        "graphs_html": graphs_html_path,
         "cache": cache_path,
     }
 

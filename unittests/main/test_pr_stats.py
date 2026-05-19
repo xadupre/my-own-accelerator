@@ -15,6 +15,7 @@ import pandas
 from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
+    SVG_X_AXIS_LABEL_ROTATION,
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
@@ -176,7 +177,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn('class="bar"', status_svg)
         self.assertIn('class="label"', status_svg)
         self.assertIn("1", cache["rows"])
-        self.assertIn('transform="rotate(-30', status_svg)
+        self.assertIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION}', status_svg)
         self.assertIn("Pull requests per week", prs_per_week_svg)
         self.assertIn("Pull requests (count)", prs_per_week_svg)
         self.assertIn("Week", prs_per_week_svg)
@@ -350,7 +351,7 @@ class TestPRStats(ExtTestCase):
         expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
         self.assertIn(f'x1="{expected_left - 20}"', svg)
         self.assertIn(f'<rect x="{expected_left}"', svg)
-        self.assertIn('transform="rotate(-30 ', svg)
+        self.assertIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} ', svg)
         self.assertIn("manual_comments", svg)
         self.assertIn("copilot_commands", svg)
 
@@ -876,6 +877,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn("duration", svg)
         self.assertIn("Duration (seconds)", svg)
         self.assertIn("Completion date", svg)
+        self.assertIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} ', svg)
 
     def test_save_job_duration_line_graph_empty_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

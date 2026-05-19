@@ -857,7 +857,7 @@ def _save_job_duration_line_graph(
         path.write_text(svg, encoding="utf-8")
         return
 
-    values = [int(pt.get("duration_seconds", 0)) / 60 for pt in series]
+    values = [float(pt.get("duration_seconds", 0)) / 60 for pt in series]
     x_labels_raw = [str(pt.get("completed_at", ""))[:10] for pt in series]
     max_val = max(values) if values else 1
     if max_val == 0:

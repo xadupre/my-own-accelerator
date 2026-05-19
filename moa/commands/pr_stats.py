@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
@@ -33,6 +34,7 @@ DARK_THEME_SVG_CSS = """<style>
 }
 </style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
+MAX_PR_QUERY_WORKERS = 8
 SVG_LABEL_CHAR_WIDTH = 7
 
 
@@ -291,6 +293,47 @@ def _collect_pr_job_duration_seconds(
     return total_seconds
 
 
+def _build_pr_activity_row(
+    pr: dict[str, Any],
+    owner: str,
+    repo: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> dict[str, Any]:
+    number = int(pr.get("number", 0))
+    manual_comments, copilot_commands = _collect_pr_comment_stats(
+        owner=owner,
+        repo=repo,
+        pull_number=number,
+        token=token,
+        api_url=api_url,
+    )
+    total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
+        owner=owner,
+        repo=repo,
+        pull_number=number,
+        head_sha=str((pr.get("head") or {}).get("sha", "")),
+        token=token,
+        api_url=api_url,
+    )
+    total_job_duration_hours = round(total_job_duration_seconds / 3600, 2)
+    merged_at = pr.get("merged_at")
+    return {
+        "number": number,
+        "author": (pr.get("user") or {}).get("login", ""),
+        "title": pr.get("title", ""),
+        "created_at": str(pr.get("created_at", "")),
+        "merged_at": merged_at or "",
+        "closed_at": pr.get("closed_at", ""),
+        "status": "merged" if merged_at else "cancelled",
+        "manual_comments": manual_comments,
+        "copilot_commands": copilot_commands,
+        "total_job_duration_hours": total_job_duration_hours,
+        "successful_job_durations": successful_job_durations,
+        "html_url": pr.get("html_url", ""),
+    }
+
+
 def build_pr_activity_rows(
     owner: str,
     repo: str,
@@ -318,49 +361,26 @@ def build_pr_activity_rows(
             continue
         filtered.append(pr)
     total = len(filtered)
-    rows: list[dict[str, Any]] = []
-    for i, pr in enumerate(filtered):
-        if verbose:
-            _print_progress(i + 1, total)
-        number = int(pr.get("number", 0))
-        cached = cache.get(str(number))
-        if cached:
-            rows.append(cached)
-            continue
-        manual_comments, copilot_commands = _collect_pr_comment_stats(
-            owner=owner,
-            repo=repo,
-            pull_number=number,
-            token=token,
-            api_url=api_url,
-        )
-        total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
-            owner=owner,
-            repo=repo,
-            pull_number=number,
-            head_sha=str((pr.get("head") or {}).get("sha", "")),
-            token=token,
-            api_url=api_url,
-        )
-        total_job_duration_hours = round(total_job_duration_seconds / 3600, 2)
-        merged_at = pr.get("merged_at")
-        rows.append(
-            {
-                "number": number,
-                "author": (pr.get("user") or {}).get("login", ""),
-                "title": pr.get("title", ""),
-                "created_at": str(pr.get("created_at", "")),
-                "merged_at": merged_at or "",
-                "closed_at": pr.get("closed_at", ""),
-                "status": "merged" if merged_at else "cancelled",
-                "manual_comments": manual_comments,
-                "copilot_commands": copilot_commands,
-                "total_job_duration_hours": total_job_duration_hours,
-                "successful_job_durations": successful_job_durations,
-                "html_url": pr.get("html_url", ""),
-            }
-        )
-    return rows
+    rows: list[dict[str, Any] | None] = [None] * total
+    pending: dict[Future[dict[str, Any]], int] = {}
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max(1, min(MAX_PR_QUERY_WORKERS, total))) as executor:
+        for i, pr in enumerate(filtered):
+            number = int(pr.get("number", 0))
+            cached = cache.get(str(number))
+            if cached:
+                rows[i] = cached
+                completed += 1
+                if verbose:
+                    _print_progress(completed, total)
+                continue
+            pending[executor.submit(_build_pr_activity_row, pr, owner, repo, token, api_url)] = i
+        for future in as_completed(pending):
+            rows[pending[future]] = future.result()
+            completed += 1
+            if verbose:
+                _print_progress(completed, total)
+    return [row for row in rows if row is not None]
 
 
 def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:

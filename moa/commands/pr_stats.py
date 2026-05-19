@@ -29,6 +29,7 @@ DARK_THEME_SVG_CSS = """<style>
 .bar { fill: #79c0ff; }
 }
 </style>"""
+DEFAULT_OUTPUT_DIR = "pr_stats"
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -298,8 +299,17 @@ def _xlsx_cell(col: int, row: int, value: Any) -> str:
     ref = f"{col_name}{row}"
     if isinstance(value, int):
         return f'<c r="{ref}"><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(_xlsx_safe_text(str(value)))
     return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def _xlsx_safe_text(value: str) -> str:
+    # XML 1.0 valid chars for worksheet text nodes.
+    return "".join(
+        ch
+        for ch in value
+        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF or 0xE000 <= ord(ch) <= 0xFFFD
+    )
 
 
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
@@ -485,8 +495,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-url", default=api_url_default, help="GitHub API base URL")
     parser.add_argument(
         "--output-dir",
-        default=".",
-        help="Directory where output files are written (default: current directory).",
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory where output files are written (default: {DEFAULT_OUTPUT_DIR}).",
     )
     parser.add_argument(
         "--prefix",

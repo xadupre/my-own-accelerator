@@ -40,6 +40,8 @@ SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_LINE_Y_AXIS_LABEL_X = 20
 SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN = 24
+SVG_BAR_MIN_WIDTH = 600
+SVG_BAR_X_AXIS_LABEL_Y = 350
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -840,7 +842,7 @@ def _save_bar_graph(
     gap = 40
     left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
-    width = max(600, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
+    width = max(SVG_BAR_MIN_WIDTH, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
     y_axis_mid = (SVG_AXIS_TOP + baseline) / 2
     scale = 200 / max_value if max_value else 0
     bars = []
@@ -878,7 +880,8 @@ def _save_bar_graph(
         + "".join(bars)
         + "".join(labels)
         + (
-            f'<text x="{left + (width - left) / 2:.1f}" y="350" text-anchor="middle" '
+            f'<text x="{left + (width - left) / 2:.1f}" y="{SVG_BAR_X_AXIS_LABEL_Y}" '
+            f'text-anchor="middle" '
             f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
             if x_axis_label
             else ""

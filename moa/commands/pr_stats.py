@@ -540,6 +540,8 @@ def _save_job_duration_line_graph(
     series: list[dict[str, Any]],
     title: str,
     moving_avg_window: int = 10,
+    x_axis_label: str = "Completion date",
+    y_axis_label: str = "Duration (seconds)",
 ) -> None:
     """Save a line-graph SVG of job duration over time with a moving average.
 
@@ -663,10 +665,10 @@ def _save_job_duration_line_graph(
         + "".join(x_label_elems)
         + legend_elems
         + f'<text x="{left + plot_w / 2:.1f}" y="{height - 24}" text-anchor="middle" '
-        'class="label" fill="#111" font-size="12">Completion date</text>'
+        f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
         + f'<text x="20" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
         f'transform="rotate(-90 20 {top + plot_h / 2:.1f})" '
-        'class="label" fill="#111" font-size="12">Duration (seconds)</text>' + "</svg>"
+        f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>' + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
 
@@ -820,6 +822,7 @@ def _save_bar_graph(
 ) -> None:
     if not values:
         values = {"none": 0}
+    axis_top = 40
     max_value = max(values.values()) if values else 0
     max_label_len = max(map(len, values), default=0)
     bar_width = 80
@@ -855,7 +858,7 @@ def _save_bar_graph(
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - 20}" y1="40" x2="{left - 20}" y2="{baseline}" '
+        f'<line x1="{left - 20}" y1="{axis_top}" x2="{left - 20}" y2="{baseline}" '
         'class="axis" stroke="#000"/>'
         f'<line x1="{left - 20}" y1="{baseline}" '
         f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
@@ -868,8 +871,8 @@ def _save_bar_graph(
             else ""
         )
         + (
-            f'<text x="20" y="{(40 + baseline) / 2:.1f}" text-anchor="middle" '
-            f'transform="rotate(-90 20 {(40 + baseline) / 2:.1f})" '
+            f'<text x="20" y="{(axis_top + baseline) / 2:.1f}" text-anchor="middle" '
+            f'transform="rotate(-90 20 {(axis_top + baseline) / 2:.1f})" '
             f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
             if y_axis_label
             else ""

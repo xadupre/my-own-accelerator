@@ -113,6 +113,23 @@ class TestReviewPR(ExtTestCase):
             extra_prompts=None,
         )
 
+    def test_main_verbose_flag_prints_progress(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        with (
+            patch(
+                "moa.commands.review_pr.review_pull_request",
+                return_value="# review",
+            ),
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch("moa.commands.review_pr._load_cache", return_value={}),
+        ):
+            code = main(["-v", "owner", "repo", "12"])
+        self.assertEqual(code, 0)
+        self.assertIn("review-pr: fetching owner/repo#12...", err.getvalue())
+        self.assertIn("review-pr: done.", err.getvalue())
+
     def test_call_copilot_review_returns_content(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
         with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:

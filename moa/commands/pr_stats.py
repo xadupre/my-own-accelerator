@@ -396,8 +396,9 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
             'class="bar" fill="#4e79a7"/>'
         )
         labels.append(
-            f'<text x="{x + bar_width / 2}" y="{baseline + 20}" '
-            'text-anchor="middle" class="label" fill="#111">'
+            f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
+            f'transform="rotate(-45 {x + bar_width / 2} {baseline + 20})" '
+            'class="label" fill="#111">'
             f"{escape(label)}</text>"
         )
         labels.append(
@@ -508,7 +509,19 @@ def main(argv: list[str] | None = None) -> int:
             "Defaults to <output-dir>/<prefix>_cache.json."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
+    )
     args = parser.parse_args(argv)
+    if args.verbose:
+        print(
+            f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
+            file=sys.stderr,
+        )
     try:
         outputs = save_pr_activity_report(
             owner=args.owner,
@@ -526,6 +539,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.verbose:
+        print("pr-stats: done.", file=sys.stderr)
     for _, path in outputs.items():
         print(path)
     return 0

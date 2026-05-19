@@ -362,7 +362,7 @@ def build_pr_activity_rows(
         filtered.append(pr)
     total = len(filtered)
     rows: list[dict[str, Any] | None] = [None] * total
-    pending: dict[Future[dict[str, Any]], int] = {}
+    pending: dict[Future[dict[str, Any]], tuple[int, int]] = {}
     completed = 0
     with ThreadPoolExecutor(max_workers=max(1, min(MAX_PR_QUERY_WORKERS, total))) as executor:
         for i, pr in enumerate(filtered):
@@ -374,9 +374,20 @@ def build_pr_activity_rows(
                 if verbose:
                     _print_progress(completed, total)
                 continue
-            pending[executor.submit(_build_pr_activity_row, pr, owner, repo, token, api_url)] = i
+            pending[executor.submit(_build_pr_activity_row, pr, owner, repo, token, api_url)] = (
+                i,
+                number,
+            )
         for future in as_completed(pending):
-            rows[pending[future]] = future.result()
+            index, pr_number = pending[future]
+            try:
+                rows[index] = future.result()
+            except HTTPError as e:
+                print(
+                    f"pr-stats: warning: failed to collect stats for PR #{pr_number} "
+                    f"(HTTPError {e.code}); continuing with partial data.",
+                    file=sys.stderr,
+                )
             completed += 1
             if verbose:
                 _print_progress(completed, total)

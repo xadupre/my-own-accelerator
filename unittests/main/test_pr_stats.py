@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from io import StringIO
 from threading import Barrier
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 import pandas
 
@@ -470,6 +471,63 @@ class TestPRStats(ExtTestCase):
             rows = build_pr_activity_rows("o", "r")
         self.assertEqual([row["number"] for row in rows], [1, 2])
         self.assertEqual([row["manual_comments"] for row in rows], [1, 2])
+
+    def test_build_pr_activity_rows_warns_and_keeps_partial_data_on_http_error(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            },
+            {
+                "number": 2,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "PR 2",
+                "created_at": "2026-01-03T00:00:00Z",
+                "merged_at": "2026-01-04T00:00:00Z",
+                "closed_at": "2026-01-04T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+            },
+        ]
+        err = StringIO()
+
+        def fake_collect_comments(
+            owner: str,
+            repo: str,
+            pull_number: int,
+            token: str | None = None,
+            api_url: str = "https://api.github.com",
+        ) -> tuple[int, int]:
+            del owner, repo, token, api_url
+            if pull_number == 2:
+                raise HTTPError("https://api.github.com", 403, "rate limited", {}, None)
+            return 1, 0
+
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch(
+                "moa.commands.pr_stats._collect_pr_comment_stats",
+                side_effect=fake_collect_comments,
+            ),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(0, [])),
+            patch("sys.stderr", err),
+        ):
+            rows = build_pr_activity_rows("o", "r")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["number"], 1)
+        self.assertIn(
+            "pr-stats: warning: failed to collect stats for PR #2 (HTTPError 403); "
+            "continuing with partial data.",
+            err.getvalue(),
+        )
 
     def test_default_since_format_and_value(self) -> None:
         result = _default_since()

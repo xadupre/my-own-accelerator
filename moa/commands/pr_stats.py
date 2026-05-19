@@ -66,7 +66,7 @@ def _parse_iso_datetime(value: str) -> datetime:
 def _default_prefix(repo: str) -> str:
     safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_-")
     if not safe_repo:
-        safe_repo = f"repo_{hashlib.sha1(repo.encode('utf-8')).hexdigest()[:8]}"
+        safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
     return f"pr_activity_{safe_repo}"
 
 

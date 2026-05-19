@@ -241,7 +241,7 @@ class TestPRStats(ExtTestCase):
         ) as mocked:
             code = main(["owner", "..."])
         self.assertEqual(code, 0)
-        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_repo_6eae3a5b")
+        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_repo_ab5df625")
 
     def test_collect_pr_job_duration_seconds(self) -> None:
         runs_payload = {

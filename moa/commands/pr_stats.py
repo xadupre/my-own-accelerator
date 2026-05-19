@@ -36,6 +36,9 @@ DARK_THEME_SVG_CSS = """<style>
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 MAX_PR_QUERY_WORKERS = 8
 SVG_LABEL_CHAR_WIDTH = 7
+SVG_AXIS_TOP = 40
+SVG_LINE_Y_AXIS_LABEL_X = 20
+SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN = 24
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -664,10 +667,11 @@ def _save_job_duration_line_graph(
         + avg_line
         + "".join(x_label_elems)
         + legend_elems
-        + f'<text x="{left + plot_w / 2:.1f}" y="{height - 24}" text-anchor="middle" '
+        + f'<text x="{left + plot_w / 2:.1f}" '
+        f'y="{height - SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
         f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-        + f'<text x="20" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
-        f'transform="rotate(-90 20 {top + plot_h / 2:.1f})" '
+        + f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
+        f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
         f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>' + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
@@ -822,7 +826,6 @@ def _save_bar_graph(
 ) -> None:
     if not values:
         values = {"none": 0}
-    axis_top = 40
     max_value = max(values.values()) if values else 0
     max_label_len = max(map(len, values), default=0)
     bar_width = 80
@@ -830,6 +833,7 @@ def _save_bar_graph(
     left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
     width = max(600, left + len(values) * (bar_width + gap) + 20)
+    y_axis_mid = (SVG_AXIS_TOP + baseline) / 2
     scale = 200 / max_value if max_value else 0
     bars = []
     labels = []
@@ -858,7 +862,7 @@ def _save_bar_graph(
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - 20}" y1="{axis_top}" x2="{left - 20}" y2="{baseline}" '
+        f'<line x1="{left - 20}" y1="{SVG_AXIS_TOP}" x2="{left - 20}" y2="{baseline}" '
         'class="axis" stroke="#000"/>'
         f'<line x1="{left - 20}" y1="{baseline}" '
         f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
@@ -871,8 +875,9 @@ def _save_bar_graph(
             else ""
         )
         + (
-            f'<text x="20" y="{(axis_top + baseline) / 2:.1f}" text-anchor="middle" '
-            f'transform="rotate(-90 20 {(axis_top + baseline) / 2:.1f})" '
+            f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{y_axis_mid:.1f}" '
+            f'text-anchor="middle" '
+            f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {y_axis_mid:.1f})" '
             f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
             if y_axis_label
             else ""

@@ -617,6 +617,12 @@ def build_pr_activity_rows(
         number = int(pr.get("number", 0))
         if not cache.get(str(number)):
             uncached_numbers.append(number)
+    if verbose and uncached_numbers:
+        print(
+            f"pr-stats: collecting comment stats for {len(uncached_numbers)} uncached PRs...",
+            file=sys.stderr,
+            flush=True,
+        )
     comment_stats = _collect_pr_comment_stats_batch(
         owner=owner,
         repo=repo,
@@ -629,6 +635,12 @@ def build_pr_activity_rows(
         for pr in filtered
         if not cache.get(str(int(pr.get("number", 0))))
     }
+    if verbose and uncached_heads:
+        print(
+            f"pr-stats: collecting workflow job stats for {len(uncached_heads)} uncached PRs...",
+            file=sys.stderr,
+            flush=True,
+        )
     job_info_stats = _collect_pr_job_info_batch(
         owner=owner,
         repo=repo,

@@ -1008,6 +1008,8 @@ class TestPRStats(ExtTestCase):
             rows = build_pr_activity_rows("o", "r", verbose=True)
         self.assertEqual(len(rows), 2)
         progress_output = err.getvalue()
+        self.assertIn("collecting comment stats for 2 uncached PRs", progress_output)
+        self.assertIn("collecting workflow job stats for 2 uncached PRs", progress_output)
         # Progress bar should mention 2/2 PRs total
         self.assertIn("2/2", progress_output)
         # Final line ends with a newline

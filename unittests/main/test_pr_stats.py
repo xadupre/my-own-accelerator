@@ -213,6 +213,36 @@ class TestPRStats(ExtTestCase):
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 
+    def test_main_default_prefix_sanitizes_repo_name(self) -> None:
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with patch(
+            "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+        ) as mocked:
+            code = main(["owner", "my:repo/name"])
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_my_repo_name")
+
+    def test_main_default_prefix_fallback_is_stable_for_invalid_repo(self) -> None:
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with patch(
+            "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+        ) as mocked:
+            code = main(["owner", "..."])
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_repo_6eae3a5b")
+
     def test_collect_pr_job_duration_seconds(self) -> None:
         runs_payload = {
             "workflow_runs": [

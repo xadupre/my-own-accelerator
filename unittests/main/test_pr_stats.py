@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -13,6 +14,7 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     _collect_pr_job_duration_seconds,
     _count_comments,
+    _default_since,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
@@ -196,6 +198,18 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["total_job_duration_seconds"], 456)
         mocked_collect.assert_not_called()
 
+    def test_default_since_format_and_value(self) -> None:
+        result = _default_since()
+        self.assertRegex(result, r"^\d{4}-\d{2}-\d{2}$")
+        # Must be roughly 6 months before today
+        from datetime import datetime, timezone
+
+        today = datetime.now(timezone.utc)
+        result_dt = datetime.fromisoformat(result)
+        diff_days = (today.replace(tzinfo=None) - result_dt).days
+        self.assertGreaterEqual(diff_days, 180)
+        self.assertLessEqual(diff_days, 185)
+
     def test_main_prints_output_paths(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -219,6 +233,10 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
         self.assertEqual(mocked_save.call_args.kwargs["prefix"], "pr_activity_repo")
+        # --since should default to 6 months ago (not None)
+        since_val = mocked_save.call_args.kwargs["since"]
+        self.assertIsNotNone(since_val)
+        self.assertRegex(since_val, r"^\d{4}-\d{2}-\d{2}$")
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 

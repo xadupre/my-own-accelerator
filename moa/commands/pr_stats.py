@@ -462,7 +462,7 @@ def main(argv: list[str] | None = None, prog: str = "pr-stats") -> int:
         description=(
             "Builds a report of completed pull requests with author, "
             "manual comments, Copilot commands, dates, and output files."
-        )
+        ),
     )
     parser.add_argument("owner", help="GitHub repository owner")
     parser.add_argument("repo", help="GitHub repository name")

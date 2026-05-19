@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
@@ -37,6 +38,7 @@ SVG_LABEL_CHAR_WIDTH = 7
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
+MAX_PR_STATS_WORKERS = 8
 SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_Y_AXIS_LABEL_X = 20
@@ -539,6 +541,7 @@ def build_pr_activity_rows(
         token=token,
         api_url=api_url,
     )
+    uncached_entries: list[tuple[int, dict[str, Any], int]] = []
     for i, pr in enumerate(filtered):
         number = int(pr.get("number", 0))
         cached = cache.get(str(number))
@@ -548,24 +551,35 @@ def build_pr_activity_rows(
             if verbose:
                 _print_progress(completed, total)
             continue
-        try:
-            rows[i] = _build_pr_activity_row(
-                pr,
-                owner,
-                repo,
-                token,
-                api_url,
-                comment_stats.get(number),
-            )
-        except HTTPError as e:
-            print(
-                f"pr-stats: warning: failed to collect stats for PR #{number} "
-                f"(HTTPError {e.code}); continuing with partial data.",
-                file=sys.stderr,
-            )
-        completed += 1
-        if verbose:
-            _print_progress(completed, total)
+        uncached_entries.append((i, pr, number))
+    if uncached_entries:
+        max_workers = min(MAX_PR_STATS_WORKERS, len(uncached_entries))
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(
+                    _build_pr_activity_row,
+                    pr,
+                    owner,
+                    repo,
+                    token,
+                    api_url,
+                    comment_stats.get(number),
+                ): (i, number)
+                for i, pr, number in uncached_entries
+            }
+            for future in as_completed(futures):
+                i, number = futures[future]
+                try:
+                    rows[i] = future.result()
+                except HTTPError as e:
+                    print(
+                        f"pr-stats: warning: failed to collect stats for PR #{number} "
+                        f"(HTTPError {e.code}); continuing with partial data.",
+                        file=sys.stderr,
+                    )
+                completed += 1
+                if verbose:
+                    _print_progress(completed, total)
     return [row for row in rows if row is not None]
 
 

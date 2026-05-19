@@ -3,6 +3,7 @@ import hashlib
 import json
 import pathlib
 import tempfile
+import threading
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
@@ -470,6 +471,53 @@ class TestPRStats(ExtTestCase):
         )
         self.assertEqual([row["number"] for row in rows], [1, 2])
         self.assertEqual([row["manual_comments"] for row in rows], [1, 2])
+
+    def test_build_pr_activity_rows_collects_uncached_prs_concurrently(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            },
+            {
+                "number": 2,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "PR 2",
+                "created_at": "2026-01-03T00:00:00Z",
+                "merged_at": "2026-01-04T00:00:00Z",
+                "closed_at": "2026-01-04T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+            },
+        ]
+        barrier = threading.Barrier(2)
+
+        def fake_build(
+            pr: dict[str, object],
+            owner: str,
+            repo: str,
+            token: str | None = None,
+            api_url: str = "https://api.github.com",
+            comment_stats: tuple[int, int] | None = None,
+        ) -> dict[str, object]:
+            del owner, repo, token, api_url, comment_stats
+            barrier.wait(timeout=1.0)
+            return {"number": int(pr["number"])}
+
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats_batch", return_value={}),
+            patch("moa.commands.pr_stats._build_pr_activity_row", side_effect=fake_build),
+        ):
+            rows = build_pr_activity_rows("o", "r")
+        self.assertEqual([row["number"] for row in rows], [1, 2])
 
     def test_build_pr_activity_rows_warns_and_keeps_partial_data_on_http_error(self) -> None:
         pulls = [

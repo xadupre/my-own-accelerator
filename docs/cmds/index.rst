@@ -1,5 +1,5 @@
-CMDs (Command Line Tools)
-=========================
+CMDs
+====
 
 The library implements command line tools for GitHub token setup, pull-request
 reviewing, and pull-request activity reporting.
@@ -28,6 +28,7 @@ reviewing, and pull-request activity reporting.
 
 .. toctree::
     :maxdepth: 1
+    :cpation: Command Lines
 
     github_token
     pr_stats

@@ -200,16 +200,16 @@ def _fetch_workflow_runs_by_head_sha(
     return rows
 
 
-def _collect_pr_job_duration_seconds(
+def _collect_pr_job_duration_hours(
     owner: str,
     repo: str,
     pull_number: int,
     head_sha: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
-) -> int:
+) -> float:
     if not head_sha:
-        return 0
+        return 0.0
     runs = _fetch_workflow_runs_by_head_sha(owner, repo, head_sha, token, api_url)
     total_seconds = 0
     for run in runs:
@@ -232,7 +232,7 @@ def _collect_pr_job_duration_seconds(
             completed_dt = _parse_iso_datetime(completed_at)
             if completed_dt >= started_dt:
                 total_seconds += int((completed_dt - started_dt).total_seconds())
-    return total_seconds
+    return round(total_seconds / 3600, 2)
 
 
 def build_pr_activity_rows(
@@ -269,7 +269,7 @@ def build_pr_activity_rows(
             token=token,
             api_url=api_url,
         )
-        total_job_duration_seconds = _collect_pr_job_duration_seconds(
+        total_job_duration_hours = _collect_pr_job_duration_hours(
             owner=owner,
             repo=repo,
             pull_number=number,
@@ -289,7 +289,7 @@ def build_pr_activity_rows(
                 "status": "merged" if merged_at else "cancelled",
                 "manual_comments": manual_comments,
                 "copilot_commands": copilot_commands,
-                "total_job_duration_seconds": total_job_duration_seconds,
+                "total_job_duration_hours": total_job_duration_hours,
                 "html_url": pr.get("html_url", ""),
             }
         )
@@ -307,7 +307,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
-        "total_job_duration_seconds",
+        "total_job_duration_hours",
         "html_url",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -341,27 +341,27 @@ def _week_label(value: str) -> str:
     return f"{iso_week.year}-W{iso_week.week:02d}"
 
 
-def _compute_pr_duration_seconds(row: dict[str, Any]) -> int | None:
-    """Return seconds from created_at to merged_at, or None if data is missing."""
+def _compute_pr_duration_hours(row: dict[str, Any]) -> float | None:
+    """Return hours from created_at to merged_at, or None if data is missing."""
     created_at = str(row.get("created_at", ""))
     merged_at = str(row.get("merged_at", ""))
     if not created_at or not merged_at:
         return None
     dt_created = _parse_iso_datetime(created_at)
     dt_merged = _parse_iso_datetime(merged_at)
-    return max(0, int((dt_merged - dt_created).total_seconds()))
+    return max(0.0, round((dt_merged - dt_created).total_seconds() / 3600, 2))
 
 
 def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration (created_at→merged_at) per author per merge week, merged PRs only."""
-    data: dict[tuple[str, str], list[int]] = {}
+    data: dict[tuple[str, str], list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
         week = _week_label(merged_at)
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault((author, week), []).append(duration)
@@ -374,7 +374,7 @@ def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[d
                 "author": author,
                 "week": week,
                 "pr_count": len(durations),
-                "avg_duration_seconds": round(sum(durations) / len(durations)),
+                "avg_duration_hours": round(sum(durations) / len(durations), 2),
             }
         )
     return result
@@ -382,36 +382,36 @@ def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[d
 
 def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration per author across all merged PRs."""
-    data: dict[str, list[int]] = {}
+    data: dict[str, list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault(author, []).append(duration)
     return [
-        {"author": author, "avg_duration_seconds": round(sum(ds) / len(ds))}
+        {"author": author, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
         for author, ds in sorted(data.items())
     ]
 
 
 def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration per merge week across all merged PRs."""
-    data: dict[str, list[int]] = {}
+    data: dict[str, list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         week = _week_label(merged_at)
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault(week, []).append(duration)
     return [
-        {"week": week, "avg_duration_seconds": round(sum(ds) / len(ds))}
+        {"week": week, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
         for week, ds in sorted(data.items())
     ]
 
@@ -478,7 +478,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
-        "total_job_duration_seconds",
+        "total_job_duration_hours",
         "html_url",
     ]
     comments_per_pr_headers = [
@@ -499,7 +499,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "author",
         "week",
         "pr_count",
-        "avg_duration_seconds",
+        "avg_duration_hours",
     ]
     with pandas.ExcelWriter(path, engine="openpyxl") as writer:
         pandas.DataFrame(_xlsx_sanitize_rows(rows, headers), columns=headers).to_excel(
@@ -634,18 +634,18 @@ def save_pr_activity_report(
     _save_bar_graph(
         avg_duration_per_user_svg_path,
         {
-            row["author"]: row["avg_duration_seconds"]
+            row["author"]: row["avg_duration_hours"]
             for row in _build_avg_duration_per_user_rows(rows)
         },
-        "Avg PR duration per user (seconds)",
+        "Avg PR duration per user (hours)",
     )
     _save_bar_graph(
         avg_duration_per_week_svg_path,
         {
-            row["week"]: row["avg_duration_seconds"]
+            row["week"]: row["avg_duration_hours"]
             for row in _build_avg_duration_per_week_rows(rows)
         },
-        "Avg PR duration per week (seconds)",
+        "Avg PR duration per week (hours)",
     )
     return {
         "csv": csv_path,

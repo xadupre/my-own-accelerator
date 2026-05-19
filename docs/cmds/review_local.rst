@@ -16,12 +16,11 @@ or through the package entrypoint:
 Synopsis:
 
 .. runpython::
-    :rst:
 
     from moa.commands.review_local import _build_parser
     parser = _build_parser()
-    usage = parser.format_usage().strip().replace("usage: ", "", 1)
-    print(f".. code-block:: text\n\n    {usage}")
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
 
 Examples::
 

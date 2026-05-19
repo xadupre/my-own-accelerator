@@ -312,7 +312,7 @@ def _xlsx_cell(col: int, row: int, value: Any) -> str:
 
 
 def _xlsx_safe_text(value: str) -> str:
-    # XML 1.0 valid chars for worksheet text nodes.
+    # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch
         for ch in value
@@ -486,9 +486,7 @@ def save_pr_activity_report(
     }
 
 
-def main(argv: list[str] | None = None) -> int:
-    if argv is None:
-        argv = sys.argv[1:]
+def _build_parser() -> argparse.ArgumentParser:
     token_default = os.environ.get("GITHUB_TOKEN") or None
     api_url_default = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
     parser = argparse.ArgumentParser(
@@ -527,6 +525,13 @@ def main(argv: list[str] | None = None) -> int:
             "Defaults to <output-dir>/<prefix>_cache.json."
         ),
     )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    parser = _build_parser()
     parser.add_argument(
         "-v",
         "--verbose",

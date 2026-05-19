@@ -39,7 +39,7 @@ SVG_LABEL_CHAR_WIDTH = 7
 SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_Y_AXIS_LABEL_X = 20
-SVG_X_AXIS_LABEL_BOTTOM_MARGIN = 24
+SVG_X_AXIS_LABEL_Y_OFFSET = 24
 SVG_BAR_MIN_WIDTH = 600
 SVG_BAR_X_AXIS_LABEL_Y = 350
 
@@ -655,7 +655,7 @@ def _save_job_duration_line_graph(
     )
     x_axis_label_elem = (
         f'<text x="{left + plot_w / 2:.1f}" '
-        f'y="{height - SVG_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
+        f'y="{height - SVG_X_AXIS_LABEL_Y_OFFSET}" text-anchor="middle" '
         f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
     )
     y_axis_label_elem = (
@@ -966,7 +966,7 @@ def save_pr_activity_report(
         comments_per_pr_svg_path,
         _build_pr_comments_distribution(rows),
         "PR count by number of comments",
-        x_axis_label="Total comments per PR",
+        x_axis_label="Comment count",
         y_axis_label="Pull requests (count)",
     )
     _save_bar_graph(

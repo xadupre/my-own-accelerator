@@ -86,9 +86,9 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["cache"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
+            cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
             status_svg = outputs["status_svg"].read_text(encoding="utf-8")
             xlsx_rows = pandas.read_excel(outputs["xlsx"]).to_dict(orient="records")
-            cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
         self.assertEqual(rows[0]["total_job_duration_seconds"], "180")

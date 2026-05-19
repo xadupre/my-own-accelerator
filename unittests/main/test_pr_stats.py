@@ -5,6 +5,7 @@ from io import StringIO
 from unittest.mock import patch
 
 from moa.commands.pr_stats import (
+    DEFAULT_OUTPUT_DIR,
     _collect_pr_job_duration_seconds,
     _count_comments,
     build_pr_activity_rows,
@@ -173,11 +174,14 @@ class TestPRStats(ExtTestCase):
                 ).name,
             }
             with (
-                patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+                patch(
+                    "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+                ) as mocked_save,
                 patch("sys.stdout", out),
             ):
                 code = main(["owner", "repo"])
         self.assertEqual(code, 0)
+        self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 

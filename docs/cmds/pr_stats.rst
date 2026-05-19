@@ -13,6 +13,15 @@ or through the package entrypoint:
 
     python -m moa pr-stats xadupre my-own-accelerator
 
+Synopsis:
+
+.. runpython::
+
+    from moa.commands.pr_stats import _build_parser
+    parser = _build_parser()
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
+
 The command scans completed pull requests (open PRs are skipped) and produces:
 
 * ``<prefix>.csv``

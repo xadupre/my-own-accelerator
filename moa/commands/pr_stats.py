@@ -36,6 +36,17 @@ DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 SVG_LABEL_CHAR_WIDTH = 7
 
 
+def _print_progress(current: int, total: int, file: Any = None) -> None:
+    """Print a simple ASCII progress bar to *file* (defaults to sys.stderr)."""
+    if file is None:
+        file = sys.stderr
+    bar_width = 30
+    filled = int(bar_width * current / total) if total else bar_width
+    bar = "=" * filled + "-" * (bar_width - filled)
+    end = "\n" if current >= total else "\r"
+    print(f"  [{bar}] {current}/{total}", end=end, file=file, flush=True)
+
+
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
@@ -242,6 +253,7 @@ def build_pr_activity_rows(
     api_url: str = "https://api.github.com",
     since: str | None = None,
     cached_rows: dict[str, dict[str, Any]] | None = None,
+    verbose: bool = False,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_iso_datetime(since) if since else None
     cache = cached_rows or {}
@@ -250,14 +262,22 @@ def build_pr_activity_rows(
         "?state=closed&sort=created&direction=desc"
     )
     pulls = _fetch_paginated(pulls_url, token)
-    rows: list[dict[str, Any]] = []
+    # Pre-filter to the PRs that will actually be processed so we can show
+    # an accurate progress bar total.
+    filtered: list[dict[str, Any]] = []
     for pr in pulls:
         if pr.get("state") != "closed":
             continue
-        number = int(pr.get("number", 0))
         created_at = str(pr.get("created_at", ""))
         if since_dt and created_at and _parse_iso_datetime(created_at) < since_dt:
             continue
+        filtered.append(pr)
+    total = len(filtered)
+    rows: list[dict[str, Any]] = []
+    for i, pr in enumerate(filtered):
+        if verbose:
+            _print_progress(i + 1, total)
+        number = int(pr.get("number", 0))
         cached = cache.get(str(number))
         if cached:
             rows.append(cached)
@@ -278,6 +298,7 @@ def build_pr_activity_rows(
             api_url=api_url,
         )
         merged_at = pr.get("merged_at")
+        created_at = str(pr.get("created_at", ""))
         rows.append(
             {
                 "number": number,
@@ -602,6 +623,7 @@ def save_pr_activity_report(
     api_url: str = "https://api.github.com",
     since: str | None = None,
     cache_file: str | None = None,
+    verbose: bool = False,
 ) -> dict[str, pathlib.Path]:
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -614,6 +636,7 @@ def save_pr_activity_report(
         api_url=api_url,
         since=since,
         cached_rows=cached_rows,
+        verbose=verbose,
     )
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
@@ -753,6 +776,7 @@ def main(argv: list[str] | None = None) -> int:
             api_url=args.api_url,
             since=since,
             cache_file=args.cache_file,
+            verbose=args.verbose,
         )
     except (HTTPError, URLError, OSError, ValueError) as e:
         print(

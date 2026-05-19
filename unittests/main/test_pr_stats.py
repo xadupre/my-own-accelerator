@@ -19,6 +19,7 @@ from moa.commands.pr_stats import (
     _collect_pr_job_duration_seconds,
     _count_comments,
     _default_since,
+    _print_progress,
     _save_bar_graph,
     build_pr_activity_rows,
     main,
@@ -478,6 +479,63 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("pr-stats: collecting pull request data for owner/repo...", err.getvalue())
         self.assertIn("pr-stats: done.", err.getvalue())
+
+    def test_print_progress_outputs_bar(self) -> None:
+        buf = StringIO()
+        _print_progress(1, 5, file=buf)
+        output = buf.getvalue()
+        self.assertIn("[", output)
+        self.assertIn("]", output)
+        self.assertIn("1/5", output)
+        # Intermediate step ends with carriage return, not newline
+        self.assertTrue(output.endswith("\r"))
+
+    def test_print_progress_final_step_ends_with_newline(self) -> None:
+        buf = StringIO()
+        _print_progress(5, 5, file=buf)
+        output = buf.getvalue()
+        self.assertIn("5/5", output)
+        self.assertTrue(output.endswith("\n"))
+
+    def test_build_pr_activity_rows_verbose_prints_progress(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            },
+            {
+                "number": 2,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "PR 2",
+                "created_at": "2026-01-03T00:00:00Z",
+                "merged_at": None,
+                "closed_at": "2026-01-04T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+            },
+        ]
+        err = StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(0, 0)),
+            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=0),
+            patch("sys.stderr", err),
+        ):
+            rows = build_pr_activity_rows("o", "r", verbose=True)
+        self.assertEqual(len(rows), 2)
+        progress_output = err.getvalue()
+        # Progress bar should mention 2/2 PRs total
+        self.assertIn("2/2", progress_output)
+        # Final line ends with a newline
+        self.assertTrue(progress_output.endswith("\n"))
 
     def test_build_pr_comments_distribution(self) -> None:
         rows = [

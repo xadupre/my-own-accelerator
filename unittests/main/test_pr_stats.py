@@ -1001,6 +1001,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(total, 60)
         self.assertEqual(len(jobs), 1)
 
+    def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [
             {
                 "number": 1,

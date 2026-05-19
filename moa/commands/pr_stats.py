@@ -399,10 +399,10 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         )
     dark_theme_css = """<style>
 @media (prefers-color-scheme: dark){
-.bg{fill:#0d1117;}
-.label{fill:#e6edf3;}
-.axis{stroke:#8b949e;}
-.bar{fill:#79c0ff;}
+.bg { fill: #0d1117; }
+.label { fill: #e6edf3; }
+.axis { stroke: #8b949e; }
+.bar { fill: #79c0ff; }
 }
 </style>"""
     svg = (

@@ -12,11 +12,10 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
-from urllib import parse
+from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
 import pandas
@@ -34,8 +33,10 @@ DARK_THEME_SVG_CSS = """<style>
 }
 </style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
-MAX_PR_QUERY_WORKERS = 8
 SVG_LABEL_CHAR_WIDTH = 7
+# Keep GraphQL batch sizes moderate to avoid oversized query payloads.
+PR_COMMENT_BATCH_SIZE = 20
+GRAPHQL_PAGE_SIZE = 100
 SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_Y_AXIS_LABEL_X = 20
@@ -159,6 +160,159 @@ def _collect_pr_comment_stats(
         if isinstance(comment, dict)
     ]
     return _count_comments(bodies)
+
+
+def _graphql_api_url(api_url: str) -> str:
+    base = api_url.rstrip("/")
+    if base.endswith("/graphql"):
+        return base
+    if base.endswith("/api/v3"):
+        return f"{base[:-7]}/api/graphql"
+    return f"{base}/graphql"
+
+
+def _fetch_graphql_json(
+    query: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> Any:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Content-Type": "application/json",
+        "User-Agent": "moa/pr-stats",
+    }
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    payload = json.dumps({"query": query}).encode("utf-8")
+    req = request.Request(_graphql_api_url(api_url), data=payload, headers=headers, method="POST")
+    with request.urlopen(req) as response:
+        return json.load(response)
+
+
+def _build_pr_comments_batch_query(owner: str, repo: str, pull_numbers: list[int]) -> str:
+    parts = []
+    owner_json = json.dumps(owner)
+    repo_json = json.dumps(repo)
+    for number in pull_numbers:
+        alias = f"pr_{number}"
+        parts.append(f"""
+      {alias}: pullRequest(number: {number}) {{
+        comments(first: {GRAPHQL_PAGE_SIZE}) {{
+          totalCount
+          nodes {{ body }}
+        }}
+        reviews(first: {GRAPHQL_PAGE_SIZE}) {{
+          totalCount
+          nodes {{ body }}
+        }}
+        reviewThreads(first: {GRAPHQL_PAGE_SIZE}) {{
+          totalCount
+          nodes {{
+            comments(first: {GRAPHQL_PAGE_SIZE}) {{
+              totalCount
+              nodes {{ body }}
+            }}
+          }}
+        }}
+      }}""")
+    return (
+        "query {"
+        f" repository(owner: {owner_json}, name: {repo_json}) {{" + "".join(parts) + " } }"
+    )
+
+
+def _collect_pr_comment_stats_batch(
+    owner: str,
+    repo: str,
+    pull_numbers: list[int],
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> dict[int, tuple[int, int]]:
+    if not pull_numbers:
+        return {}
+    results: dict[int, tuple[int, int]] = {}
+    for start in range(0, len(pull_numbers), PR_COMMENT_BATCH_SIZE):
+        chunk = pull_numbers[start : start + PR_COMMENT_BATCH_SIZE]
+        query = _build_pr_comments_batch_query(owner, repo, chunk)
+        fallback = set(chunk)
+        try:
+            payload = _fetch_graphql_json(query, token=token, api_url=api_url)
+            data = payload.get("data") if isinstance(payload, dict) else None
+            repository = data.get("repository") if isinstance(data, dict) else None
+            if isinstance(repository, dict):
+                for number in chunk:
+                    alias = f"pr_{number}"
+                    pr_data = repository.get(alias)
+                    if not isinstance(pr_data, dict):
+                        continue
+                    bodies: list[str] = []
+                    truncated = False
+                    comments = pr_data.get("comments")
+                    if isinstance(comments, dict):
+                        nodes = comments.get("nodes")
+                        if isinstance(nodes, list):
+                            bodies.extend(
+                                str(node.get("body", ""))
+                                for node in nodes
+                                if isinstance(node, dict)
+                            )
+                            truncated = truncated or int(comments.get("totalCount", 0)) > len(
+                                nodes
+                            )
+                    reviews = pr_data.get("reviews")
+                    if isinstance(reviews, dict):
+                        nodes = reviews.get("nodes")
+                        if isinstance(nodes, list):
+                            bodies.extend(
+                                str(node.get("body", ""))
+                                for node in nodes
+                                if isinstance(node, dict)
+                            )
+                            truncated = truncated or int(reviews.get("totalCount", 0)) > len(
+                                nodes
+                            )
+                    review_threads = pr_data.get("reviewThreads")
+                    if isinstance(review_threads, dict):
+                        threads = review_threads.get("nodes")
+                        if isinstance(threads, list):
+                            truncated = truncated or int(
+                                review_threads.get("totalCount", 0)
+                            ) > len(threads)
+                            for thread in threads:
+                                if not isinstance(thread, dict):
+                                    continue
+                                thread_comments = thread.get("comments")
+                                if not isinstance(thread_comments, dict):
+                                    continue
+                                nodes = thread_comments.get("nodes")
+                                if isinstance(nodes, list):
+                                    bodies.extend(
+                                        str(node.get("body", ""))
+                                        for node in nodes
+                                        if isinstance(node, dict)
+                                    )
+                                    truncated = truncated or int(
+                                        thread_comments.get("totalCount", 0)
+                                    ) > len(nodes)
+                    if not truncated:
+                        results[number] = _count_comments(bodies)
+                        fallback.discard(number)
+        except (OSError, ValueError, HTTPError, URLError):
+            # Any GraphQL failure falls back to the existing per-PR REST queries below.
+            pass
+        for number in sorted(fallback):
+            try:
+                results[number] = _collect_pr_comment_stats(
+                    owner=owner,
+                    repo=repo,
+                    pull_number=number,
+                    token=token,
+                    api_url=api_url,
+                )
+            except HTTPError:
+                # Keep this PR unresolved here; row-building handles the warning/skip behavior.
+                continue
+    return results
 
 
 def _fetch_workflow_run_jobs(
@@ -305,15 +459,19 @@ def _build_pr_activity_row(
     repo: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    comment_stats: tuple[int, int] | None = None,
 ) -> dict[str, Any]:
     number = int(pr.get("number", 0))
-    manual_comments, copilot_commands = _collect_pr_comment_stats(
-        owner=owner,
-        repo=repo,
-        pull_number=number,
-        token=token,
-        api_url=api_url,
-    )
+    if comment_stats is None:
+        manual_comments, copilot_commands = _collect_pr_comment_stats(
+            owner=owner,
+            repo=repo,
+            pull_number=number,
+            token=token,
+            api_url=api_url,
+        )
+    else:
+        manual_comments, copilot_commands = comment_stats
     total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
         owner=owner,
         repo=repo,
@@ -368,35 +526,46 @@ def build_pr_activity_rows(
         filtered.append(pr)
     total = len(filtered)
     rows: list[dict[str, Any] | None] = [None] * total
-    pending: dict[Future[dict[str, Any]], tuple[int, int]] = {}
     completed = 0
-    with ThreadPoolExecutor(max_workers=max(1, min(MAX_PR_QUERY_WORKERS, total))) as executor:
-        for i, pr in enumerate(filtered):
-            number = int(pr.get("number", 0))
-            cached = cache.get(str(number))
-            if cached:
-                rows[i] = cached
-                completed += 1
-                if verbose:
-                    _print_progress(completed, total)
-                continue
-            pending[executor.submit(_build_pr_activity_row, pr, owner, repo, token, api_url)] = (
-                i,
-                number,
-            )
-        for future in as_completed(pending):
-            index, pr_number = pending[future]
-            try:
-                rows[index] = future.result()
-            except HTTPError as e:
-                print(
-                    f"pr-stats: warning: failed to collect stats for PR #{pr_number} "
-                    f"(HTTPError {e.code}); continuing with partial data.",
-                    file=sys.stderr,
-                )
+    uncached_numbers = []
+    for pr in filtered:
+        number = int(pr.get("number", 0))
+        if not cache.get(str(number)):
+            uncached_numbers.append(number)
+    comment_stats = _collect_pr_comment_stats_batch(
+        owner=owner,
+        repo=repo,
+        pull_numbers=uncached_numbers,
+        token=token,
+        api_url=api_url,
+    )
+    for i, pr in enumerate(filtered):
+        number = int(pr.get("number", 0))
+        cached = cache.get(str(number))
+        if cached:
+            rows[i] = cached
             completed += 1
             if verbose:
                 _print_progress(completed, total)
+            continue
+        try:
+            rows[i] = _build_pr_activity_row(
+                pr,
+                owner,
+                repo,
+                token,
+                api_url,
+                comment_stats.get(number),
+            )
+        except HTTPError as e:
+            print(
+                f"pr-stats: warning: failed to collect stats for PR #{number} "
+                f"(HTTPError {e.code}); continuing with partial data.",
+                file=sys.stderr,
+            )
+        completed += 1
+        if verbose:
+            _print_progress(completed, total)
     return [row for row in rows if row is not None]
 
 

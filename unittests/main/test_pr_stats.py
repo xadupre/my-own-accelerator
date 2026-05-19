@@ -3,12 +3,10 @@ import hashlib
 import json
 import pathlib
 import tempfile
-import time
 import xml.etree.ElementTree as ET
 import zipfile
 from datetime import datetime, timezone
 from io import StringIO
-from threading import Barrier
 from unittest.mock import patch
 from urllib.error import HTTPError
 
@@ -426,7 +424,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["total_job_duration_hours"], 0.13)
         mocked_collect.assert_not_called()
 
-    def test_build_pr_activity_rows_queries_multiple_prs_concurrently(self) -> None:
+    def test_build_pr_activity_rows_batches_comment_queries_for_many_prs(self) -> None:
         pulls = [
             {
                 "number": 1,
@@ -451,30 +449,25 @@ class TestPRStats(ExtTestCase):
                 "head": {"sha": "def"},
             },
         ]
-        barrier = Barrier(2)
-
-        def fake_collect_comments(
-            owner: str,
-            repo: str,
-            pull_number: int,
-            token: str | None = None,
-            api_url: str = "https://api.github.com",
-        ) -> tuple[int, int]:
-            del owner, repo, token, api_url
-            barrier.wait(timeout=1)
-            if pull_number == 1:
-                time.sleep(0.05)
-            return pull_number, 0
-
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch(
+                "moa.commands.pr_stats._collect_pr_comment_stats_batch",
+                return_value={1: (1, 0), 2: (2, 0)},
+            ) as mocked_batch,
+            patch(
                 "moa.commands.pr_stats._collect_pr_comment_stats",
-                side_effect=fake_collect_comments,
             ),
             patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(0, [])),
         ):
             rows = build_pr_activity_rows("o", "r")
+        mocked_batch.assert_called_once_with(
+            owner="o",
+            repo="r",
+            pull_numbers=[1, 2],
+            token=None,
+            api_url="https://api.github.com",
+        )
         self.assertEqual([row["number"] for row in rows], [1, 2])
         self.assertEqual([row["manual_comments"] for row in rows], [1, 2])
 

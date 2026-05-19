@@ -21,6 +21,14 @@ from .review_pr import _fetch_json
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
+DARK_THEME_SVG_CSS = """<style>
+@media (prefers-color-scheme: dark){
+.bg { fill: #0d1117; }
+.label { fill: #e6edf3; }
+.axis { stroke: #8b949e; }
+.bar { fill: #79c0ff; }
+}
+</style>"""
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -397,17 +405,9 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
             'text-anchor="middle" class="label" fill="#111">'
             f"{value}</text>"
         )
-    dark_theme_css = """<style>
-@media (prefers-color-scheme: dark){
-.bg { fill: #0d1117; }
-.label { fill: #e6edf3; }
-.axis { stroke: #8b949e; }
-.bar { fill: #79c0ff; }
-}
-</style>"""
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
-        f"{dark_theme_css}"
+        f"{DARK_THEME_SVG_CSS}"
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'

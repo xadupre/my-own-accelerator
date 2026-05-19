@@ -878,7 +878,7 @@ def _save_job_duration_line_graph(
     avg_pairs = [(x_pos(i), y_pos(v)) for i, v in enumerate(avg) if v is not None]
     avg_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in avg_pairs)
 
-    # X-axis labels (every max(1, n//8)-th point, rotated 15°)
+    # X-axis labels (every max(1, n//8)-th point, rotated 15° clockwise)
     step = max(1, n // 8)
     x_label_elems = []
     for i in range(0, n, step):

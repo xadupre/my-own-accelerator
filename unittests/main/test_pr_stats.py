@@ -5,6 +5,7 @@ import re
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime, timezone
 from io import StringIO
 from unittest.mock import patch
 
@@ -202,8 +203,6 @@ class TestPRStats(ExtTestCase):
         result = _default_since()
         self.assertRegex(result, r"^\d{4}-\d{2}-\d{2}$")
         # Must be roughly 6 months before today
-        from datetime import datetime, timezone
-
         today = datetime.now(timezone.utc)
         result_dt = datetime.fromisoformat(result)
         diff_days = (today.replace(tzinfo=None) - result_dt).days

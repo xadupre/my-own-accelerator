@@ -81,7 +81,11 @@ def _default_prefix(repo: str) -> str:
 
 
 def _default_since() -> str:
-    """Return an ISO date string for 6 months ago (YYYY-MM-DD)."""
+    """Return an ISO date string for 6 months ago (YYYY-MM-DD).
+
+    The day is clamped to the last valid day of the target month to handle
+    months shorter than the current one (e.g. March 31 → September 30).
+    """
     today = datetime.now(timezone.utc)
     year, month = today.year, today.month - 6
     if month <= 0:

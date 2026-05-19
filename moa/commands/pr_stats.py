@@ -34,7 +34,9 @@ DARK_THEME_SVG_CSS = """<style>
 </style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 SVG_LABEL_CHAR_WIDTH = 7
+# Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
+GRAPHQL_PAGE_SIZE = 100
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -189,18 +191,18 @@ def _build_pr_comments_batch_query(owner: str, repo: str, pull_numbers: list[int
         alias = f"pr_{number}"
         parts.append(f"""
       {alias}: pullRequest(number: {number}) {{
-        comments(first: 100) {{
+        comments(first: {GRAPHQL_PAGE_SIZE}) {{
           totalCount
           nodes {{ body }}
         }}
-        reviews(first: 100) {{
+        reviews(first: {GRAPHQL_PAGE_SIZE}) {{
           totalCount
           nodes {{ body }}
         }}
-        reviewThreads(first: 100) {{
+        reviewThreads(first: {GRAPHQL_PAGE_SIZE}) {{
           totalCount
           nodes {{
-            comments(first: 100) {{
+            comments(first: {GRAPHQL_PAGE_SIZE}) {{
               totalCount
               nodes {{ body }}
             }}
@@ -290,6 +292,7 @@ def _collect_pr_comment_stats_batch(
                         results[number] = _count_comments(bodies)
                         fallback.discard(number)
         except (OSError, ValueError, HTTPError, URLError):
+            # Any GraphQL failure falls back to the existing per-PR REST queries below.
             pass
         for number in sorted(fallback):
             results[number] = _collect_pr_comment_stats(
@@ -514,11 +517,11 @@ def build_pr_activity_rows(
     total = len(filtered)
     rows: list[dict[str, Any] | None] = [None] * total
     completed = 0
-    uncached_numbers = [
-        int(pr.get("number", 0))
-        for pr in filtered
-        if not cache.get(str(int(pr.get("number", 0))))
-    ]
+    uncached_numbers = []
+    for pr in filtered:
+        number = int(pr.get("number", 0))
+        if not cache.get(str(number)):
+            uncached_numbers.append(number)
     comment_stats = _collect_pr_comment_stats_batch(
         owner=owner,
         repo=repo,

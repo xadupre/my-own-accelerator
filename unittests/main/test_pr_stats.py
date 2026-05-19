@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import tempfile
 import xml.etree.ElementTree as ET
@@ -241,7 +242,8 @@ class TestPRStats(ExtTestCase):
         ) as mocked:
             code = main(["owner", "..."])
         self.assertEqual(code, 0)
-        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_repo_ab5df625")
+        expected = hashlib.sha256(b"...").hexdigest()[:8]
+        self.assertEqual(mocked.call_args.kwargs["prefix"], f"pr_activity_repo_{expected}")
 
     def test_collect_pr_job_duration_seconds(self) -> None:
         runs_payload = {

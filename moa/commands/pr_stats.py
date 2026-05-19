@@ -56,6 +56,7 @@ def _print_progress(current: int, total: int, file: Any = None) -> None:
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
+    """Fetch all paginated JSON list results for a GitHub REST endpoint."""
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -74,6 +75,7 @@ def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]
 
 
 def _count_comments(comment_bodies: list[str]) -> tuple[int, int]:
+    """Count manual comments and Copilot command comments in *comment_bodies*."""
     manual = 0
     copilot = 0
     for body in comment_bodies:
@@ -85,6 +87,7 @@ def _count_comments(comment_bodies: list[str]) -> tuple[int, int]:
 
 
 def _parse_iso_datetime(value: str) -> datetime:
+    """Parse an ISO date/datetime string into a timezone-aware datetime."""
     cleaned = value.strip()
     if not cleaned:
         raise ValueError("Datetime value cannot be empty.")
@@ -94,11 +97,13 @@ def _parse_iso_datetime(value: str) -> datetime:
 
 
 def _default_prefix(repo: str) -> str:
+    """Build the default output prefix for a repository name."""
     safe_repo = _safe_repo_name(repo)
     return f"pr_activity_{safe_repo}"
 
 
 def _safe_repo_name(repo: str) -> str:
+    """Return a filesystem-safe repository token used in generated file names."""
     safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_")
     if not safe_repo:
         safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
@@ -121,6 +126,7 @@ def _default_since() -> str:
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """Load cached PR rows from disk, returning an empty cache on invalid content."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -138,6 +144,7 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
 
 
 def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Persist PR rows to the JSON cache file keyed by PR number."""
     payload = {"rows": {str(row["number"]): row for row in rows}}
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -150,6 +157,7 @@ def _collect_pr_comment_stats(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> tuple[int, int]:
+    """Collect per-PR comment stats via REST and return (manual, copilot) counts."""
     if verbose:
         print(
             f"pr-stats: fetching comment stats for PR #{pull_number}...",
@@ -169,6 +177,7 @@ def _collect_pr_comment_stats(
 
 
 def _graphql_api_url(api_url: str) -> str:
+    """Resolve the GraphQL endpoint URL from a GitHub REST API base URL."""
     base = api_url.rstrip("/")
     if base.endswith("/graphql"):
         return base
@@ -182,6 +191,7 @@ def _fetch_graphql_json(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> Any:
+    """Execute a GraphQL query and return the decoded JSON payload."""
     headers = {
         "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
@@ -196,6 +206,7 @@ def _fetch_graphql_json(
 
 
 def _build_pr_comments_batch_query(owner: str, repo: str, pull_numbers: list[int]) -> str:
+    """Build one GraphQL query fetching comments/reviews for multiple PR numbers."""
     parts = []
     owner_json = json.dumps(owner)
     repo_json = json.dumps(repo)
@@ -235,6 +246,7 @@ def _collect_pr_comment_stats_batch(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> dict[int, tuple[int, int]]:
+    """Batch-load comment stats for PRs with GraphQL and REST fallback."""
     if not pull_numbers:
         return {}
     results: dict[int, tuple[int, int]] = {}
@@ -338,6 +350,7 @@ def _fetch_workflow_run_jobs(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> list[dict[str, Any]]:
+    """Fetch all jobs for one workflow run."""
     rows: list[dict[str, Any]] = []
     page = 1
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
@@ -367,6 +380,7 @@ def _fetch_workflow_runs_by_head_sha(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> list[dict[str, Any]]:
+    """Fetch workflow runs associated with a given head commit SHA."""
     rows: list[dict[str, Any]] = []
     page = 1
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
@@ -460,6 +474,7 @@ def _collect_pr_job_info_batch(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> dict[int, tuple[int, list[dict[str, Any]]]]:
+    """Batch-collect workflow job durations for PRs keyed by pull request number."""
     if not pull_head_shas:
         return {}
     by_sha: dict[str, list[int]] = {}
@@ -558,6 +573,7 @@ def _collect_pr_job_duration_hours(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> float:
+    """Return total workflow job duration for one PR in hours."""
     total_seconds, _ = _collect_pr_job_info(
         owner, repo, pull_number, head_sha, token, api_url, verbose
     )
@@ -573,6 +589,7 @@ def _collect_pr_job_duration_seconds(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> int:
+    """Return total workflow job duration for one PR in seconds."""
     total_seconds, _ = _collect_pr_job_info(
         owner, repo, pull_number, head_sha, token, api_url, verbose
     )
@@ -588,6 +605,7 @@ def _build_pr_activity_row(
     comment_stats: tuple[int, int] | None = None,
     job_info: tuple[int, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    """Build one normalized report row for a pull request."""
     number = int(pr.get("number", 0))
     if comment_stats is None:
         manual_comments, copilot_commands = _collect_pr_comment_stats(
@@ -637,6 +655,7 @@ def build_pr_activity_rows(
     cached_rows: dict[str, dict[str, Any]] | None = None,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
+    """Build report rows for closed pull requests, reusing cached values when available."""
     since_dt = _parse_iso_datetime(since) if since else None
     cache = cached_rows or {}
     pulls_url = (
@@ -727,6 +746,7 @@ def build_pr_activity_rows(
 
 
 def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Write the main PR activity rows to CSV."""
     fieldnames = [
         "number",
         "author",
@@ -747,6 +767,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _xlsx_safe_text(value: str) -> str:
+    """Strip XML-invalid control characters from XLSX text cell content."""
     # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch
@@ -756,6 +777,7 @@ def _xlsx_safe_text(value: str) -> str:
 
 
 def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[dict[str, Any]]:
+    """Sanitize string cells for XLSX output while preserving header ordering."""
     sanitized_rows = []
     for row in rows:
         sanitized_row: dict[str, Any] = {}
@@ -767,6 +789,7 @@ def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[
 
 
 def _week_label(value: str) -> str:
+    """Convert a datetime string to ``YYYY-Www`` ISO week label format."""
     iso_week = _parse_iso_datetime(value).isocalendar()
     return f"{iso_week.year}-W{iso_week.week:02d}"
 
@@ -895,6 +918,7 @@ _save_graphs_html_report = save_graphs_html_report
 
 
 def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build per-PR comment summary rows sorted by pull request number."""
     return [
         {
             "number": row.get("number", 0),
@@ -923,6 +947,7 @@ def _build_pr_comments_distribution(rows: list[dict[str, Any]]) -> dict[str, int
 
 
 def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate created pull requests into weekly counts."""
     prs_per_week: Counter[str] = Counter()
     for row in rows:
         created_at = str(row.get("created_at", ""))
@@ -935,6 +960,7 @@ def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate manual, Copilot, and total comments by PR creation week."""
     comments_per_week: dict[str, dict[str, Any]] = {}
     for row in rows:
         created_at = str(row.get("created_at", ""))
@@ -959,6 +985,7 @@ def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Write the multi-sheet XLSX report derived from PR activity rows."""
     headers = [
         "number",
         "author",
@@ -1048,6 +1075,7 @@ def save_pr_activity_report(
     cache_file: str | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
+    """Generate CSV/XLSX/SVG/HTML PR activity outputs and return their paths."""
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     graph_dir = out / f"graphs_{_safe_repo_name(repo)}"
@@ -1208,6 +1236,7 @@ def save_pr_activity_report(
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Create the command-line parser for the ``pr-stats`` command."""
     token_default = os.environ.get("GITHUB_TOKEN") or None
     api_url_default = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
     parser = argparse.ArgumentParser(
@@ -1251,6 +1280,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for generating pull request activity reports."""
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()

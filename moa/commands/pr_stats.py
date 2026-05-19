@@ -295,13 +295,17 @@ def _collect_pr_comment_stats_batch(
             # Any GraphQL failure falls back to the existing per-PR REST queries below.
             pass
         for number in sorted(fallback):
-            results[number] = _collect_pr_comment_stats(
-                owner=owner,
-                repo=repo,
-                pull_number=number,
-                token=token,
-                api_url=api_url,
-            )
+            try:
+                results[number] = _collect_pr_comment_stats(
+                    owner=owner,
+                    repo=repo,
+                    pull_number=number,
+                    token=token,
+                    api_url=api_url,
+                )
+            except HTTPError:
+                # Keep this PR unresolved here; row-building handles the warning/skip behavior.
+                continue
     return results
 
 
@@ -538,14 +542,21 @@ def build_pr_activity_rows(
             if verbose:
                 _print_progress(completed, total)
             continue
-        rows[i] = _build_pr_activity_row(
-            pr,
-            owner,
-            repo,
-            token,
-            api_url,
-            comment_stats.get(number),
-        )
+        try:
+            rows[i] = _build_pr_activity_row(
+                pr,
+                owner,
+                repo,
+                token,
+                api_url,
+                comment_stats.get(number),
+            )
+        except HTTPError as e:
+            print(
+                f"pr-stats: warning: failed to collect stats for PR #{number} "
+                f"(HTTPError {e.code}); continuing with partial data.",
+                file=sys.stderr,
+            )
         completed += 1
         if verbose:
             _print_progress(completed, total)

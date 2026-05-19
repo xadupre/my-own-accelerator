@@ -281,7 +281,7 @@ class TestPRStats(ExtTestCase):
         expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
         self.assertIn(f'x1="{expected_left - 20}"', svg)
         self.assertIn(f'<rect x="{expected_left}"', svg)
-        self.assertIn("transform=\"rotate(-30 ", svg)
+        self.assertIn('transform="rotate(-30 ', svg)
         self.assertIn("manual_comments", svg)
         self.assertIn("copilot_commands", svg)
 

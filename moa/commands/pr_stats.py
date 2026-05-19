@@ -325,17 +325,14 @@ def _week_label(value: str) -> str:
 
 
 def _compute_pr_duration_seconds(row: dict[str, Any]) -> int | None:
-    """Return seconds from created_at to merged_at, or None if data is missing/invalid."""
+    """Return seconds from created_at to merged_at, or None if data is missing."""
     created_at = str(row.get("created_at", ""))
     merged_at = str(row.get("merged_at", ""))
     if not created_at or not merged_at:
         return None
-    try:
-        dt_created = _parse_iso_datetime(created_at)
-        dt_merged = _parse_iso_datetime(merged_at)
-        return max(0, int((dt_merged - dt_created).total_seconds()))
-    except (ValueError, OverflowError):
-        return None
+    dt_created = _parse_iso_datetime(created_at)
+    dt_merged = _parse_iso_datetime(merged_at)
+    return max(0, int((dt_merged - dt_created).total_seconds()))
 
 
 def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

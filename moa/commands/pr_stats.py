@@ -1217,7 +1217,9 @@ def save_pr_activity_report(
             cached_rows=cached_rows,
             verbose=verbose,
         )
-    except (HTTPError, URLError, OSError, ValueError):
+    except (HTTPError, URLError, OSError, ValueError) as e:
+        if isinstance(e, HTTPError) and e.code == 404:
+            raise
         fallback_rows = list(cached_rows.values())
         if fallback_rows:
             _save_cache(cache_path, fallback_rows)

@@ -37,6 +37,12 @@ SVG_LABEL_CHAR_WIDTH = 7
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
+SVG_AXIS_MARGIN = 20
+SVG_AXIS_TOP = 40
+SVG_Y_AXIS_LABEL_X = 20
+SVG_X_AXIS_LABEL_Y_OFFSET = 24
+SVG_BAR_MIN_WIDTH = 600
+SVG_BAR_X_AXIS_LABEL_Y = 350
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -720,6 +726,8 @@ def _save_job_duration_line_graph(
     series: list[dict[str, Any]],
     title: str,
     moving_avg_window: int = 10,
+    x_axis_label: str = "Completion date",
+    y_axis_label: str = "Duration (seconds)",
 ) -> None:
     """Save a line-graph SVG of job duration over time with a moving average.
 
@@ -825,6 +833,16 @@ def _save_job_duration_line_graph(
         if avg_str
         else ""
     )
+    x_axis_label_elem = (
+        f'<text x="{left + plot_w / 2:.1f}" '
+        f'y="{height - SVG_X_AXIS_LABEL_Y_OFFSET}" text-anchor="middle" '
+        f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
+    )
+    y_axis_label_elem = (
+        f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
+        f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
+        f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
+    )
 
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
@@ -842,6 +860,8 @@ def _save_job_duration_line_graph(
         + avg_line
         + "".join(x_label_elems)
         + legend_elems
+        + x_axis_label_elem
+        + y_axis_label_elem
         + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
@@ -987,7 +1007,13 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         ).to_excel(writer, index=False, sheet_name="Job durations")
 
 
-def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> None:
+def _save_bar_graph(
+    path: pathlib.Path,
+    values: dict[str, int],
+    title: str,
+    x_axis_label: str | None = None,
+    y_axis_label: str | None = None,
+) -> None:
     if not values:
         values = {"none": 0}
     max_value = max(values.values()) if values else 0
@@ -996,7 +1022,8 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
     gap = 40
     left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
-    width = max(600, left + len(values) * (bar_width + gap) + 20)
+    width = max(SVG_BAR_MIN_WIDTH, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
+    y_axis_label_y = (SVG_AXIS_TOP + baseline) / 2
     scale = 200 / max_value if max_value else 0
     bars = []
     labels = []
@@ -1025,10 +1052,29 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - 20}" y1="{baseline}" '
-        f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
+        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{SVG_AXIS_TOP}" '
+        f'x2="{left - SVG_AXIS_MARGIN}" y2="{baseline}" '
+        'class="axis" stroke="#000"/>'
+        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{baseline}" '
+        f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
         + "".join(bars)
         + "".join(labels)
+        + (
+            f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
+            f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '
+            f'text-anchor="middle" '
+            f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
+            if x_axis_label
+            else ""
+        )
+        + (
+            f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
+            f'text-anchor="middle" '
+            f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
+            f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
+            if y_axis_label
+            else ""
+        )
         + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
@@ -1073,28 +1119,42 @@ def save_pr_activity_report(
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
     status_counts = Counter(row["status"] for row in rows)
-    _save_bar_graph(status_svg_path, dict(status_counts), "Pull requests by status")
+    _save_bar_graph(
+        status_svg_path,
+        dict(status_counts),
+        "Pull requests by status",
+        x_axis_label="Status",
+        y_axis_label="Pull requests (count)",
+    )
     total_manual = sum(int(row["manual_comments"]) for row in rows)
     total_copilot = sum(int(row["copilot_commands"]) for row in rows)
     _save_bar_graph(
         comments_svg_path,
         {"manual_comments": total_manual, "copilot_commands": total_copilot},
         "Manual comments vs Copilot commands",
+        x_axis_label="Comment type",
+        y_axis_label="Comments (count)",
     )
     _save_bar_graph(
         prs_per_week_svg_path,
         {row["week"]: int(row["pull_requests"]) for row in _build_prs_per_week_rows(rows)},
         "Pull requests per week",
+        x_axis_label="Week",
+        y_axis_label="Pull requests (count)",
     )
     _save_bar_graph(
         comments_per_pr_svg_path,
         _build_pr_comments_distribution(rows),
         "PR count by number of comments",
+        x_axis_label="Comment count",
+        y_axis_label="Pull requests (count)",
     )
     _save_bar_graph(
         comments_per_week_svg_path,
         {row["week"]: int(row["total_comments"]) for row in _build_comments_per_week_rows(rows)},
         "Comments per week",
+        x_axis_label="Week",
+        y_axis_label="Comments (count)",
     )
     _save_bar_graph(
         avg_duration_per_user_svg_path,
@@ -1103,6 +1163,8 @@ def save_pr_activity_report(
             for row in _build_avg_duration_per_user_rows(rows)
         },
         "Avg PR duration per user (hours)",
+        x_axis_label="Author",
+        y_axis_label="Duration (hours)",
     )
     _save_bar_graph(
         avg_duration_per_week_svg_path,
@@ -1111,6 +1173,8 @@ def save_pr_activity_report(
             for row in _build_avg_duration_per_week_rows(rows)
         },
         "Avg PR duration per week (hours)",
+        x_axis_label="Week",
+        y_axis_label="Duration (hours)",
     )
     # Per-job-name duration line graphs (successful jobs only)
     job_duration_svgs: dict[str, pathlib.Path] = {}

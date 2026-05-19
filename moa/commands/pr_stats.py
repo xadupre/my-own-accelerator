@@ -454,7 +454,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Only include PRs created on/after this datetime "
-            "(YYYY-MM-DD or ISO 8601 datetime)."
+            "(YYYY-MM-DD or ISO 8601 datetime). "
+            "Default: no date filter, all PRs are included."
         ),
     )
     parser.add_argument(

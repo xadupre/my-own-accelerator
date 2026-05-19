@@ -29,3 +29,5 @@ Use ``--since`` to only include pull requests created on/after a given date
 PR statistics cache is stored. By default, cache is written to
 ``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
 subsequent runs instead of requesting their comment statistics again.
+Use ``-v`` or ``--verbose`` to print progress information to standard
+error while the command is running.

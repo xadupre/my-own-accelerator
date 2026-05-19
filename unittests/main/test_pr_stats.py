@@ -1,9 +1,11 @@
 import csv
 import hashlib
 import json
+import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
+from datetime import datetime, timezone
 from io import StringIO
 from unittest.mock import patch
 
@@ -11,9 +13,12 @@ import pandas
 
 from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
+    SVG_LABEL_CHAR_WIDTH,
     _build_avg_duration_per_user_week_rows,
     _collect_pr_job_duration_seconds,
     _count_comments,
+    _default_since,
+    _save_bar_graph,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
@@ -267,6 +272,18 @@ class TestPRStats(ExtTestCase):
         ET.fromstring(worksheet_xml)
         self.assertNotIn(b"\x0b", worksheet_xml)
 
+    def test_save_bar_graph_adds_left_margin_for_long_x_labels(self) -> None:
+        values = {"manual_comments": 4, "copilot_commands": 2}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "graph.svg"
+            _save_bar_graph(path, values, "Long labels")
+            svg = path.read_text(encoding="utf-8")
+        expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
+        self.assertIn(f'x1="{expected_left - 20}"', svg)
+        self.assertIn(f'<rect x="{expected_left}"', svg)
+        self.assertIn("manual_comments", svg)
+        self.assertIn("copilot_commands", svg)
+
     def test_build_pr_activity_rows_respects_since_date(self) -> None:
         pulls = [
             {
@@ -337,6 +354,16 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["total_job_duration_seconds"], 456)
         mocked_collect.assert_not_called()
 
+    def test_default_since_format_and_value(self) -> None:
+        result = _default_since()
+        self.assertRegex(result, r"^\d{4}-\d{2}-\d{2}$")
+        # Must be roughly 6 months before today
+        today = datetime.now(timezone.utc)
+        result_dt = datetime.fromisoformat(result)
+        diff_days = (today.replace(tzinfo=None) - result_dt).days
+        self.assertGreaterEqual(diff_days, 180)
+        self.assertLessEqual(diff_days, 185)
+
     def test_main_prints_output_paths(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -360,6 +387,10 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
         self.assertEqual(mocked_save.call_args.kwargs["prefix"], "pr_activity_repo")
+        # --since should default to 6 months ago (not None)
+        since_val = mocked_save.call_args.kwargs["since"]
+        self.assertIsNotNone(since_val)
+        self.assertRegex(since_val, r"^\d{4}-\d{2}-\d{2}$")
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import calendar
 import csv
 import hashlib
 import json
@@ -11,7 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from datetime import datetime
+from datetime import datetime, timezone
 from html import escape
 from typing import Any
 from urllib import parse
@@ -32,6 +33,7 @@ DARK_THEME_SVG_CSS = """<style>
 }
 </style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
+SVG_LABEL_CHAR_WIDTH = 7
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -77,6 +79,21 @@ def _default_prefix(repo: str) -> str:
     if not safe_repo:
         safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
     return f"pr_activity_{safe_repo}"
+
+
+def _default_since() -> str:
+    """Return an ISO date string for 6 months ago (YYYY-MM-DD).
+
+    The day is clamped to the last valid day of the target month to handle
+    months shorter than the current one (e.g. March 31 → September 30).
+    """
+    today = datetime.now(timezone.utc)
+    year, month = today.year, today.month - 6
+    if month <= 0:
+        month += 12
+        year -= 1
+    day = min(today.day, calendar.monthrange(year, month)[1])
+    return datetime(year, month, day, tzinfo=timezone.utc).strftime("%Y-%m-%d")
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
@@ -512,9 +529,10 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
     if not values:
         values = {"none": 0}
     max_value = max(values.values()) if values else 0
+    max_label_len = max(map(len, values), default=0)
     bar_width = 80
     gap = 40
-    left = 60
+    left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
     width = max(600, left + len(values) * (bar_width + gap) + 20)
     scale = 200 / max_value if max_value else 0
@@ -671,7 +689,8 @@ def _build_parser() -> argparse.ArgumentParser:
         default=None,
         help=(
             "Only include PRs created on/after this datetime "
-            "(YYYY-MM-DD or ISO 8601 datetime)."
+            "(YYYY-MM-DD or ISO 8601 datetime). "
+            "Default: 6 months ago."
         ),
     )
     parser.add_argument(
@@ -698,6 +717,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     prefix = args.prefix or _default_prefix(args.repo)
+    since = args.since or _default_since()
     if args.verbose:
         print(
             f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
@@ -711,7 +731,7 @@ def main(argv: list[str] | None = None) -> int:
             prefix=prefix,
             token=args.token,
             api_url=args.api_url,
-            since=args.since,
+            since=since,
             cache_file=args.cache_file,
         )
     except (HTTPError, URLError, OSError, ValueError) as e:

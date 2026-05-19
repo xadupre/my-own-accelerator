@@ -74,6 +74,7 @@ docs/auto_examples/
 docs/sg_execution_times.rst
 docs/_static/require.js
 docs/_static/viz.js
+dump_*
 
 # PyBuilder
 .pybuilder/
@@ -128,14 +129,6 @@ celerybeat.pid
 *.aof
 *.pid
 
-# RabbitMQ
-mnesia/
-rabbitmq/
-rabbitmq-data/
-
-# ActiveMQ
-activemq-data/
-
 # SageMath parsed files
 *.sage.py
 
@@ -171,13 +164,7 @@ cython_debug/
 #   be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
 #   and can be added to the global gitignore or merged into this file.  For a more nuclear
 #   option (not recommended) you can uncomment the following to ignore the entire idea folder.
-# .idea/
-
-# Abstra
-#   Abstra is an AI-powered process automation framework.
-#   Ignore directories containing user credentials, local state, and settings.
-#   Learn more at https://abstra.io/docs
-.abstra/
+.idea/
 
 # Visual Studio Code
 #   Visual Studio Code specific template is maintained in a separate VisualStudioCode.gitignore 
@@ -193,11 +180,3 @@ tempCodeRunnerFile.py
 
 # PyPI configuration file
 .pypirc
-
-# Marimo
-marimo/_static/
-marimo/_lsp/
-__marimo__/
-
-# Streamlit
-.streamlit/secrets.toml

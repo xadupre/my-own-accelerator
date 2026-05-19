@@ -843,7 +843,7 @@ def _save_bar_graph(
     left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
     width = max(SVG_BAR_MIN_WIDTH, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
-    y_axis_mid = (SVG_AXIS_TOP + baseline) / 2
+    y_axis_label_y = (SVG_AXIS_TOP + baseline) / 2
     scale = 200 / max_value if max_value else 0
     bars = []
     labels = []
@@ -880,16 +880,17 @@ def _save_bar_graph(
         + "".join(bars)
         + "".join(labels)
         + (
-            f'<text x="{left + (width - left) / 2:.1f}" y="{SVG_BAR_X_AXIS_LABEL_Y}" '
+            f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
+            f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '
             f'text-anchor="middle" '
             f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
             if x_axis_label
             else ""
         )
         + (
-            f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{y_axis_mid:.1f}" '
+            f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
             f'text-anchor="middle" '
-            f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {y_axis_mid:.1f})" '
+            f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
             f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
             if y_axis_label
             else ""

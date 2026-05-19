@@ -15,6 +15,7 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
     _build_avg_duration_per_user_week_rows,
+    _build_pr_comments_distribution,
     _collect_pr_job_duration_seconds,
     _count_comments,
     _default_since,
@@ -132,7 +133,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn("1", cache["rows"])
         self.assertIn('transform="rotate(-30', status_svg)
         self.assertIn("Pull requests per week", prs_per_week_svg)
-        self.assertIn("Comments per pull request", comments_per_pr_svg)
+        self.assertIn("PR count by number of comments", comments_per_pr_svg)
         self.assertIn("Comments per week", comments_per_week_svg)
         self.assertIn("Avg PR duration per user", avg_duration_per_user_svg)
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
@@ -143,6 +144,7 @@ class TestPRStats(ExtTestCase):
                 "PRs per week",
                 "Comments per PR",
                 "Comments per week",
+                "Comments distribution",
                 "Avg PR duration",
             },
         )
@@ -196,6 +198,11 @@ class TestPRStats(ExtTestCase):
                     "total_comments": 3,
                 },
             ],
+        )
+        # Both PRs have total_comments=3, so the distribution is {3: 2}
+        self.assertEqual(
+            xlsx_sheets["Comments distribution"].to_dict(orient="records"),
+            [{"total_comments": 3, "pull_requests": 2}],
         )
         # Only PR #1 (alice, merged 2026-01-03 in W01) contributes; duration = 2 days = 172800s
         self.assertEqual(
@@ -471,3 +478,22 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("pr-stats: collecting pull request data for owner/repo...", err.getvalue())
         self.assertIn("pr-stats: done.", err.getvalue())
+
+    def test_build_pr_comments_distribution(self) -> None:
+        rows = [
+            {"manual_comments": 0, "copilot_commands": 0},
+            {"manual_comments": 2, "copilot_commands": 1},
+            {"manual_comments": 1, "copilot_commands": 0},
+            {"manual_comments": 2, "copilot_commands": 1},
+            {"manual_comments": 0, "copilot_commands": 0},
+            {"manual_comments": 0, "copilot_commands": 0},
+        ]
+        result = _build_pr_comments_distribution(rows)
+        # 3 PRs with 0 comments, 1 PR with 1 comment, 2 PRs with 3 comments
+        self.assertEqual(result, {"0": 3, "1": 1, "3": 2})
+        # Keys must be in ascending order
+        self.assertEqual(list(result.keys()), ["0", "1", "3"])
+
+    def test_build_pr_comments_distribution_empty(self) -> None:
+        result = _build_pr_comments_distribution([])
+        self.assertEqual(result, {})

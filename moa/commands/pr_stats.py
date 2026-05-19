@@ -431,6 +431,19 @@ def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, An
     ]
 
 
+def _build_pr_comments_distribution(rows: list[dict[str, Any]]) -> dict[str, int]:
+    """Return a mapping from total-comment count to number of PRs with that count.
+
+    Keys are the number of comments (as strings), values are PR counts, sorted
+    by ascending comment count.
+    """
+    distribution: Counter[int] = Counter()
+    for row in rows:
+        total = int(row.get("manual_comments", 0)) + int(row.get("copilot_commands", 0))
+        distribution[total] += 1
+    return {str(count): pr_count for count, pr_count in sorted(distribution.items())}
+
+
 def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     prs_per_week: Counter[str] = Counter()
     for row in rows:
@@ -517,6 +530,14 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
             _xlsx_sanitize_rows(_build_comments_per_week_rows(rows), comments_per_week_headers),
             columns=comments_per_week_headers,
         ).to_excel(writer, index=False, sheet_name="Comments per week")
+        distribution = _build_pr_comments_distribution(rows)
+        pandas.DataFrame(
+            _xlsx_sanitize_rows(
+                [{"total_comments": int(k), "pull_requests": v} for k, v in distribution.items()],
+                ["total_comments", "pull_requests"],
+            ),
+            columns=["total_comments", "pull_requests"],
+        ).to_excel(writer, index=False, sheet_name="Comments distribution")
         pandas.DataFrame(
             _xlsx_sanitize_rows(
                 _build_avg_duration_per_user_week_rows(rows), avg_duration_headers
@@ -615,7 +636,6 @@ def save_pr_activity_report(
         {"manual_comments": total_manual, "copilot_commands": total_copilot},
         "Manual comments vs Copilot commands",
     )
-    comments_per_pr_rows = _build_comments_per_pr_rows(rows)
     _save_bar_graph(
         prs_per_week_svg_path,
         {row["week"]: int(row["pull_requests"]) for row in _build_prs_per_week_rows(rows)},
@@ -623,8 +643,8 @@ def save_pr_activity_report(
     )
     _save_bar_graph(
         comments_per_pr_svg_path,
-        {f"PR #{row['number']}": int(row["total_comments"]) for row in comments_per_pr_rows},
-        "Comments per pull request",
+        _build_pr_comments_distribution(rows),
+        "PR count by number of comments",
     )
     _save_bar_graph(
         comments_per_week_svg_path,

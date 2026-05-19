@@ -36,6 +36,17 @@ DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 SVG_LABEL_CHAR_WIDTH = 7
 
 
+def _print_progress(current: int, total: int, file: Any = None) -> None:
+    """Print a simple ASCII progress bar to *file* (defaults to sys.stderr)."""
+    if file is None:
+        file = sys.stderr
+    bar_width = 30
+    filled = int(bar_width * current / total) if total else bar_width
+    bar = "=" * filled + "-" * (bar_width - filled)
+    end = "\n" if current >= total else "\r"
+    print(f"  [{bar}] {current}/{total}", end=end, file=file, flush=True)
+
+
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
@@ -251,6 +262,18 @@ def _collect_pr_job_info(
     return total_seconds, successful_jobs
 
 
+def _collect_pr_job_duration_hours(
+    owner: str,
+    repo: str,
+    pull_number: int,
+    head_sha: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> float:
+    total_seconds, _ = _collect_pr_job_info(owner, repo, pull_number, head_sha, token, api_url)
+    return round(total_seconds / 3600, 2)
+
+
 def _collect_pr_job_duration_seconds(
     owner: str,
     repo: str,
@@ -270,6 +293,7 @@ def build_pr_activity_rows(
     api_url: str = "https://api.github.com",
     since: str | None = None,
     cached_rows: dict[str, dict[str, Any]] | None = None,
+    verbose: bool = False,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_iso_datetime(since) if since else None
     cache = cached_rows or {}
@@ -278,14 +302,22 @@ def build_pr_activity_rows(
         "?state=closed&sort=created&direction=desc"
     )
     pulls = _fetch_paginated(pulls_url, token)
-    rows: list[dict[str, Any]] = []
+    # Pre-filter to the PRs that will actually be processed so we can show
+    # an accurate progress bar total.
+    filtered: list[dict[str, Any]] = []
     for pr in pulls:
         if pr.get("state") != "closed":
             continue
-        number = int(pr.get("number", 0))
         created_at = str(pr.get("created_at", ""))
         if since_dt and created_at and _parse_iso_datetime(created_at) < since_dt:
             continue
+        filtered.append(pr)
+    total = len(filtered)
+    rows: list[dict[str, Any]] = []
+    for i, pr in enumerate(filtered):
+        if verbose:
+            _print_progress(i + 1, total)
+        number = int(pr.get("number", 0))
         cached = cache.get(str(number))
         if cached:
             rows.append(cached)
@@ -305,19 +337,20 @@ def build_pr_activity_rows(
             token=token,
             api_url=api_url,
         )
+        total_job_duration_hours = round(total_job_duration_seconds / 3600, 2)
         merged_at = pr.get("merged_at")
         rows.append(
             {
                 "number": number,
                 "author": (pr.get("user") or {}).get("login", ""),
                 "title": pr.get("title", ""),
-                "created_at": created_at,
+                "created_at": str(pr.get("created_at", "")),
                 "merged_at": merged_at or "",
                 "closed_at": pr.get("closed_at", ""),
                 "status": "merged" if merged_at else "cancelled",
                 "manual_comments": manual_comments,
                 "copilot_commands": copilot_commands,
-                "total_job_duration_seconds": total_job_duration_seconds,
+                "total_job_duration_hours": total_job_duration_hours,
                 "successful_job_durations": successful_job_durations,
                 "html_url": pr.get("html_url", ""),
             }
@@ -336,7 +369,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
-        "total_job_duration_seconds",
+        "total_job_duration_hours",
         "html_url",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
@@ -370,27 +403,27 @@ def _week_label(value: str) -> str:
     return f"{iso_week.year}-W{iso_week.week:02d}"
 
 
-def _compute_pr_duration_seconds(row: dict[str, Any]) -> int | None:
-    """Return seconds from created_at to merged_at, or None if data is missing."""
+def _compute_pr_duration_hours(row: dict[str, Any]) -> float | None:
+    """Return hours from created_at to merged_at, or None if data is missing."""
     created_at = str(row.get("created_at", ""))
     merged_at = str(row.get("merged_at", ""))
     if not created_at or not merged_at:
         return None
     dt_created = _parse_iso_datetime(created_at)
     dt_merged = _parse_iso_datetime(merged_at)
-    return max(0, int((dt_merged - dt_created).total_seconds()))
+    return max(0.0, round((dt_merged - dt_created).total_seconds() / 3600, 2))
 
 
 def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration (created_at→merged_at) per author per merge week, merged PRs only."""
-    data: dict[tuple[str, str], list[int]] = {}
+    data: dict[tuple[str, str], list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
         week = _week_label(merged_at)
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault((author, week), []).append(duration)
@@ -403,7 +436,7 @@ def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[d
                 "author": author,
                 "week": week,
                 "pr_count": len(durations),
-                "avg_duration_seconds": round(sum(durations) / len(durations)),
+                "avg_duration_hours": round(sum(durations) / len(durations), 2),
             }
         )
     return result
@@ -411,36 +444,36 @@ def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[d
 
 def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration per author across all merged PRs."""
-    data: dict[str, list[int]] = {}
+    data: dict[str, list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault(author, []).append(duration)
     return [
-        {"author": author, "avg_duration_seconds": round(sum(ds) / len(ds))}
+        {"author": author, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
         for author, ds in sorted(data.items())
     ]
 
 
 def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Average PR duration per merge week across all merged PRs."""
-    data: dict[str, list[int]] = {}
+    data: dict[str, list[float]] = {}
     for row in rows:
         merged_at = str(row.get("merged_at", ""))
         if not merged_at:
             continue
         week = _week_label(merged_at)
-        duration = _compute_pr_duration_seconds(row)
+        duration = _compute_pr_duration_hours(row)
         if duration is None:
             continue
         data.setdefault(week, []).append(duration)
     return [
-        {"week": week, "avg_duration_seconds": round(sum(ds) / len(ds))}
+        {"week": week, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
         for week, ds in sorted(data.items())
     ]
 
@@ -684,7 +717,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "status",
         "manual_comments",
         "copilot_commands",
-        "total_job_duration_seconds",
+        "total_job_duration_hours",
         "html_url",
     ]
     comments_per_pr_headers = [
@@ -705,7 +738,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "author",
         "week",
         "pr_count",
-        "avg_duration_seconds",
+        "avg_duration_hours",
     ]
     job_duration_headers = [
         "job_name",
@@ -805,6 +838,7 @@ def save_pr_activity_report(
     api_url: str = "https://api.github.com",
     since: str | None = None,
     cache_file: str | None = None,
+    verbose: bool = False,
 ) -> dict[str, Any]:
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -817,6 +851,7 @@ def save_pr_activity_report(
         api_url=api_url,
         since=since,
         cached_rows=cached_rows,
+        verbose=verbose,
     )
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
@@ -857,18 +892,18 @@ def save_pr_activity_report(
     _save_bar_graph(
         avg_duration_per_user_svg_path,
         {
-            row["author"]: row["avg_duration_seconds"]
+            row["author"]: row["avg_duration_hours"]
             for row in _build_avg_duration_per_user_rows(rows)
         },
-        "Avg PR duration per user (seconds)",
+        "Avg PR duration per user (hours)",
     )
     _save_bar_graph(
         avg_duration_per_week_svg_path,
         {
-            row["week"]: row["avg_duration_seconds"]
+            row["week"]: row["avg_duration_hours"]
             for row in _build_avg_duration_per_week_rows(rows)
         },
-        "Avg PR duration per week (seconds)",
+        "Avg PR duration per week (hours)",
     )
     # Per-job-name duration line graphs (successful jobs only)
     job_duration_svgs: dict[str, pathlib.Path] = {}
@@ -969,6 +1004,7 @@ def main(argv: list[str] | None = None) -> int:
             api_url=args.api_url,
             since=since,
             cache_file=args.cache_file,
+            verbose=args.verbose,
         )
     except (HTTPError, URLError, OSError, ValueError) as e:
         print(

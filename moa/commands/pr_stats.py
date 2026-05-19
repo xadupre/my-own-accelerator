@@ -103,7 +103,7 @@ def _default_prefix(repo: str) -> str:
 
 
 def _safe_repo_name(repo: str) -> str:
-    """Return a filesystem-safe repository token used in generated file names."""
+    """Return a filesystem-safe repository slug used in generated file names."""
     safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_")
     if not safe_repo:
         safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
@@ -126,7 +126,7 @@ def _default_since() -> str:
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
-    """Load cached PR rows from disk, returning an empty cache on invalid content."""
+    """Load cached PR rows and return an empty cache on missing/unreadable/bad JSON data."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -789,7 +789,7 @@ def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[
 
 
 def _week_label(value: str) -> str:
-    """Convert a datetime string to ``YYYY-Www`` ISO week label format."""
+    """Convert a datetime string to YYYY-Www ISO week label format."""
     iso_week = _parse_iso_datetime(value).isocalendar()
     return f"{iso_week.year}-W{iso_week.week:02d}"
 

@@ -26,15 +26,17 @@ from moa.commands.pr_stats import (
     _collect_pr_job_duration_hours,
     _collect_pr_job_info,
     _collect_pr_job_info_batch,
-    _compute_moving_average,
     _count_comments,
     _default_since,
     _print_progress,
-    _save_bar_graph,
-    _save_job_duration_line_graph,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
+)
+from moa.commands.pr_stats_graphs import (
+    compute_moving_average,
+    save_bar_graph,
+    save_job_duration_line_graph,
 )
 from moa.ext_test_case import ExtTestCase
 
@@ -417,7 +419,7 @@ class TestPRStats(ExtTestCase):
         values = {"manual_comments": 4, "copilot_commands": 2}
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "graph.svg"
-            _save_bar_graph(path, values, "Long labels")
+            save_bar_graph(path, values, "Long labels")
             svg = path.read_text(encoding="utf-8")
         expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
         self.assertIn(f'x1="{expected_left - 20}"', svg)
@@ -431,7 +433,7 @@ class TestPRStats(ExtTestCase):
         bar_labels = {"alice": "n=3", "bob": "n=1"}
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "graph.svg"
-            _save_bar_graph(path, values, "Avg duration", bar_labels=bar_labels)
+            save_bar_graph(path, values, "Avg duration", bar_labels=bar_labels)
             svg = path.read_text(encoding="utf-8")
         self.assertIn("n=3", svg)
         self.assertIn("n=1", svg)
@@ -443,7 +445,7 @@ class TestPRStats(ExtTestCase):
         bar_labels = {"alice": "n=3", "bob": "n=1"}
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "graph.svg"
-            _save_bar_graph(
+            save_bar_graph(
                 path,
                 values,
                 "Avg duration",
@@ -1093,7 +1095,7 @@ class TestPRStats(ExtTestCase):
 
     def test_compute_moving_average(self) -> None:
         values = [1.0, 2.0, 3.0, 4.0, 5.0]
-        result = _compute_moving_average(values, window=3)
+        result = compute_moving_average(values, window=3)
         self.assertIsNone(result[0])
         self.assertIsNone(result[1])
         self.assertAlmostEqual(result[2], 2.0)
@@ -1102,7 +1104,7 @@ class TestPRStats(ExtTestCase):
 
     def test_compute_moving_average_window_larger_than_series(self) -> None:
         values = [10.0, 20.0]
-        result = _compute_moving_average(values, window=5)
+        result = compute_moving_average(values, window=5)
         self.assertIsNone(result[0])
         self.assertIsNone(result[1])
 
@@ -1114,7 +1116,7 @@ class TestPRStats(ExtTestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "job_dur.svg"
-            _save_job_duration_line_graph(path, series, "Job duration: build")
+            save_job_duration_line_graph(path, series, "Job duration: build")
             svg = path.read_text(encoding="utf-8")
         self.assertIn("Job duration: build", svg)
         self.assertIn("prefers-color-scheme: dark", svg)
@@ -1128,7 +1130,7 @@ class TestPRStats(ExtTestCase):
     def test_save_job_duration_line_graph_empty_series(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "job_dur_empty.svg"
-            _save_job_duration_line_graph(path, [], "Empty job")
+            save_job_duration_line_graph(path, [], "Empty job")
             svg = path.read_text(encoding="utf-8")
         self.assertIn("No data", svg)
         self.assertNotIn("<polyline", svg)
@@ -1141,7 +1143,7 @@ class TestPRStats(ExtTestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             path = pathlib.Path(tmp) / "job_dur_avg.svg"
-            _save_job_duration_line_graph(path, series, "Build over time")
+            save_job_duration_line_graph(path, series, "Build over time")
             svg = path.read_text(encoding="utf-8")
         # Moving average line uses stroke-dasharray
         self.assertIn("stroke-dasharray", svg)

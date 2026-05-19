@@ -12,42 +12,36 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from datetime import date, datetime, timezone
-from html import escape
+from datetime import datetime, timezone
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
 import pandas
 
+from .pr_stats_graphs import (
+    SVG_LABEL_CHAR_WIDTH as _SVG_LABEL_CHAR_WIDTH,
+)
+from .pr_stats_graphs import (
+    SVG_X_AXIS_LABEL_ROTATION as _SVG_X_AXIS_LABEL_ROTATION,
+)
+from .pr_stats_graphs import (
+    compute_moving_average,
+    save_bar_graph,
+    save_graphs_html_report,
+    save_job_duration_line_graph,
+    week_label_first_day,
+)
 from .review_pr import _fetch_json
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
-DARK_THEME_SVG_CSS = """<style>
-@media (prefers-color-scheme: dark){
-.bg { fill: #0d1117; }
-.label { fill: #e6edf3; }
-.axis { stroke: #8b949e; }
-.bar { fill: #79c0ff; }
-}
-</style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
-SVG_LABEL_CHAR_WIDTH = 7
+SVG_LABEL_CHAR_WIDTH = _SVG_LABEL_CHAR_WIDTH
+SVG_X_AXIS_LABEL_ROTATION = _SVG_X_AXIS_LABEL_ROTATION
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
-SVG_AXIS_MARGIN = 20
-SVG_AXIS_TOP = 40
-SVG_Y_AXIS_LABEL_X = 20
-SVG_X_AXIS_LABEL_Y_OFFSET = 24
-SVG_X_AXIS_LABEL_ROTATION = -15
-SVG_BAR_MIN_WIDTH = 600
-SVG_BAR_X_AXIS_LABEL_Y = 350
-SVG_HORIZONTAL_BAR_HEIGHT = 24
-SVG_HORIZONTAL_BAR_GAP = 18
-SVG_HORIZONTAL_BAR_PLOT_WIDTH = 280
-SVG_HORIZONTAL_BAR_VALUE_PADDING = 20
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -62,6 +56,7 @@ def _print_progress(current: int, total: int, file: Any = None) -> None:
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
+    """Fetch all paginated JSON list results for a GitHub REST endpoint."""
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -80,6 +75,7 @@ def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]
 
 
 def _count_comments(comment_bodies: list[str]) -> tuple[int, int]:
+    """Count manual comments and Copilot command comments in *comment_bodies*."""
     manual = 0
     copilot = 0
     for body in comment_bodies:
@@ -91,6 +87,7 @@ def _count_comments(comment_bodies: list[str]) -> tuple[int, int]:
 
 
 def _parse_iso_datetime(value: str) -> datetime:
+    """Parse an ISO date/datetime string into a timezone-aware datetime."""
     cleaned = value.strip()
     if not cleaned:
         raise ValueError("Datetime value cannot be empty.")
@@ -100,11 +97,13 @@ def _parse_iso_datetime(value: str) -> datetime:
 
 
 def _default_prefix(repo: str) -> str:
+    """Build the default output prefix for a repository name."""
     safe_repo = _safe_repo_name(repo)
     return f"pr_activity_{safe_repo}"
 
 
 def _safe_repo_name(repo: str) -> str:
+    """Return a filesystem-safe repository slug used in generated file names."""
     safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_")
     if not safe_repo:
         safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
@@ -127,6 +126,7 @@ def _default_since() -> str:
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """Load cached PR rows keyed by PR number, or return an empty dict on load errors."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -144,6 +144,7 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
 
 
 def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Persist PR rows to the JSON cache file keyed by PR number."""
     payload = {"rows": {str(row["number"]): row for row in rows}}
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
@@ -156,6 +157,7 @@ def _collect_pr_comment_stats(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> tuple[int, int]:
+    """Collect per-PR comment stats via REST and return (manual, copilot) counts."""
     if verbose:
         print(
             f"pr-stats: fetching comment stats for PR #{pull_number}...",
@@ -175,6 +177,7 @@ def _collect_pr_comment_stats(
 
 
 def _graphql_api_url(api_url: str) -> str:
+    """Resolve the GraphQL endpoint URL from a GitHub REST API base URL."""
     base = api_url.rstrip("/")
     if base.endswith("/graphql"):
         return base
@@ -188,6 +191,7 @@ def _fetch_graphql_json(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> Any:
+    """Execute a GraphQL query and return the decoded JSON payload."""
     headers = {
         "Accept": "application/vnd.github+json",
         "Content-Type": "application/json",
@@ -202,6 +206,7 @@ def _fetch_graphql_json(
 
 
 def _build_pr_comments_batch_query(owner: str, repo: str, pull_numbers: list[int]) -> str:
+    """Build one GraphQL query fetching comments/reviews for multiple PR numbers."""
     parts = []
     owner_json = json.dumps(owner)
     repo_json = json.dumps(repo)
@@ -241,6 +246,7 @@ def _collect_pr_comment_stats_batch(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> dict[int, tuple[int, int]]:
+    """Batch-load comment stats for PRs with GraphQL and REST fallback."""
     if not pull_numbers:
         return {}
     results: dict[int, tuple[int, int]] = {}
@@ -344,6 +350,7 @@ def _fetch_workflow_run_jobs(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> list[dict[str, Any]]:
+    """Fetch all jobs for one workflow run."""
     rows: list[dict[str, Any]] = []
     page = 1
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
@@ -373,6 +380,7 @@ def _fetch_workflow_runs_by_head_sha(
     token: str | None = None,
     api_url: str = "https://api.github.com",
 ) -> list[dict[str, Any]]:
+    """Fetch workflow runs associated with a given head commit SHA."""
     rows: list[dict[str, Any]] = []
     page = 1
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
@@ -466,6 +474,7 @@ def _collect_pr_job_info_batch(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> dict[int, tuple[int, list[dict[str, Any]]]]:
+    """Batch-collect workflow job durations for PRs keyed by pull request number."""
     if not pull_head_shas:
         return {}
     by_sha: dict[str, list[int]] = {}
@@ -564,6 +573,7 @@ def _collect_pr_job_duration_hours(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> float:
+    """Return total workflow job duration for one PR in hours."""
     total_seconds, _ = _collect_pr_job_info(
         owner, repo, pull_number, head_sha, token, api_url, verbose
     )
@@ -579,6 +589,7 @@ def _collect_pr_job_duration_seconds(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> int:
+    """Return total workflow job duration for one PR in seconds."""
     total_seconds, _ = _collect_pr_job_info(
         owner, repo, pull_number, head_sha, token, api_url, verbose
     )
@@ -594,6 +605,7 @@ def _build_pr_activity_row(
     comment_stats: tuple[int, int] | None = None,
     job_info: tuple[int, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
+    """Build one normalized report row for a pull request."""
     number = int(pr.get("number", 0))
     if comment_stats is None:
         manual_comments, copilot_commands = _collect_pr_comment_stats(
@@ -643,6 +655,7 @@ def build_pr_activity_rows(
     cached_rows: dict[str, dict[str, Any]] | None = None,
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
+    """Build report rows for closed pull requests, reusing cached values when available."""
     since_dt = _parse_iso_datetime(since) if since else None
     cache = cached_rows or {}
     pulls_url = (
@@ -733,6 +746,7 @@ def build_pr_activity_rows(
 
 
 def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Write the main PR activity rows to CSV."""
     fieldnames = [
         "number",
         "author",
@@ -753,6 +767,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _xlsx_safe_text(value: str) -> str:
+    """Remove XML 1.0-invalid characters except tab/newline/CR from XLSX text."""
     # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch
@@ -762,6 +777,7 @@ def _xlsx_safe_text(value: str) -> str:
 
 
 def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[dict[str, Any]]:
+    """Sanitize string cells for XLSX output while preserving header ordering."""
     sanitized_rows = []
     for row in rows:
         sanitized_row: dict[str, Any] = {}
@@ -773,20 +789,12 @@ def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[
 
 
 def _week_label(value: str) -> str:
+    """Convert a datetime string to YYYY-Www ISO week label format."""
     iso_week = _parse_iso_datetime(value).isocalendar()
     return f"{iso_week.year}-W{iso_week.week:02d}"
 
 
-def _week_label_first_day(value: str) -> str:
-    match = re.fullmatch(r"(\d{4})-W(\d{2})", value)
-    if not match:
-        return value
-    year = int(match.group(1))
-    week = int(match.group(2))
-    try:
-        return date.fromisocalendar(year, week, 1).isoformat()
-    except ValueError:
-        return value
+_week_label_first_day = week_label_first_day
 
 
 def _compute_pr_duration_hours(row: dict[str, Any]) -> float | None:
@@ -902,213 +910,15 @@ def _build_avg_duration_per_job_rows(rows: list[dict[str, Any]]) -> list[dict[st
     ]
 
 
-def _compute_moving_average(values: list[float], window: int = 10) -> list[float | None]:
-    """Return a moving average of *values* using the given *window* size.
-
-    The first ``window - 1`` elements are ``None`` because there are not yet
-    enough prior data points to fill the window.
-    """
-    result: list[float | None] = []
-    for i, _ in enumerate(values):
-        if i + 1 < window:
-            result.append(None)
-        else:
-            result.append(sum(values[i + 1 - window : i + 1]) / window)
-    return result
+_compute_moving_average = compute_moving_average
 
 
-def _save_job_duration_line_graph(
-    path: pathlib.Path,
-    series: list[dict[str, Any]],
-    title: str,
-    moving_avg_window: int = 10,
-    x_axis_label: str = "Completion date",
-    y_axis_label: str = "Duration (minutes)",
-) -> None:
-    """Save a line-graph SVG of job duration over time with a moving average.
-
-    *series* is a list of ``{completed_at, duration_seconds}`` dicts sorted by
-    ``completed_at``.  Data points are plotted at evenly-spaced x positions;
-    x-axis labels show the date portion of ``completed_at`` at regular intervals.
-    """
-    width = 800
-    height = 420
-    left = 70
-    right = 20
-    top = 40
-    bottom = 120
-    plot_w = width - left - right
-    plot_h = height - top - bottom
-
-    n = len(series)
-    if n == 0:
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
-            f"{DARK_THEME_SVG_CSS}"
-            f'<rect class="bg" x="0" y="0" width="{width}" height="{height}" fill="#fff"/>'
-            f'<text x="{width / 2}" y="28" text-anchor="middle" font-size="18" '
-            f'class="label" fill="#111">{escape(title)}</text>'
-            f'<text x="{width / 2}" y="{top + plot_h / 2}" text-anchor="middle" '
-            'class="label" fill="#888">No data</text>'
-            "</svg>"
-        )
-        path.write_text(svg, encoding="utf-8")
-        return
-
-    values = [float(pt.get("duration_seconds", 0)) / 60 for pt in series]
-    x_labels_raw = [str(pt.get("completed_at", ""))[:10] for pt in series]
-    max_val = max(values) if values else 1
-    if max_val == 0:
-        max_val = 1
-
-    def format_tick(v: float) -> str:
-        return f"{v:.1f}".rstrip("0").rstrip(".")
-
-    def x_pos(i: int) -> float:
-        return left + (i * plot_w / (n - 1) if n > 1 else plot_w / 2)
-
-    def y_pos(v: float) -> float:
-        return top + plot_h - (v / max_val) * plot_h
-
-    # Data line
-    points_str = " ".join(f"{x_pos(i):.1f},{y_pos(v):.1f}" for i, v in enumerate(values))
-
-    # Moving average line
-    avg = _compute_moving_average([float(v) for v in values], moving_avg_window)
-    avg_pairs = [(x_pos(i), y_pos(v)) for i, v in enumerate(avg) if v is not None]
-    avg_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in avg_pairs)
-
-    # X-axis labels (every max(1, n//8)-th point, rotated 15° clockwise)
-    step = max(1, n // 8)
-    x_label_elems = []
-    for i in range(0, n, step):
-        x = x_pos(i)
-        x_label_elems.append(
-            f'<text x="{x:.1f}" y="{top + plot_h + 20}" text-anchor="end" '
-            f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} {x:.1f} {top + plot_h + 20})" '
-            f'class="label" fill="#111" font-size="11">{escape(x_labels_raw[i])}</text>'
-        )
-
-    # Y-axis ticks (5 levels)
-    y_tick_elems = []
-    for tick_i in range(5):
-        tick_val = max_val * tick_i / 4
-        y = y_pos(tick_val)
-        y_tick_elems.append(
-            f'<line x1="{left - 5}" y1="{y:.1f}" x2="{left}" y2="{y:.1f}" '
-            f'class="axis" stroke="#000"/>'
-            f'<text x="{left - 8}" y="{y:.1f}" text-anchor="end" '
-            f'dominant-baseline="middle" class="label" fill="#111" '
-            f'font-size="11">{format_tick(tick_val)}</text>'
-            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" '
-            f'stroke="#ddd" stroke-dasharray="4,4"/>'
-        )
-
-    # Legend
-    legend_x = width - right - 130
-    legend_y = top + 10
-    legend_elems = (
-        f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 20}" y2="{legend_y}" '
-        f'stroke="#4e79a7" stroke-width="2"/>'
-        f'<text x="{legend_x + 25}" y="{legend_y + 4}" font-size="11" '
-        f'class="label" fill="#111">duration</text>'
-    )
-    if avg_str:
-        legend_elems += (
-            f'<line x1="{legend_x}" y1="{legend_y + 18}" '
-            f'x2="{legend_x + 20}" y2="{legend_y + 18}" '
-            f'stroke="#e05c5c" stroke-width="2" stroke-dasharray="5,3"/>'
-            f'<text x="{legend_x + 25}" y="{legend_y + 22}" font-size="11" '
-            f'class="label" fill="#111">avg-{moving_avg_window}</text>'
-        )
-
-    dots = "".join(
-        f'<circle cx="{x_pos(i):.1f}" cy="{y_pos(v):.1f}" r="3" fill="#4e79a7"/>'
-        for i, v in enumerate(values)
-    )
-    avg_line = (
-        f'<polyline points="{avg_str}" fill="none" stroke="#e05c5c" '
-        f'stroke-width="2" stroke-dasharray="5,3"/>'
-        if avg_str
-        else ""
-    )
-    x_axis_label_elem = (
-        f'<text x="{left + plot_w / 2:.1f}" '
-        f'y="{height - SVG_X_AXIS_LABEL_Y_OFFSET}" text-anchor="middle" '
-        f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-    )
-    y_axis_label_elem = (
-        f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
-        f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
-        f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
-    )
-
-    svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
-        f"{DARK_THEME_SVG_CSS}"
-        f'<rect class="bg" x="0" y="0" width="{width}" height="{height}" fill="#fff"/>'
-        f'<text x="{width / 2}" y="28" text-anchor="middle" font-size="18" '
-        f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" '
-        f'class="axis" stroke="#000"/>'
-        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" '
-        f'class="axis" stroke="#000"/>'
-        + "".join(y_tick_elems)
-        + f'<polyline points="{points_str}" fill="none" stroke="#4e79a7" stroke-width="2"/>'
-        + dots
-        + avg_line
-        + "".join(x_label_elems)
-        + legend_elems
-        + x_axis_label_elem
-        + y_axis_label_elem
-        + "</svg>"
-    )
-    path.write_text(svg, encoding="utf-8")
-
-
-def _save_graphs_html_report(
-    path: pathlib.Path, repo: str, graphs: list[tuple[str, pathlib.Path]]
-) -> None:
-    title = f"PR stats graphs for {repo}"
-    section_chunks = []
-    for graph_title, graph_path in graphs:
-        svg_content = graph_path.read_text(encoding="utf-8")
-        section_chunks.append(
-            "\n".join(
-                [
-                    "<section>",
-                    f"<h2>{escape(graph_title)}</h2>",
-                    svg_content,
-                    "</section>",
-                ]
-            )
-        )
-    sections = "\n".join(section_chunks)
-    html = "\n".join(
-        [
-            "<!DOCTYPE html>",
-            "<html>",
-            "<head>",
-            "<meta charset='utf-8'>",
-            f"<title>{escape(title)}</title>",
-            "<style>",
-            "body{font-family:Arial,sans-serif;margin:20px;}",
-            "svg{max-width:100%;height:auto;}",
-            "section{margin:24px 0;}",
-            "h2{margin-bottom:8px;}",
-            "</style>",
-            "</head>",
-            "<body>",
-            f"<h1>{escape(title)}</h1>",
-            sections,
-            "</body>",
-            "</html>",
-        ]
-    )
-    path.write_text(html, encoding="utf-8")
+_save_job_duration_line_graph = save_job_duration_line_graph
+_save_graphs_html_report = save_graphs_html_report
 
 
 def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Build per-PR comment summary rows sorted by pull request number."""
     return [
         {
             "number": row.get("number", 0),
@@ -1137,6 +947,7 @@ def _build_pr_comments_distribution(rows: list[dict[str, Any]]) -> dict[str, int
 
 
 def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate created pull requests into weekly counts."""
     prs_per_week: Counter[str] = Counter()
     for row in rows:
         created_at = str(row.get("created_at", ""))
@@ -1149,6 +960,7 @@ def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Aggregate manual, Copilot, and total comments by PR creation week."""
     comments_per_week: dict[str, dict[str, Any]] = {}
     for row in rows:
         created_at = str(row.get("created_at", ""))
@@ -1173,6 +985,7 @@ def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, 
 
 
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
+    """Write the multi-sheet XLSX report derived from PR activity rows."""
     headers = [
         "number",
         "author",
@@ -1248,152 +1061,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         ).to_excel(writer, index=False, sheet_name="Job durations")
 
 
-def _save_bar_graph(
-    path: pathlib.Path,
-    values: dict[str, int],
-    title: str,
-    x_axis_label: str | None = None,
-    y_axis_label: str | None = None,
-    bar_labels: dict[str, str] | None = None,
-    horizontal: bool = False,
-) -> None:
-    if not values:
-        values = {"none": 0}
-    max_value = max(values.values()) if values else 0
-    max_label_len = max(map(len, values), default=0)
-    bar_width = 80
-    gap = 40
-    left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
-    baseline = 300
-    width = max(SVG_BAR_MIN_WIDTH, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
-    y_axis_label_y = (SVG_AXIS_TOP + baseline) / 2
-    scale = 200 / max_value if max_value else 0
-    bars = []
-    labels = []
-    if horizontal:
-        bar_height = SVG_HORIZONTAL_BAR_HEIGHT
-        y_gap = SVG_HORIZONTAL_BAR_GAP
-        top = 60
-        bottom = top + len(values) * (bar_height + y_gap)
-        width = max(SVG_BAR_MIN_WIDTH, left + SVG_HORIZONTAL_BAR_PLOT_WIDTH + SVG_AXIS_MARGIN)
-        graph_right = width - SVG_AXIS_MARGIN - SVG_HORIZONTAL_BAR_VALUE_PADDING
-        scale = (graph_right - left) / max_value if max_value else 0
-        y_axis_label_y = (top + bottom) / 2
-        for i, (label, value) in enumerate(values.items()):
-            y = top + i * (bar_height + y_gap)
-            bar_len = int(value * scale) if max_value else 0
-            bars.append(
-                f'<rect x="{left}" y="{y}" width="{bar_len}" height="{bar_height}" '
-                'class="bar" fill="#4e79a7"/>'
-            )
-            labels.append(
-                f'<text x="{left - 8}" y="{y + bar_height / 2 + 4}" text-anchor="end" '
-                'class="label" fill="#111">'
-                f"{escape(label)}</text>"
-            )
-            labels.append(
-                f'<text x="{left + bar_len + 6}" y="{y + bar_height / 2 + 4}" '
-                'text-anchor="start" class="label" fill="#111">'
-                f"{value}</text>"
-            )
-            extra_label = bar_labels.get(label) if bar_labels else None
-            if extra_label:
-                labels.append(
-                    f'<text x="{left + bar_len + 6}" y="{y + bar_height / 2 + 18}" '
-                    'text-anchor="start" class="label" fill="#888" font-size="11">'
-                    f"{escape(extra_label)}</text>"
-                )
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{bottom + 50}">'
-            f"{DARK_THEME_SVG_CSS}"
-            f'<rect class="bg" x="0" y="0" width="{width}" height="{bottom + 50}" fill="#fff"/>'
-            f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
-            f'class="label" fill="#111">{escape(title)}</text>'
-            f'<line x1="{left}" y1="{SVG_AXIS_TOP}" '
-            f'x2="{left}" y2="{bottom}" class="axis" stroke="#000"/>'
-            f'<line x1="{left}" y1="{bottom}" '
-            f'x2="{graph_right}" y2="{bottom}" class="axis" stroke="#000"/>'
-            + "".join(bars)
-            + "".join(labels)
-            + (
-                f'<text x="{left + (graph_right - left) / 2:.1f}" '
-                f'y="{bottom + SVG_X_AXIS_LABEL_Y_OFFSET}" '
-                f'text-anchor="middle" '
-                f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-                if x_axis_label
-                else ""
-            )
-            + (
-                f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
-                f'text-anchor="middle" '
-                f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
-                f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
-                if y_axis_label
-                else ""
-            )
-            + "</svg>"
-        )
-    else:
-        for i, (label, value) in enumerate(values.items()):
-            x = left + i * (bar_width + gap)
-            height = int(value * scale) if max_value else 0
-            y = baseline - height
-            bars.append(
-                f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
-                'class="bar" fill="#4e79a7"/>'
-            )
-            labels.append(
-                f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
-                f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} '
-                f'{x + bar_width / 2} {baseline + 20})" '
-                'class="label" fill="#111">'
-                f"{escape(label)}</text>"
-            )
-            extra_label = bar_labels.get(label) if bar_labels else None
-            value_y = y - 18 if extra_label else y - 6
-            labels.append(
-                f'<text x="{x + bar_width / 2}" y="{value_y}" '
-                'text-anchor="middle" class="label" fill="#111">'
-                f"{value}</text>"
-            )
-            if extra_label:
-                labels.append(
-                    f'<text x="{x + bar_width / 2}" y="{y - 6}" '
-                    'text-anchor="middle" class="label" fill="#888" font-size="11">'
-                    f"{escape(extra_label)}</text>"
-                )
-        svg = (
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
-            f"{DARK_THEME_SVG_CSS}"
-            f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
-            f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
-            f'class="label" fill="#111">{escape(title)}</text>'
-            f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{SVG_AXIS_TOP}" '
-            f'x2="{left - SVG_AXIS_MARGIN}" y2="{baseline}" '
-            'class="axis" stroke="#000"/>'
-            f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{baseline}" '
-            f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
-            + "".join(bars)
-            + "".join(labels)
-            + (
-                f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
-                f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '
-                f'text-anchor="middle" '
-                f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-                if x_axis_label
-                else ""
-            )
-            + (
-                f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
-                f'text-anchor="middle" '
-                f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
-                f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
-                if y_axis_label
-                else ""
-            )
-            + "</svg>"
-        )
-    path.write_text(svg, encoding="utf-8")
+_save_bar_graph = save_bar_graph
 
 
 def save_pr_activity_report(
@@ -1407,6 +1075,7 @@ def save_pr_activity_report(
     cache_file: str | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
+    """Generate CSV/XLSX/SVG/HTML PR activity outputs and return their paths."""
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     graph_dir = out / f"graphs_{_safe_repo_name(repo)}"
@@ -1446,7 +1115,7 @@ def save_pr_activity_report(
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
     status_counts = Counter(row["status"] for row in rows)
-    _save_bar_graph(
+    save_bar_graph(
         status_svg_path,
         dict(status_counts),
         "Pull requests by status",
@@ -1455,34 +1124,34 @@ def save_pr_activity_report(
     )
     total_manual = sum(int(row["manual_comments"]) for row in rows)
     total_copilot = sum(int(row["copilot_commands"]) for row in rows)
-    _save_bar_graph(
+    save_bar_graph(
         comments_svg_path,
         {"manual_comments": total_manual, "copilot_commands": total_copilot},
         "Manual comments vs Copilot commands",
         x_axis_label="Comment type",
         y_axis_label="Comments (count)",
     )
-    _save_bar_graph(
+    save_bar_graph(
         prs_per_week_svg_path,
         {
-            _week_label_first_day(row["week"]): int(row["pull_requests"])
+            week_label_first_day(row["week"]): int(row["pull_requests"])
             for row in _build_prs_per_week_rows(rows)
         },
         "Pull requests per week",
         x_axis_label="Week",
         y_axis_label="Pull requests (count)",
     )
-    _save_bar_graph(
+    save_bar_graph(
         comments_per_pr_svg_path,
         _build_pr_comments_distribution(rows),
         "PR count by number of comments",
         x_axis_label="Comment count",
         y_axis_label="Pull requests (count)",
     )
-    _save_bar_graph(
+    save_bar_graph(
         comments_per_week_svg_path,
         {
-            _week_label_first_day(row["week"]): int(row["total_comments"])
+            week_label_first_day(row["week"]): int(row["total_comments"])
             for row in _build_comments_per_week_rows(rows)
         },
         "Comments per week",
@@ -1490,7 +1159,7 @@ def save_pr_activity_report(
         y_axis_label="Comments (count)",
     )
     avg_duration_per_user_data = _build_avg_duration_per_user_rows(rows)
-    _save_bar_graph(
+    save_bar_graph(
         avg_duration_per_user_svg_path,
         {row["author"]: row["avg_duration_hours"] for row in avg_duration_per_user_data},
         "Avg PR duration per user (hours)",
@@ -1499,10 +1168,10 @@ def save_pr_activity_report(
         bar_labels={row["author"]: f"n={row['pr_count']}" for row in avg_duration_per_user_data},
         horizontal=True,
     )
-    _save_bar_graph(
+    save_bar_graph(
         avg_duration_per_week_svg_path,
         {
-            _week_label_first_day(row["week"]): row["avg_duration_hours"]
+            week_label_first_day(row["week"]): row["avg_duration_hours"]
             for row in _build_avg_duration_per_week_rows(rows)
         },
         "Avg PR duration per week (hours)",
@@ -1521,10 +1190,10 @@ def save_pr_activity_report(
         if not safe_name:
             safe_name = f"job_{hashlib.sha256(job_name.encode('utf-8')).hexdigest()[:8]}"
         svg_path = job_dur_dir / f"{prefix}_job_duration_{safe_name}.svg"
-        _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
+        save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
     # Final summary bar chart: average duration per job name
-    _save_bar_graph(
+    save_bar_graph(
         avg_duration_per_job_svg_path,
         {
             row["job_name"]: row["avg_duration_minutes"]
@@ -1548,7 +1217,7 @@ def save_pr_activity_report(
         for job_name, svg_path in sorted(job_duration_svgs.items())
     )
     report_graphs.append(("Avg job duration per job name", avg_duration_per_job_svg_path))
-    _save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
+    save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
@@ -1567,6 +1236,7 @@ def save_pr_activity_report(
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Create the command-line parser for the ``pr-stats`` command."""
     token_default = os.environ.get("GITHUB_TOKEN") or None
     api_url_default = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
     parser = argparse.ArgumentParser(
@@ -1610,6 +1280,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """CLI entry point for generating pull request activity reports."""
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()

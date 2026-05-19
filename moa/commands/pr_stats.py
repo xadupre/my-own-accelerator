@@ -21,6 +21,7 @@ from .review_pr import _fetch_json
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
+DEFAULT_OUTPUT_DIR = "pr_stats"
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -469,8 +470,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-url", default=api_url_default, help="GitHub API base URL")
     parser.add_argument(
         "--output-dir",
-        default=".",
-        help="Directory where output files are written (default: current directory).",
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory where output files are written (default: {DEFAULT_OUTPUT_DIR}).",
     )
     parser.add_argument(
         "--prefix",

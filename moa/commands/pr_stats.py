@@ -767,7 +767,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _xlsx_safe_text(value: str) -> str:
-    """Strip XML-invalid control characters from XLSX text cell content and return it."""
+    """Remove XML 1.0-invalid characters except tab/newline/CR from XLSX text."""
     # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch

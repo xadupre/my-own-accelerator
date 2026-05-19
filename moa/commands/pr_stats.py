@@ -63,7 +63,8 @@ def _parse_iso_datetime(value: str) -> datetime:
 
 
 def _default_prefix(repo: str) -> str:
-    return f"pr_activity_{repo.replace('/', '_').replace('\\', '_')}"
+    safe_repo = repo.replace("/", "_").replace("\\", "_")
+    return f"pr_activity_{safe_repo}"
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:

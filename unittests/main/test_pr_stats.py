@@ -18,7 +18,6 @@ from moa.commands.pr_stats import (
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
     _collect_pr_job_duration_hours,
-    _collect_pr_job_duration_seconds,
     _collect_pr_job_info,
     _compute_moving_average,
     _count_comments,

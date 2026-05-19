@@ -513,7 +513,10 @@ class TestPRStats(ExtTestCase):
 
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
-            patch("moa.commands.pr_stats._collect_pr_comment_stats", side_effect=fake_collect_comments),
+            patch(
+                "moa.commands.pr_stats._collect_pr_comment_stats",
+                side_effect=fake_collect_comments,
+            ),
             patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(0, [])),
             patch("sys.stderr", err),
         ):

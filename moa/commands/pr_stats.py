@@ -825,7 +825,7 @@ def _save_job_duration_line_graph(
     title: str,
     moving_avg_window: int = 10,
     x_axis_label: str = "Completion date",
-    y_axis_label: str = "Duration (seconds)",
+    y_axis_label: str = "Duration (minutes)",
 ) -> None:
     """Save a line-graph SVG of job duration over time with a moving average.
 
@@ -857,11 +857,14 @@ def _save_job_duration_line_graph(
         path.write_text(svg, encoding="utf-8")
         return
 
-    values = [int(pt.get("duration_seconds", 0)) for pt in series]
+    values = [int(pt.get("duration_seconds", 0)) / 60 for pt in series]
     x_labels_raw = [str(pt.get("completed_at", ""))[:10] for pt in series]
     max_val = max(values) if values else 1
     if max_val == 0:
         max_val = 1
+
+    def format_tick(v: float) -> str:
+        return f"{v:.1f}".rstrip("0").rstrip(".")
 
     def x_pos(i: int) -> float:
         return left + (i * plot_w / (n - 1) if n > 1 else plot_w / 2)
@@ -898,7 +901,7 @@ def _save_job_duration_line_graph(
             f'class="axis" stroke="#000"/>'
             f'<text x="{left - 8}" y="{y:.1f}" text-anchor="end" '
             f'dominant-baseline="middle" class="label" fill="#111" '
-            f'font-size="11">{int(tick_val)}</text>'
+            f'font-size="11">{format_tick(tick_val)}</text>'
             f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" '
             f'stroke="#ddd" stroke-dasharray="4,4"/>'
         )

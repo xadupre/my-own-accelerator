@@ -187,7 +187,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn("Duration (hours)", avg_duration_per_user_svg)
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
         self.assertIn("Job duration: build", job_build_svg)
-        self.assertIn("Duration (seconds)", job_build_svg)
+        self.assertIn("Duration (minutes)", job_build_svg)
         self.assertIn("Completion date", job_build_svg)
         self.assertIn("prefers-color-scheme: dark", job_build_svg)
         self.assertEqual(
@@ -874,7 +874,8 @@ class TestPRStats(ExtTestCase):
         self.assertIn("prefers-color-scheme: dark", svg)
         self.assertIn("<polyline", svg)
         self.assertIn("duration", svg)
-        self.assertIn("Duration (seconds)", svg)
+        self.assertIn("Duration (minutes)", svg)
+        self.assertIn(">1.5</text>", svg)
         self.assertIn("Completion date", svg)
 
     def test_save_job_duration_line_graph_empty_series(self) -> None:
@@ -898,6 +899,7 @@ class TestPRStats(ExtTestCase):
         # Moving average line uses stroke-dasharray
         self.assertIn("stroke-dasharray", svg)
         self.assertIn("avg-10", svg)
+        self.assertIn(">2.8</text>", svg)
 
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()

@@ -806,7 +806,11 @@ def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[s
             continue
         data.setdefault(author, []).append(duration)
     result = [
-        {"author": author, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
+        {
+            "author": author,
+            "avg_duration_hours": round(sum(ds) / len(ds), 2),
+            "pr_count": len(ds),
+        }
         for author, ds in data.items()
     ]
     return sorted(result, key=lambda row: (-float(row["avg_duration_hours"]), str(row["author"])))
@@ -1198,6 +1202,7 @@ def _save_bar_graph(
     title: str,
     x_axis_label: str | None = None,
     y_axis_label: str | None = None,
+    bar_labels: dict[str, str] | None = None,
 ) -> None:
     if not values:
         values = {"none": 0}
@@ -1227,11 +1232,19 @@ def _save_bar_graph(
             'class="label" fill="#111">'
             f"{escape(label)}</text>"
         )
+        extra_label = bar_labels.get(label) if bar_labels else None
+        value_y = y - 18 if extra_label else y - 6
         labels.append(
-            f'<text x="{x + bar_width / 2}" y="{y - 6}" '
+            f'<text x="{x + bar_width / 2}" y="{value_y}" '
             'text-anchor="middle" class="label" fill="#111">'
             f"{value}</text>"
         )
+        if extra_label:
+            labels.append(
+                f'<text x="{x + bar_width / 2}" y="{y - 6}" '
+                'text-anchor="middle" class="label" fill="#888" font-size="11">'
+                f"{escape(extra_label)}</text>"
+            )
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
         f"{DARK_THEME_SVG_CSS}"
@@ -1358,15 +1371,14 @@ def save_pr_activity_report(
         x_axis_label="Week",
         y_axis_label="Comments (count)",
     )
+    avg_duration_per_user_data = _build_avg_duration_per_user_rows(rows)
     _save_bar_graph(
         avg_duration_per_user_svg_path,
-        {
-            row["author"]: row["avg_duration_hours"]
-            for row in _build_avg_duration_per_user_rows(rows)
-        },
+        {row["author"]: row["avg_duration_hours"] for row in avg_duration_per_user_data},
         "Avg PR duration per user (hours)",
         x_axis_label="Author",
         y_axis_label="Duration (hours)",
+        bar_labels={row["author"]: f"n={row['pr_count']}" for row in avg_duration_per_user_data},
     )
     _save_bar_graph(
         avg_duration_per_week_svg_path,

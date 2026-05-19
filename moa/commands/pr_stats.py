@@ -400,7 +400,10 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
         "<style>"
         "@media (prefers-color-scheme: dark){"
-        ".bg{fill:#0d1117;}.label{fill:#e6edf3;}.axis{stroke:#8b949e;}.bar{fill:#79c0ff;}"
+        ".bg{fill:#0d1117;}\n"
+        ".label{fill:#e6edf3;}\n"
+        ".axis{stroke:#8b949e;}\n"
+        ".bar{fill:#79c0ff;}"
         "}"
         "</style>"
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'

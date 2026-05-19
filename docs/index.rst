@@ -24,7 +24,7 @@ my-own-accelerator documentation
 Sources: `GitHub repository <https://github.com/xadupre/my-own-accelerator>`_.
 
 .. toctree::
-    :maxdepth: 2
+    :maxdepth: 1
 
     cmds/index
     api/index

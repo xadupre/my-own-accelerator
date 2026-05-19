@@ -308,6 +308,7 @@ def _build_parser(
     token_default: str | None = None,
     api_url_default: str = "https://api.github.com",
     user_default: str | None = None,
+    prog: str = "review-pr",
 ) -> argparse.ArgumentParser:
     """Build the argument parser for the ``review-pr`` command.
 
@@ -317,7 +318,7 @@ def _build_parser(
     :return: Configured :class:`argparse.ArgumentParser` instance.
     """
     parser = argparse.ArgumentParser(
-        prog="review-pr",
+        prog=prog,
         description="Reviews a GitHub pull request and prints markdown.",
     )
     parser.add_argument("owner", help="GitHub repository owner")
@@ -399,7 +400,7 @@ def _build_parser(
     return parser
 
 
-def main(argv: list[str] | None = None) -> int:
+def main(argv: list[str] | None = None, prog: str = "review-pr") -> int:
     if argv is None:
         argv = sys.argv[1:]
 
@@ -424,6 +425,7 @@ def main(argv: list[str] | None = None) -> int:
         token_default=token_default,
         api_url_default=api_url_default,
         user_default=user_default,
+        prog=prog,
     )
     args = parser.parse_args(argv)
 

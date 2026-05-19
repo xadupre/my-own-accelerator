@@ -12,6 +12,7 @@ import pandas
 
 from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
+    SVG_LABEL_CHAR_WIDTH,
     _collect_pr_job_duration_seconds,
     _count_comments,
     _save_bar_graph,
@@ -209,8 +210,7 @@ class TestPRStats(ExtTestCase):
             path = pathlib.Path(tmp) / "graph.svg"
             _save_bar_graph(path, values, "Long labels")
             svg = path.read_text(encoding="utf-8")
-        longest_label = len("copilot_commands")
-        expected_left = max(60, 20 + longest_label * 7)
+        expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
         self.assertIn(f'x1="{expected_left - 20}"', svg)
         self.assertIn(f'<rect x="{expected_left}"', svg)
         self.assertIn("manual_comments", svg)

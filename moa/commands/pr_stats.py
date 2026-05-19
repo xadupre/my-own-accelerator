@@ -32,6 +32,7 @@ DARK_THEME_SVG_CSS = """<style>
 }
 </style>"""
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
+SVG_LABEL_CHAR_WIDTH = 7
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -425,10 +426,10 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
     if not values:
         values = {"none": 0}
     max_value = max(values.values()) if values else 0
-    max_label_len = max(len(label) for label in values)
+    max_label_len = max(map(len, values), default=0)
     bar_width = 80
     gap = 40
-    left = max(60, 20 + max_label_len * 7)
+    left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
     width = max(600, left + len(values) * (bar_width + gap) + 20)
     scale = 200 / max_value if max_value else 0

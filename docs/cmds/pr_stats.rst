@@ -31,12 +31,16 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 * ``<prefix>_prs_per_week.svg``
 * ``<prefix>_comments_per_pr.svg``  — distribution of PRs by number of comments
 * ``<prefix>_comments_per_week.svg``
+* ``<prefix>_job_duration_<job>.svg`` (one per unique job name, successful runs only)
 
 Each row includes pull request author, creation datetime, merge/close status,
 manual comment count, Copilot command count, and total workflow job duration
 for that PR (in seconds). The Excel workbook also includes per-week PR counts,
-per-PR comment totals, per-week comment totals, and a comment-count distribution
-in dedicated sheets.
+per-PR comment totals, per-week comment totals, a comment-count distribution,
+average PR duration per author and week, and a **Job durations** sheet listing
+the duration of every successful workflow job across all scanned PRs. A
+line-graph SVG is produced for each unique job name, showing duration over time
+with a 10-run moving average.
 
 Use ``--since`` to only include pull requests created on/after a given date
 (``YYYY-MM-DD`` or ISO datetime), and ``--cache-file`` to control where the

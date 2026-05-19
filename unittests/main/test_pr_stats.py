@@ -15,12 +15,16 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
     _build_avg_duration_per_user_week_rows,
+    _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
     _collect_pr_job_duration_hours,
+    _collect_pr_job_info,
+    _compute_moving_average,
     _count_comments,
     _default_since,
     _print_progress,
     _save_bar_graph,
+    _save_job_duration_line_graph,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
@@ -58,7 +62,10 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(3, 1)),
-            patch("moa.commands.pr_stats._collect_pr_job_duration_hours", return_value=0.07),
+            patch(
+                "moa.commands.pr_stats._collect_pr_job_info",
+                return_value=(240, []),
+            ),
         ):
             rows = build_pr_activity_rows("o", "r")
 
@@ -67,7 +74,8 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["status"], "merged")
         self.assertEqual(rows[0]["manual_comments"], 3)
         self.assertEqual(rows[0]["copilot_commands"], 1)
-        self.assertEqual(rows[0]["total_job_duration_hours"], 0.07)
+        self.assertAlmostEqual(rows[0]["total_job_duration_hours"], round(240 / 3600, 2))
+        self.assertEqual(rows[0]["successful_job_durations"], [])
 
     def test_save_pr_activity_report_writes_files(self) -> None:
         fake_rows = [
@@ -81,7 +89,19 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 2,
                 "copilot_commands": 1,
-                "total_job_duration_hours": 0.05,
+                "total_job_duration_hours": round(180 / 3600, 2),
+                "successful_job_durations": [
+                    {
+                        "job_name": "build",
+                        "completed_at": "2026-01-03T01:00:00Z",
+                        "duration_seconds": 120,
+                    },
+                    {
+                        "job_name": "test",
+                        "completed_at": "2026-01-03T01:02:00Z",
+                        "duration_seconds": 60,
+                    },
+                ],
                 "html_url": "https://github.com/o/r/pull/1",
             },
             {
@@ -95,6 +115,7 @@ class TestPRStats(ExtTestCase):
                 "manual_comments": 1,
                 "copilot_commands": 2,
                 "total_job_duration_hours": 0.0,
+                "successful_job_durations": [],
                 "html_url": "https://github.com/o/r/pull/2",
             },
         ]
@@ -111,6 +132,11 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["avg_duration_per_user_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_week_svg"].exists())
             self.assertTrue(outputs["cache"].exists())
+            job_dur_svgs = outputs["job_duration_svgs"]
+            self.assertIn("build", job_dur_svgs)
+            self.assertIn("test", job_dur_svgs)
+            self.assertTrue(job_dur_svgs["build"].exists())
+            self.assertTrue(job_dur_svgs["test"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
@@ -124,6 +150,7 @@ class TestPRStats(ExtTestCase):
             avg_duration_per_week_svg = outputs["avg_duration_per_week_svg"].read_text(
                 encoding="utf-8"
             )
+            job_build_svg = job_dur_svgs["build"].read_text(encoding="utf-8")
             xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
@@ -138,6 +165,8 @@ class TestPRStats(ExtTestCase):
         self.assertIn("Comments per week", comments_per_week_svg)
         self.assertIn("Avg PR duration per user", avg_duration_per_user_svg)
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
+        self.assertIn("Job duration: build", job_build_svg)
+        self.assertIn("prefers-color-scheme: dark", job_build_svg)
         self.assertEqual(
             set(xlsx_sheets),
             {
@@ -147,6 +176,7 @@ class TestPRStats(ExtTestCase):
                 "Comments per week",
                 "Comments distribution",
                 "Avg PR duration",
+                "Job durations",
             },
         )
         self.assertEqual(
@@ -217,6 +247,13 @@ class TestPRStats(ExtTestCase):
                 }
             ],
         )
+        job_dur_records = xlsx_sheets["Job durations"].to_dict(orient="records")
+        self.assertEqual(len(job_dur_records), 2)
+        self.assertEqual(job_dur_records[0]["job_name"], "build")
+        self.assertEqual(job_dur_records[0]["duration_seconds"], 120)
+        self.assertEqual(job_dur_records[0]["pr_number"], 1)
+        self.assertEqual(job_dur_records[1]["job_name"], "test")
+        self.assertEqual(job_dur_records[1]["duration_seconds"], 60)
 
     def test_build_avg_duration_per_user_week_rows(self) -> None:
         # ISO weeks: W01=Dec29-Jan4, W02=Jan5-Jan11, W03=Jan12-Jan18
@@ -267,7 +304,8 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 2,
                 "copilot_commands": 1,
-                "total_job_duration_hours": 0.05,
+                "total_job_duration_hours": round(180 / 3600, 2),
+                "successful_job_durations": [],
                 "html_url": "https://github.com/o/r/pull/1",
             }
         ]
@@ -319,7 +357,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
-            patch("moa.commands.pr_stats._collect_pr_job_duration_hours", return_value=0.01),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(30, [])),
         ):
             rows = build_pr_activity_rows("o", "r", since="2026-01-01")
         self.assertEqual(len(rows), 1)
@@ -349,7 +387,8 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 9,
                 "copilot_commands": 4,
-                "total_job_duration_hours": 0.13,
+                "total_job_duration_hours": round(456 / 3600, 2),
+                "successful_job_durations": [],
                 "html_url": "https://github.com/o/r/pull/22",
             }
         }
@@ -446,10 +485,14 @@ class TestPRStats(ExtTestCase):
                 {
                     "started_at": "2026-01-01T00:00:00Z",
                     "completed_at": "2026-01-01T00:01:30Z",
+                    "conclusion": "success",
+                    "name": "build",
                 },
                 {
                     "started_at": "2026-01-01T00:02:00Z",
                     "completed_at": "2026-01-01T00:03:00Z",
+                    "conclusion": "success",
+                    "name": "test",
                 },
             ]
         }
@@ -459,6 +502,127 @@ class TestPRStats(ExtTestCase):
         ):
             duration = _collect_pr_job_duration_hours("o", "r", 22, "abc")
         self.assertEqual(duration, round(150 / 3600, 2))
+
+    def test_collect_pr_job_info_separates_successful_jobs(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "pull_requests": [{"number": 22}]},
+            ]
+        }
+        jobs_run_101 = {
+            "jobs": [
+                {
+                    "name": "build",
+                    "started_at": "2026-01-01T00:00:00Z",
+                    "completed_at": "2026-01-01T00:01:30Z",
+                    "conclusion": "success",
+                },
+                {
+                    "name": "lint",
+                    "started_at": "2026-01-01T00:02:00Z",
+                    "completed_at": "2026-01-01T00:03:00Z",
+                    "conclusion": "failure",
+                },
+            ]
+        }
+        with patch(
+            "moa.commands.pr_stats._fetch_json",
+            side_effect=[runs_payload, jobs_run_101],
+        ):
+            total, successful = _collect_pr_job_info("o", "r", 22, "abc")
+        # Total includes both jobs regardless of conclusion
+        self.assertEqual(total, 150)
+        # Only the successful job appears in the per-job list
+        self.assertEqual(len(successful), 1)
+        self.assertEqual(successful[0]["job_name"], "build")
+        self.assertEqual(successful[0]["duration_seconds"], 90)
+
+    def test_build_job_duration_sheet_rows(self) -> None:
+        pr_rows = [
+            {
+                "number": 1,
+                "successful_job_durations": [
+                    {
+                        "job_name": "test",
+                        "completed_at": "2026-01-03T01:05:00Z",
+                        "duration_seconds": 60,
+                    },
+                    {
+                        "job_name": "build",
+                        "completed_at": "2026-01-03T01:00:00Z",
+                        "duration_seconds": 120,
+                    },
+                ],
+            },
+            {
+                "number": 2,
+                "successful_job_durations": [],
+            },
+            {
+                "number": 3,
+                # no successful_job_durations key → treated as empty
+            },
+        ]
+        result = _build_job_duration_sheet_rows(pr_rows)
+        # Sorted by (job_name, completed_at): build < test
+        self.assertEqual(len(result), 2)
+        self.assertEqual(result[0]["job_name"], "build")
+        self.assertEqual(result[0]["duration_seconds"], 120)
+        self.assertEqual(result[0]["pr_number"], 1)
+        self.assertEqual(result[1]["job_name"], "test")
+        self.assertEqual(result[1]["duration_seconds"], 60)
+
+    def test_compute_moving_average(self) -> None:
+        values = [1.0, 2.0, 3.0, 4.0, 5.0]
+        result = _compute_moving_average(values, window=3)
+        self.assertIsNone(result[0])
+        self.assertIsNone(result[1])
+        self.assertAlmostEqual(result[2], 2.0)
+        self.assertAlmostEqual(result[3], 3.0)
+        self.assertAlmostEqual(result[4], 4.0)
+
+    def test_compute_moving_average_window_larger_than_series(self) -> None:
+        values = [10.0, 20.0]
+        result = _compute_moving_average(values, window=5)
+        self.assertIsNone(result[0])
+        self.assertIsNone(result[1])
+
+    def test_save_job_duration_line_graph_creates_svg(self) -> None:
+        series = [
+            {"completed_at": "2026-01-01T01:00:00Z", "duration_seconds": 90},
+            {"completed_at": "2026-01-02T01:00:00Z", "duration_seconds": 120},
+            {"completed_at": "2026-01-03T01:00:00Z", "duration_seconds": 60},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "job_dur.svg"
+            _save_job_duration_line_graph(path, series, "Job duration: build")
+            svg = path.read_text(encoding="utf-8")
+        self.assertIn("Job duration: build", svg)
+        self.assertIn("prefers-color-scheme: dark", svg)
+        self.assertIn("<polyline", svg)
+        self.assertIn("duration", svg)
+
+    def test_save_job_duration_line_graph_empty_series(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "job_dur_empty.svg"
+            _save_job_duration_line_graph(path, [], "Empty job")
+            svg = path.read_text(encoding="utf-8")
+        self.assertIn("No data", svg)
+        self.assertNotIn("<polyline", svg)
+
+    def test_save_job_duration_line_graph_shows_moving_average(self) -> None:
+        # With >= 10 data points the moving average line should appear
+        series = [
+            {"completed_at": f"2026-01-{i + 1:02d}T00:00:00Z", "duration_seconds": 60 + i * 10}
+            for i in range(12)
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "job_dur_avg.svg"
+            _save_job_duration_line_graph(path, series, "Build over time")
+            svg = path.read_text(encoding="utf-8")
+        # Moving average line uses stroke-dasharray
+        self.assertIn("stroke-dasharray", svg)
+        self.assertIn("avg-10", svg)
 
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()
@@ -526,7 +690,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(0, 0)),
-            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=0),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(0, [])),
             patch("sys.stderr", err),
         ):
             rows = build_pr_activity_rows("o", "r", verbose=True)

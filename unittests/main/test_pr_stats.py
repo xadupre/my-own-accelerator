@@ -16,6 +16,7 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
     SVG_X_AXIS_LABEL_ROTATION,
+    _build_avg_duration_per_job_rows,
     _build_avg_duration_per_user_rows,
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
@@ -137,6 +138,7 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["comments_per_week_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_user_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_week_svg"].exists())
+            self.assertTrue(outputs["avg_duration_per_job_svg"].exists())
             self.assertTrue(outputs["graphs_html"].exists())
             self.assertTrue(outputs["cache"].exists())
             graph_dir = pathlib.Path(tmp) / "graphs_my_repo_name"
@@ -173,6 +175,7 @@ class TestPRStats(ExtTestCase):
             )
             graphs_html = outputs["graphs_html"].read_text(encoding="utf-8")
             job_build_svg = job_dur_svgs["build"].read_text(encoding="utf-8")
+            avg_dur_per_job_svg = outputs["avg_duration_per_job_svg"].read_text(encoding="utf-8")
             xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
@@ -209,6 +212,11 @@ class TestPRStats(ExtTestCase):
         self.assertIn("report_avg_duration_per_week.svg", graphs_html)
         self.assertIn("report_job_duration_build.svg", graphs_html)
         self.assertIn("report_job_duration_test.svg", graphs_html)
+        self.assertIn("report_avg_duration_per_job.svg", graphs_html)
+        self.assertIn("Avg job duration per job name", avg_dur_per_job_svg)
+        self.assertIn("build", avg_dur_per_job_svg)
+        self.assertIn("Job name", avg_dur_per_job_svg)
+        self.assertIn("Duration (minutes)", avg_dur_per_job_svg)
         self.assertIn("Job duration: build", job_build_svg)
         self.assertIn("Duration (minutes)", job_build_svg)
         self.assertIn("Completion date", job_build_svg)
@@ -1029,6 +1037,90 @@ class TestPRStats(ExtTestCase):
         self.assertIn("stroke-dasharray", svg)
         self.assertIn("avg-10", svg)
         self.assertIn(">2.8</text>", svg)
+
+    def test_build_avg_duration_per_job_rows_basic(self) -> None:
+        rows = [
+            {
+                "number": 1,
+                "successful_job_durations": [
+                    {
+                        "job_name": "build",
+                        "completed_at": "2026-01-01T00:00:00Z",
+                        "duration_seconds": 120,
+                    },
+                    {
+                        "job_name": "test",
+                        "completed_at": "2026-01-01T00:00:00Z",
+                        "duration_seconds": 60,
+                    },
+                ],
+            },
+            {
+                "number": 2,
+                "successful_job_durations": [
+                    {
+                        "job_name": "build",
+                        "completed_at": "2026-01-02T00:00:00Z",
+                        "duration_seconds": 180,
+                    },
+                ],
+            },
+        ]
+        result = _build_avg_duration_per_job_rows(rows)
+        # Should have two entries sorted by job name
+        self.assertEqual(len(result), 2)
+        build_row = next(r for r in result if r["job_name"] == "build")
+        test_row = next(r for r in result if r["job_name"] == "test")
+        # build: (120 + 180) / 2 / 60 = 2.5 minutes
+        self.assertAlmostEqual(build_row["avg_duration_minutes"], 2.5)
+        # test: 60 / 60 = 1.0 minute
+        self.assertAlmostEqual(test_row["avg_duration_minutes"], 1.0)
+
+    def test_build_avg_duration_per_job_rows_empty(self) -> None:
+        result = _build_avg_duration_per_job_rows([])
+        self.assertEqual(result, [])
+
+    def test_save_pr_activity_report_includes_avg_duration_per_job_svg(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            }
+        ]
+        job_info = (
+            1.0,
+            [
+                {
+                    "job_name": "build",
+                    "completed_at": "2026-01-02T00:00:00Z",
+                    "duration_seconds": 90,
+                }
+            ],
+        )
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(0, 0)),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=job_info),
+            patch("moa.commands.pr_stats._collect_pr_job_info_batch", return_value={1: job_info}),
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                result = save_pr_activity_report("o", "r", tmp, "test")
+                self.assertIn("avg_duration_per_job_svg", result)
+                avg_job_svg = pathlib.Path(result["avg_duration_per_job_svg"])
+                self.assertTrue(avg_job_svg.exists())
+                svg = avg_job_svg.read_text(encoding="utf-8")
+                self.assertIn("Avg job duration per job name", svg)
+                self.assertIn("build", svg)
+                # HTML report should include the final graph section
+                html = pathlib.Path(result["graphs_html"]).read_text(encoding="utf-8")
+                self.assertIn("Avg job duration per job name", html)
 
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()

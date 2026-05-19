@@ -847,6 +847,22 @@ def _build_job_duration_sheet_rows(rows: list[dict[str, Any]]) -> list[dict[str,
     return sorted(job_rows, key=lambda r: (str(r["job_name"]), str(r["completed_at"])))
 
 
+def _build_avg_duration_per_job_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Average job duration (minutes) per job name across all successful runs."""
+    data: dict[str, list[float]] = {}
+    for jd in _build_job_duration_sheet_rows(rows):
+        job_name = str(jd["job_name"])
+        duration_minutes = float(jd["duration_seconds"]) / 60
+        data.setdefault(job_name, []).append(duration_minutes)
+    return [
+        {
+            "job_name": job_name,
+            "avg_duration_minutes": round(sum(ds) / len(ds), 2),
+        }
+        for job_name, ds in sorted(data.items())
+    ]
+
+
 def _compute_moving_average(values: list[float], window: int = 10) -> list[float | None]:
     """Return a moving average of *values* using the given *window* size.
 
@@ -1292,6 +1308,7 @@ def save_pr_activity_report(
     comments_per_week_svg_path = graph_dir / f"{prefix}_comments_per_week.svg"
     avg_duration_per_user_svg_path = graph_dir / f"{prefix}_avg_duration_per_user.svg"
     avg_duration_per_week_svg_path = graph_dir / f"{prefix}_avg_duration_per_week.svg"
+    avg_duration_per_job_svg_path = graph_dir / f"{prefix}_avg_duration_per_job.svg"
     graphs_html_path = graph_dir / f"{prefix}_graphs.html"
     try:
         rows = build_pr_activity_rows(
@@ -1390,6 +1407,17 @@ def save_pr_activity_report(
         svg_path = graph_dir / f"{prefix}_job_duration_{safe_name}.svg"
         _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
+    # Final summary bar chart: average duration per job name
+    _save_bar_graph(
+        avg_duration_per_job_svg_path,
+        {
+            row["job_name"]: row["avg_duration_minutes"]
+            for row in _build_avg_duration_per_job_rows(rows)
+        },
+        "Avg job duration per job name (minutes)",
+        x_axis_label="Job name",
+        y_axis_label="Duration (minutes)",
+    )
     report_graphs: list[tuple[str, pathlib.Path]] = [
         ("Pull requests by status", status_svg_path),
         ("Manual comments vs Copilot commands", comments_svg_path),
@@ -1403,6 +1431,7 @@ def save_pr_activity_report(
         (f"Job duration: {job_name}", svg_path)
         for job_name, svg_path in sorted(job_duration_svgs.items())
     )
+    report_graphs.append(("Avg job duration per job name", avg_duration_per_job_svg_path))
     _save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
     return {
         "csv": csv_path,
@@ -1415,6 +1444,7 @@ def save_pr_activity_report(
         "avg_duration_per_user_svg": avg_duration_per_user_svg_path,
         "avg_duration_per_week_svg": avg_duration_per_week_svg_path,
         "job_duration_svgs": job_duration_svgs,
+        "avg_duration_per_job_svg": avg_duration_per_job_svg_path,
         "graphs_html": graphs_html_path,
         "cache": cache_path,
     }

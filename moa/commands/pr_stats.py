@@ -44,6 +44,10 @@ SVG_X_AXIS_LABEL_Y_OFFSET = 24
 SVG_X_AXIS_LABEL_ROTATION = -15
 SVG_BAR_MIN_WIDTH = 600
 SVG_BAR_X_AXIS_LABEL_Y = 350
+SVG_HORIZONTAL_BAR_HEIGHT = 24
+SVG_HORIZONTAL_BAR_GAP = 18
+SVG_HORIZONTAL_BAR_PLOT_WIDTH = 280
+SVG_HORIZONTAL_BAR_VALUE_PADDING = 20
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -1266,12 +1270,12 @@ def _save_bar_graph(
     bars = []
     labels = []
     if horizontal:
-        bar_height = 24
-        y_gap = 18
+        bar_height = SVG_HORIZONTAL_BAR_HEIGHT
+        y_gap = SVG_HORIZONTAL_BAR_GAP
         top = 60
         bottom = top + len(values) * (bar_height + y_gap)
-        width = max(SVG_BAR_MIN_WIDTH, left + 280 + SVG_AXIS_MARGIN)
-        graph_right = width - SVG_AXIS_MARGIN - 20
+        width = max(SVG_BAR_MIN_WIDTH, left + SVG_HORIZONTAL_BAR_PLOT_WIDTH + SVG_AXIS_MARGIN)
+        graph_right = width - SVG_AXIS_MARGIN - SVG_HORIZONTAL_BAR_VALUE_PADDING
         scale = (graph_right - left) / max_value if max_value else 0
         y_axis_label_y = (top + bottom) / 2
         for i, (label, value) in enumerate(values.items()):

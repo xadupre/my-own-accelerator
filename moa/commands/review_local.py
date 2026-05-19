@@ -127,6 +127,13 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
             "Only meaningful when --copilot-review is also set."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
+    )
     return parser
 
 
@@ -140,6 +147,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.save and args.token:
         _save_cache({"token": args.token})
+    if args.verbose:
+        print(f"review-local: reading {len(args.files)} file(s)...", file=sys.stderr)
     try:
         markdown = review_local_files(
             files=args.files,
@@ -151,6 +160,8 @@ def main(argv: list[str] | None = None) -> int:
     except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError) as e:
         print(f"Unable to review local files ({type(e).__name__}).", file=sys.stderr)
         return 1
+    if args.verbose:
+        print("review-local: done.", file=sys.stderr)
     print(markdown)
     return 0
 

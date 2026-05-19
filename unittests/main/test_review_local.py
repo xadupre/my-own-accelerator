@@ -169,3 +169,18 @@ class TestReviewLocal(ExtTestCase):
         mock_ai.assert_called_once()
         call_kwargs = mock_ai.call_args.kwargs
         self.assertEqual(call_kwargs.get("extra_prompts"), ["Any security issues?"])
+
+    def test_main_verbose_flag_prints_progress(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+            ):
+                code = main(["-v", str(file1)])
+        self.assertEqual(code, 0)
+        self.assertIn("review-local: reading 1 file(s)...", err.getvalue())
+        self.assertIn("review-local: done.", err.getvalue())

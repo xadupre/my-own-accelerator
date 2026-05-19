@@ -396,6 +396,13 @@ def _build_parser(
             "Only meaningful when --copilot-review is also set."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
+    )
     return parser
 
 
@@ -437,6 +444,11 @@ def main(argv: list[str] | None = None) -> int:
             to_save["user"] = args.user
         _save_cache(to_save)
 
+    if args.verbose:
+        print(
+            f"review-pr: fetching {args.owner}/{args.repo}#{args.pull_request}...",
+            file=sys.stderr,
+        )
     try:
         markdown = review_pull_request(
             owner=args.owner,
@@ -459,6 +471,8 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 1
 
+    if args.verbose:
+        print("review-pr: done.", file=sys.stderr)
     print(markdown)
     return 0
 

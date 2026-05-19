@@ -28,10 +28,14 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 * ``<prefix>.xlsx``
 * ``<prefix>_status.svg``
 * ``<prefix>_comments.svg``
+* ``<prefix>_prs_per_week.svg``
+* ``<prefix>_comments_per_pr.svg``
+* ``<prefix>_comments_per_week.svg``
 
 Each row includes pull request author, creation datetime, merge/close status,
 manual comment count, Copilot command count, and total workflow job duration
-for that PR (in seconds).
+for that PR (in seconds). The Excel workbook also includes per-week PR counts,
+per-PR comment totals, and per-week comment totals in dedicated sheets.
 
 Use ``--since`` to only include pull requests created on/after a given date
 (``YYYY-MM-DD`` or ISO datetime), and ``--cache-file`` to control where the

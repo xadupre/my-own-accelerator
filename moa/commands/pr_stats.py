@@ -304,7 +304,7 @@ def _xlsx_cell(col: int, row: int, value: Any) -> str:
 
 
 def _xlsx_safe_text(value: str) -> str:
-    # XML 1.0 valid chars for worksheet text nodes.
+    # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch
         for ch in value

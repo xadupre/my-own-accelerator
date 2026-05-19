@@ -38,12 +38,12 @@ def main(argv: list[str] | None = None) -> int:
     if argv and argv[0] in {"-h", "--help"}:
         _build_parser().parse_args(argv)
     if argv and argv[0] == "review-local":
-        return main_local(argv[1:], prog="python -m moa review-local")
+        return main_local(argv[1:])
     if argv and argv[0] == "review-pr":
-        return main_pr(argv[1:], prog="python -m moa review-pr")
+        return main_pr(argv[1:])
     if argv and argv[0] == "pr-stats":
-        return main_pr_stats(argv[1:], prog="python -m moa pr-stats")
-    return main_pr(argv, prog="python -m moa review-pr")
+        return main_pr_stats(argv[1:])
+    return main_pr(argv)
 
 
 sys.exit(main())

@@ -65,9 +65,7 @@ def review_local_files(
     return markdown
 
 
-def _build_parser(
-    token_default: str | None = None, prog: str = "review-local"
-) -> argparse.ArgumentParser:
+def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     """Build the argument parser for the ``review-local`` command.
 
     :param token_default: Default value for the ``--token`` argument
@@ -75,7 +73,7 @@ def _build_parser(
     :return: Configured :class:`argparse.ArgumentParser` instance.
     """
     parser = argparse.ArgumentParser(
-        prog=prog,
+        prog="review-local",
         description="Reviews local files and prints markdown.",
     )
     parser.add_argument("files", nargs="+", metavar="file", help="Local files to review")
@@ -132,13 +130,13 @@ def _build_parser(
     return parser
 
 
-def main(argv: list[str] | None = None, prog: str = "review-local") -> int:
+def main(argv: list[str] | None = None) -> int:
     """Command line entrypoint for local file reviews."""
     if argv is None:
         argv = sys.argv[1:]
     cache = _load_cache()
     token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
-    parser = _build_parser(token_default=token_default, prog=prog)
+    parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
     if args.save and args.token:
         _save_cache({"token": args.token})

@@ -452,17 +452,16 @@ def save_pr_activity_report(
     }
 
 
-def main(argv: list[str] | None = None, prog: str = "pr-stats") -> int:
+def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     token_default = os.environ.get("GITHUB_TOKEN") or None
     api_url_default = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
     parser = argparse.ArgumentParser(
-        prog=prog,
         description=(
             "Builds a report of completed pull requests with author, "
             "manual comments, Copilot commands, dates, and output files."
-        ),
+        )
     )
     parser.add_argument("owner", help="GitHub repository owner")
     parser.add_argument("repo", help="GitHub repository name")

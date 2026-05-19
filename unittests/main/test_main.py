@@ -14,7 +14,7 @@ class TestMain(ExtTestCase):
         ):
             runpy.run_module("moa", run_name="__main__")
         self.assertEqual(ctx.exception.code, 0)
-        mocked.assert_called_once_with([], prog="python -m moa review-pr")
+        mocked.assert_called_once_with([])
 
     def test_package_main_routes_review_local(self) -> None:
         with (
@@ -24,7 +24,7 @@ class TestMain(ExtTestCase):
         ):
             runpy.run_module("moa", run_name="__main__")
         self.assertEqual(ctx.exception.code, 0)
-        mocked.assert_called_once_with(["README.md"], prog="python -m moa review-local")
+        mocked.assert_called_once_with(["README.md"])
 
     def test_package_main_routes_explicit_review_pr(self) -> None:
         with (
@@ -34,7 +34,7 @@ class TestMain(ExtTestCase):
         ):
             runpy.run_module("moa", run_name="__main__")
         self.assertEqual(ctx.exception.code, 0)
-        mocked.assert_called_once_with(["owner", "repo", "1"], prog="python -m moa review-pr")
+        mocked.assert_called_once_with(["owner", "repo", "1"])
 
     def test_package_main_routes_pr_stats(self) -> None:
         with (
@@ -44,7 +44,7 @@ class TestMain(ExtTestCase):
         ):
             runpy.run_module("moa", run_name="__main__")
         self.assertEqual(ctx.exception.code, 0)
-        mocked.assert_called_once_with(["owner", "repo"], prog="python -m moa pr-stats")
+        mocked.assert_called_once_with(["owner", "repo"])
 
     def _assert_package_main_help(self, flag: str) -> None:
         out = StringIO()
@@ -61,30 +61,9 @@ class TestMain(ExtTestCase):
         self.assertIn("Review a GitHub pull request and print markdown.", out.getvalue())
         self.assertIn("Review local files and print markdown.", out.getvalue())
         self.assertIn("Build pull request activity reports", out.getvalue())
-        self.assertIn("python -m moa", out.getvalue())
-
-    def _assert_subcommand_help_uses_module_prog(self, command: str) -> None:
-        out = StringIO()
-        with (
-            patch("sys.argv", ["-m", command, "--help"]),
-            patch("sys.stdout", out),
-            self.assertRaises(SystemExit) as ctx,
-        ):
-            runpy.run_module("moa", run_name="__main__")
-        self.assertEqual(ctx.exception.code, 0)
-        self.assertIn(f"usage: python -m moa {command}", out.getvalue())
 
     def test_package_main_help_short_flag(self) -> None:
         self._assert_package_main_help("-h")
 
     def test_package_main_help_long_flag(self) -> None:
         self._assert_package_main_help("--help")
-
-    def test_subcommand_help_uses_module_prog_review_pr(self) -> None:
-        self._assert_subcommand_help_uses_module_prog("review-pr")
-
-    def test_subcommand_help_uses_module_prog_review_local(self) -> None:
-        self._assert_subcommand_help_uses_module_prog("review-local")
-
-    def test_subcommand_help_uses_module_prog_pr_stats(self) -> None:
-        self._assert_subcommand_help_uses_module_prog("pr-stats")

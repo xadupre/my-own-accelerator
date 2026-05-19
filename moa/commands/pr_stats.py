@@ -314,7 +314,7 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
             sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
         sanitized_rows.append(sanitized_row)
     frame = pandas.DataFrame(sanitized_rows, columns=headers)
-    frame.to_excel(path, index=False)
+    frame.to_excel(path, index=False, sheet_name="PR activity", engine="openpyxl")
 
 
 def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> None:

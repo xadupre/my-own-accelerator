@@ -130,7 +130,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn('class="bar"', status_svg)
         self.assertIn('class="label"', status_svg)
         self.assertIn("1", cache["rows"])
-        self.assertIn('transform="rotate(-45', status_svg)
+        self.assertIn('transform="rotate(-30', status_svg)
         self.assertIn("Pull requests per week", prs_per_week_svg)
         self.assertIn("Comments per pull request", comments_per_pr_svg)
         self.assertIn("Comments per week", comments_per_week_svg)
@@ -281,6 +281,7 @@ class TestPRStats(ExtTestCase):
         expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
         self.assertIn(f'x1="{expected_left - 20}"', svg)
         self.assertIn(f'<rect x="{expected_left}"', svg)
+        self.assertIn("transform=\"rotate(-30 ", svg)
         self.assertIn("manual_comments", svg)
         self.assertIn("copilot_commands", svg)
 

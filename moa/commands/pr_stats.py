@@ -666,8 +666,7 @@ def _save_job_duration_line_graph(
         'class="label" fill="#111" font-size="12">Completion date</text>'
         + f'<text x="20" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
         f'transform="rotate(-90 20 {top + plot_h / 2:.1f})" '
-        'class="label" fill="#111" font-size="12">Duration (seconds)</text>'
-        + "</svg>"
+        'class="label" fill="#111" font-size="12">Duration (seconds)</text>' + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
 
@@ -856,7 +855,8 @@ def _save_bar_graph(
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - 20}" y1="40" x2="{left - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
+        f'<line x1="{left - 20}" y1="40" x2="{left - 20}" y2="{baseline}" '
+        'class="axis" stroke="#000"/>'
         f'<line x1="{left - 20}" y1="{baseline}" '
         f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
         + "".join(bars)

@@ -209,6 +209,7 @@ class TestPRStats(ExtTestCase):
                 code = main(["owner", "repo"])
         self.assertEqual(code, 0)
         self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
+        self.assertEqual(mocked_save.call_args.kwargs["prefix"], "pr_activity_repo")
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 

@@ -29,6 +29,7 @@ Use ``--since`` to only include pull requests created on/after a given date
 PR statistics cache is stored. By default, cache is written to
 ``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
 subsequent runs instead of requesting their comment statistics again.
-Generated files are written to the ``pr_stats`` directory by default.
+Generated files are written to the ``dump_pr_stats`` directory by default.
+By default, generated file names use the ``pr_activity_<repo>`` prefix.
 Use ``-v`` or ``--verbose`` to print progress information to standard
 error while the command is running.

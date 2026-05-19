@@ -7,6 +7,8 @@ import zipfile
 from io import StringIO
 from unittest.mock import patch
 
+import pandas
+
 from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     _collect_pr_job_duration_seconds,
@@ -85,8 +87,9 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["cache"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
-            status_svg = outputs["status_svg"].read_text(encoding="utf-8")
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
+            status_svg = outputs["status_svg"].read_text(encoding="utf-8")
+            xlsx_rows = pandas.read_excel(outputs["xlsx"]).to_dict(orient="records")
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
         self.assertEqual(rows[0]["total_job_duration_seconds"], "180")
@@ -95,6 +98,8 @@ class TestPRStats(ExtTestCase):
         self.assertIn('class="label"', status_svg)
         self.assertIn("1", cache["rows"])
         self.assertIn('transform="rotate(-45', status_svg)
+        self.assertEqual(xlsx_rows[0]["author"], "alice")
+        self.assertEqual(xlsx_rows[0]["copilot_commands"], 1)
 
     def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
         fake_rows = [

@@ -10,13 +10,14 @@ import os
 import pathlib
 import re
 import sys
-import zipfile
 from collections import Counter
 from datetime import datetime
 from html import escape
 from typing import Any
 from urllib import parse
 from urllib.error import HTTPError, URLError
+
+import pandas
 
 from .review_pr import _fetch_json
 
@@ -298,19 +299,6 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         writer.writerows(rows)
 
 
-def _xlsx_cell(col: int, row: int, value: Any) -> str:
-    col_name = ""
-    c = col
-    while c > 0:
-        c, rem = divmod(c - 1, 26)
-        col_name = chr(65 + rem) + col_name
-    ref = f"{col_name}{row}"
-    if isinstance(value, int):
-        return f'<c r="{ref}"><v>{value}</v></c>'
-    text = escape(_xlsx_safe_text(str(value)))
-    return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
-
-
 def _xlsx_safe_text(value: str) -> str:
     # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
@@ -334,63 +322,15 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "total_job_duration_seconds",
         "html_url",
     ]
-    values = [headers] + [[row.get(key, "") for key in headers] for row in rows]
-    xml_rows = []
-    for ridx, row_values in enumerate(values, start=1):
-        cells = "".join(
-            _xlsx_cell(cidx, ridx, value) for cidx, value in enumerate(row_values, start=1)
-        )
-        xml_rows.append(f'<row r="{ridx}">{cells}</row>')
-    worksheet = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-        f"<sheetData>{''.join(xml_rows)}</sheetData>"
-        "</worksheet>"
-    )
-    content_types = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
-        '<Default Extension="rels" '
-        'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
-        '<Default Extension="xml" ContentType="application/xml"/>'
-        '<Override PartName="/xl/workbook.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'
-        '<Override PartName="/xl/worksheets/sheet1.xml" '
-        'ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'
-        "</Types>"
-    )
-    office_document_type = (
-        "http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
-    )
-    rels = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" '
-        f'Type="{office_document_type}" '
-        'Target="xl/workbook.xml"/>'
-        "</Relationships>"
-    )
-    workbook = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" '
-        'xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'
-        '<sheets><sheet name="PR activity" sheetId="1" r:id="rId1"/></sheets>'
-        "</workbook>"
-    )
-    workbook_rels = (
-        '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
-        '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
-        '<Relationship Id="rId1" '
-        'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" '
-        'Target="worksheets/sheet1.xml"/>'
-        "</Relationships>"
-    )
-    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("[Content_Types].xml", content_types)
-        zf.writestr("_rels/.rels", rels)
-        zf.writestr("xl/workbook.xml", workbook)
-        zf.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
-        zf.writestr("xl/worksheets/sheet1.xml", worksheet)
+    sanitized_rows = []
+    for row in rows:
+        sanitized_row: dict[str, Any] = {}
+        for key in headers:
+            value = row.get(key, "")
+            sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
+        sanitized_rows.append(sanitized_row)
+    frame = pandas.DataFrame(sanitized_rows, columns=headers)
+    frame.to_excel(path, index=False, sheet_name="PR activity", engine="openpyxl")
 
 
 def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> None:

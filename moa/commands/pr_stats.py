@@ -291,8 +291,17 @@ def _xlsx_cell(col: int, row: int, value: Any) -> str:
     ref = f"{col_name}{row}"
     if isinstance(value, int):
         return f'<c r="{ref}"><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(_xlsx_safe_text(str(value)))
     return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def _xlsx_safe_text(value: str) -> str:
+    # XML 1.0 valid chars for worksheet text nodes.
+    return "".join(
+        ch
+        for ch in value
+        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF or 0xE000 <= ord(ch) <= 0xFFFD
+    )
 
 
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:

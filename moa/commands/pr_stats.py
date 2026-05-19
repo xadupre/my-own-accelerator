@@ -1072,13 +1072,13 @@ def _save_graphs_html_report(
     title = f"PR stats graphs for {repo}"
     section_chunks = []
     for graph_title, graph_path in graphs:
-        rel = graph_path.relative_to(path.parent)
+        svg_content = graph_path.read_text(encoding="utf-8")
         section_chunks.append(
             "\n".join(
                 [
                     "<section>",
                     f"<h2>{escape(graph_title)}</h2>",
-                    f'<img src="{escape(rel.as_posix())}" alt="{escape(graph_title)} graph">',
+                    svg_content,
                     "</section>",
                 ]
             )
@@ -1093,7 +1093,7 @@ def _save_graphs_html_report(
             f"<title>{escape(title)}</title>",
             "<style>",
             "body{font-family:Arial,sans-serif;margin:20px;}",
-            "img{max-width:100%;height:auto;}",
+            "svg{max-width:100%;height:auto;}",
             "section{margin:24px 0;}",
             "h2{margin-bottom:8px;}",
             "</style>",

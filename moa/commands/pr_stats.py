@@ -200,18 +200,25 @@ def _fetch_workflow_runs_by_head_sha(
     return rows
 
 
-def _collect_pr_job_duration_seconds(
+def _collect_pr_job_info(
     owner: str,
     repo: str,
     pull_number: int,
     head_sha: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
-) -> int:
+) -> tuple[int, list[dict[str, Any]]]:
+    """Return (total_duration_seconds, successful_job_durations).
+
+    total_duration_seconds counts all jobs regardless of conclusion.
+    successful_job_durations is a list of {job_name, completed_at, duration_seconds}
+    restricted to jobs whose conclusion is "success".
+    """
     if not head_sha:
-        return 0
+        return 0, []
     runs = _fetch_workflow_runs_by_head_sha(owner, repo, head_sha, token, api_url)
     total_seconds = 0
+    successful_jobs: list[dict[str, Any]] = []
     for run in runs:
         pull_requests = run.get("pull_requests")
         if isinstance(pull_requests, list) and pull_requests:
@@ -231,7 +238,28 @@ def _collect_pr_job_duration_seconds(
             started_dt = _parse_iso_datetime(started_at)
             completed_dt = _parse_iso_datetime(completed_at)
             if completed_dt >= started_dt:
-                total_seconds += int((completed_dt - started_dt).total_seconds())
+                duration = int((completed_dt - started_dt).total_seconds())
+                total_seconds += duration
+                if job.get("conclusion") == "success":
+                    successful_jobs.append(
+                        {
+                            "job_name": str(job.get("name", "")),
+                            "completed_at": completed_at,
+                            "duration_seconds": duration,
+                        }
+                    )
+    return total_seconds, successful_jobs
+
+
+def _collect_pr_job_duration_seconds(
+    owner: str,
+    repo: str,
+    pull_number: int,
+    head_sha: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> int:
+    total_seconds, _ = _collect_pr_job_info(owner, repo, pull_number, head_sha, token, api_url)
     return total_seconds
 
 
@@ -269,7 +297,7 @@ def build_pr_activity_rows(
             token=token,
             api_url=api_url,
         )
-        total_job_duration_seconds = _collect_pr_job_duration_seconds(
+        total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
             owner=owner,
             repo=repo,
             pull_number=number,
@@ -290,6 +318,7 @@ def build_pr_activity_rows(
                 "manual_comments": manual_comments,
                 "copilot_commands": copilot_commands,
                 "total_job_duration_seconds": total_job_duration_seconds,
+                "successful_job_durations": successful_job_durations,
                 "html_url": pr.get("html_url", ""),
             }
         )
@@ -311,7 +340,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "html_url",
     ]
     with path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
 
@@ -416,6 +445,170 @@ def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[s
     ]
 
 
+def _build_job_duration_sheet_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Extract successful job duration rows from PR rows, sorted by job_name then completed_at."""
+    job_rows: list[dict[str, Any]] = []
+    for pr_row in rows:
+        pr_number = pr_row.get("number", 0)
+        for job in pr_row.get("successful_job_durations", []):
+            job_rows.append(
+                {
+                    "job_name": str(job.get("job_name", "")),
+                    "completed_at": str(job.get("completed_at", "")),
+                    "duration_seconds": int(job.get("duration_seconds", 0)),
+                    "pr_number": int(pr_number),
+                }
+            )
+    return sorted(job_rows, key=lambda r: (str(r["job_name"]), str(r["completed_at"])))
+
+
+def _compute_moving_average(values: list[float], window: int = 10) -> list[float | None]:
+    """Return a moving average of *values* using the given *window* size.
+
+    The first ``window - 1`` elements are ``None`` because there are not yet
+    enough prior data points to fill the window.
+    """
+    result: list[float | None] = []
+    for i, _ in enumerate(values):
+        if i + 1 < window:
+            result.append(None)
+        else:
+            result.append(sum(values[i + 1 - window : i + 1]) / window)
+    return result
+
+
+def _save_job_duration_line_graph(
+    path: pathlib.Path,
+    series: list[dict[str, Any]],
+    title: str,
+    moving_avg_window: int = 10,
+) -> None:
+    """Save a line-graph SVG of job duration over time with a moving average.
+
+    *series* is a list of ``{completed_at, duration_seconds}`` dicts sorted by
+    ``completed_at``.  Data points are plotted at evenly-spaced x positions;
+    x-axis labels show the date portion of ``completed_at`` at regular intervals.
+    """
+    width = 800
+    height = 420
+    left = 70
+    right = 20
+    top = 40
+    bottom = 120
+    plot_w = width - left - right
+    plot_h = height - top - bottom
+
+    n = len(series)
+    if n == 0:
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
+            f"{DARK_THEME_SVG_CSS}"
+            f'<rect class="bg" x="0" y="0" width="{width}" height="{height}" fill="#fff"/>'
+            f'<text x="{width / 2}" y="28" text-anchor="middle" font-size="18" '
+            f'class="label" fill="#111">{escape(title)}</text>'
+            f'<text x="{width / 2}" y="{top + plot_h / 2}" text-anchor="middle" '
+            'class="label" fill="#888">No data</text>'
+            "</svg>"
+        )
+        path.write_text(svg, encoding="utf-8")
+        return
+
+    values = [int(pt.get("duration_seconds", 0)) for pt in series]
+    x_labels_raw = [str(pt.get("completed_at", ""))[:10] for pt in series]
+    max_val = max(values) if values else 1
+    if max_val == 0:
+        max_val = 1
+
+    def x_pos(i: int) -> float:
+        return left + (i * plot_w / (n - 1) if n > 1 else plot_w / 2)
+
+    def y_pos(v: float) -> float:
+        return top + plot_h - (v / max_val) * plot_h
+
+    # Data line
+    points_str = " ".join(f"{x_pos(i):.1f},{y_pos(v):.1f}" for i, v in enumerate(values))
+
+    # Moving average line
+    avg = _compute_moving_average([float(v) for v in values], moving_avg_window)
+    avg_pairs = [(x_pos(i), y_pos(v)) for i, v in enumerate(avg) if v is not None]
+    avg_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in avg_pairs)
+
+    # X-axis labels (every max(1, n//8)-th point, rotated 45°)
+    step = max(1, n // 8)
+    x_label_elems = []
+    for i in range(0, n, step):
+        x = x_pos(i)
+        x_label_elems.append(
+            f'<text x="{x:.1f}" y="{top + plot_h + 20}" text-anchor="end" '
+            f'transform="rotate(-45 {x:.1f} {top + plot_h + 20})" '
+            f'class="label" fill="#111" font-size="11">{escape(x_labels_raw[i])}</text>'
+        )
+
+    # Y-axis ticks (5 levels)
+    y_tick_elems = []
+    for tick_i in range(5):
+        tick_val = max_val * tick_i / 4
+        y = y_pos(tick_val)
+        y_tick_elems.append(
+            f'<line x1="{left - 5}" y1="{y:.1f}" x2="{left}" y2="{y:.1f}" '
+            f'class="axis" stroke="#000"/>'
+            f'<text x="{left - 8}" y="{y:.1f}" text-anchor="end" '
+            f'dominant-baseline="middle" class="label" fill="#111" '
+            f'font-size="11">{int(tick_val)}</text>'
+            f'<line x1="{left}" y1="{y:.1f}" x2="{left + plot_w}" y2="{y:.1f}" '
+            f'stroke="#ddd" stroke-dasharray="4,4"/>'
+        )
+
+    # Legend
+    legend_x = width - right - 130
+    legend_y = top + 10
+    legend_elems = (
+        f'<line x1="{legend_x}" y1="{legend_y}" x2="{legend_x + 20}" y2="{legend_y}" '
+        f'stroke="#4e79a7" stroke-width="2"/>'
+        f'<text x="{legend_x + 25}" y="{legend_y + 4}" font-size="11" '
+        f'class="label" fill="#111">duration</text>'
+    )
+    if avg_str:
+        legend_elems += (
+            f'<line x1="{legend_x}" y1="{legend_y + 18}" '
+            f'x2="{legend_x + 20}" y2="{legend_y + 18}" '
+            f'stroke="#e05c5c" stroke-width="2" stroke-dasharray="5,3"/>'
+            f'<text x="{legend_x + 25}" y="{legend_y + 22}" font-size="11" '
+            f'class="label" fill="#111">avg-{moving_avg_window}</text>'
+        )
+
+    dots = "".join(
+        f'<circle cx="{x_pos(i):.1f}" cy="{y_pos(v):.1f}" r="3" fill="#4e79a7"/>'
+        for i, v in enumerate(values)
+    )
+    avg_line = (
+        f'<polyline points="{avg_str}" fill="none" stroke="#e05c5c" '
+        f'stroke-width="2" stroke-dasharray="5,3"/>'
+        if avg_str
+        else ""
+    )
+
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
+        f"{DARK_THEME_SVG_CSS}"
+        f'<rect class="bg" x="0" y="0" width="{width}" height="{height}" fill="#fff"/>'
+        f'<text x="{width / 2}" y="28" text-anchor="middle" font-size="18" '
+        f'class="label" fill="#111">{escape(title)}</text>'
+        f'<line x1="{left}" y1="{top}" x2="{left}" y2="{top + plot_h}" '
+        f'class="axis" stroke="#000"/>'
+        f'<line x1="{left}" y1="{top + plot_h}" x2="{left + plot_w}" y2="{top + plot_h}" '
+        f'class="axis" stroke="#000"/>'
+        + "".join(y_tick_elems)
+        + f'<polyline points="{points_str}" fill="none" stroke="#4e79a7" stroke-width="2"/>'
+        + dots
+        + avg_line
+        + "".join(x_label_elems)
+        + legend_elems
+        + "</svg>"
+    )
+    path.write_text(svg, encoding="utf-8")
+
+
 def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [
         {
@@ -501,6 +694,12 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "pr_count",
         "avg_duration_seconds",
     ]
+    job_duration_headers = [
+        "job_name",
+        "completed_at",
+        "duration_seconds",
+        "pr_number",
+    ]
     with pandas.ExcelWriter(path, engine="openpyxl") as writer:
         pandas.DataFrame(_xlsx_sanitize_rows(rows, headers), columns=headers).to_excel(
             writer, index=False, sheet_name="PR activity"
@@ -523,6 +722,10 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
             ),
             columns=avg_duration_headers,
         ).to_excel(writer, index=False, sheet_name="Avg PR duration")
+        pandas.DataFrame(
+            _xlsx_sanitize_rows(_build_job_duration_sheet_rows(rows), job_duration_headers),
+            columns=job_duration_headers,
+        ).to_excel(writer, index=False, sheet_name="Job durations")
 
 
 def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> None:
@@ -581,7 +784,7 @@ def save_pr_activity_report(
     api_url: str = "https://api.github.com",
     since: str | None = None,
     cache_file: str | None = None,
-) -> dict[str, pathlib.Path]:
+) -> dict[str, Any]:
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
@@ -647,6 +850,18 @@ def save_pr_activity_report(
         },
         "Avg PR duration per week (seconds)",
     )
+    # Per-job-name duration line graphs (successful jobs only)
+    job_duration_svgs: dict[str, pathlib.Path] = {}
+    jobs_by_name: dict[str, list[dict[str, Any]]] = {}
+    for jd in sorted(_build_job_duration_sheet_rows(rows), key=lambda r: str(r["completed_at"])):
+        jobs_by_name.setdefault(str(jd["job_name"]), []).append(jd)
+    for job_name, job_series in jobs_by_name.items():
+        safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", job_name).strip("_")
+        if not safe_name:
+            safe_name = f"job_{hashlib.sha256(job_name.encode('utf-8')).hexdigest()[:8]}"
+        svg_path = out / f"{prefix}_job_duration_{safe_name}.svg"
+        _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
+        job_duration_svgs[job_name] = svg_path
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
@@ -657,6 +872,7 @@ def save_pr_activity_report(
         "comments_per_week_svg": comments_per_week_svg_path,
         "avg_duration_per_user_svg": avg_duration_per_user_svg_path,
         "avg_duration_per_week_svg": avg_duration_per_week_svg_path,
+        "job_duration_svgs": job_duration_svgs,
         "cache": cache_path,
     }
 
@@ -742,8 +958,12 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     if args.verbose:
         print("pr-stats: done.", file=sys.stderr)
-    for _, path in outputs.items():
-        print(path)
+    for _, value in outputs.items():
+        if isinstance(value, dict):
+            for path in value.values():
+                print(path)
+        else:
+            print(value)
     return 0
 
 

@@ -308,6 +308,73 @@ def _xlsx_safe_text(value: str) -> str:
     )
 
 
+def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[dict[str, Any]]:
+    sanitized_rows = []
+    for row in rows:
+        sanitized_row: dict[str, Any] = {}
+        for key in headers:
+            value = row.get(key, "")
+            sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
+        sanitized_rows.append(sanitized_row)
+    return sanitized_rows
+
+
+def _week_label(value: str) -> str:
+    iso_week = _parse_iso_datetime(value).isocalendar()
+    return f"{iso_week.year}-W{iso_week.week:02d}"
+
+
+def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        {
+            "number": row.get("number", 0),
+            "title": row.get("title", ""),
+            "created_at": row.get("created_at", ""),
+            "manual_comments": row.get("manual_comments", 0),
+            "copilot_commands": row.get("copilot_commands", 0),
+            "total_comments": int(row.get("manual_comments", 0))
+            + int(row.get("copilot_commands", 0)),
+        }
+        for row in sorted(rows, key=lambda item: int(item.get("number", 0)))
+    ]
+
+
+def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prs_per_week: Counter[str] = Counter()
+    for row in rows:
+        created_at = str(row.get("created_at", ""))
+        if not created_at:
+            continue
+        prs_per_week[_week_label(created_at)] += 1
+    return [
+        {"week": week, "pull_requests": count} for week, count in sorted(prs_per_week.items())
+    ]
+
+
+def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    comments_per_week: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        created_at = str(row.get("created_at", ""))
+        if not created_at:
+            continue
+        week = _week_label(created_at)
+        weekly = comments_per_week.setdefault(
+            week,
+            {
+                "week": week,
+                "manual_comments": 0,
+                "copilot_commands": 0,
+                "total_comments": 0,
+            },
+        )
+        manual_comments = int(row.get("manual_comments", 0))
+        copilot_commands = int(row.get("copilot_commands", 0))
+        weekly["manual_comments"] += manual_comments
+        weekly["copilot_commands"] += copilot_commands
+        weekly["total_comments"] += manual_comments + copilot_commands
+    return [comments_per_week[week] for week in sorted(comments_per_week)]
+
+
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     headers = [
         "number",
@@ -322,26 +389,47 @@ def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
         "total_job_duration_seconds",
         "html_url",
     ]
-    sanitized_rows = []
-    for row in rows:
-        sanitized_row: dict[str, Any] = {}
-        for key in headers:
-            value = row.get(key, "")
-            sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
-        sanitized_rows.append(sanitized_row)
-    frame = pandas.DataFrame(sanitized_rows, columns=headers)
-    frame.to_excel(path, index=False, sheet_name="PR activity", engine="openpyxl")
+    comments_per_pr_headers = [
+        "number",
+        "title",
+        "created_at",
+        "manual_comments",
+        "copilot_commands",
+        "total_comments",
+    ]
+    comments_per_week_headers = [
+        "week",
+        "manual_comments",
+        "copilot_commands",
+        "total_comments",
+    ]
+    with pandas.ExcelWriter(path, engine="openpyxl") as writer:
+        pandas.DataFrame(_xlsx_sanitize_rows(rows, headers), columns=headers).to_excel(
+            writer, index=False, sheet_name="PR activity"
+        )
+        pandas.DataFrame(
+            _xlsx_sanitize_rows(_build_prs_per_week_rows(rows), ["week", "pull_requests"]),
+            columns=["week", "pull_requests"],
+        ).to_excel(writer, index=False, sheet_name="PRs per week")
+        pandas.DataFrame(
+            _xlsx_sanitize_rows(_build_comments_per_pr_rows(rows), comments_per_pr_headers),
+            columns=comments_per_pr_headers,
+        ).to_excel(writer, index=False, sheet_name="Comments per PR")
+        pandas.DataFrame(
+            _xlsx_sanitize_rows(_build_comments_per_week_rows(rows), comments_per_week_headers),
+            columns=comments_per_week_headers,
+        ).to_excel(writer, index=False, sheet_name="Comments per week")
 
 
 def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> None:
     if not values:
         values = {"none": 0}
     max_value = max(values.values()) if values else 0
-    width = 600
     bar_width = 80
     gap = 40
     left = 60
     baseline = 300
+    width = max(600, left + len(values) * (bar_width + gap) + 20)
     scale = 200 / max_value if max_value else 0
     bars = []
     labels = []
@@ -405,6 +493,9 @@ def save_pr_activity_report(
     xlsx_path = out / f"{prefix}.xlsx"
     status_svg_path = out / f"{prefix}_status.svg"
     comments_svg_path = out / f"{prefix}_comments.svg"
+    prs_per_week_svg_path = out / f"{prefix}_prs_per_week.svg"
+    comments_per_pr_svg_path = out / f"{prefix}_comments_per_pr.svg"
+    comments_per_week_svg_path = out / f"{prefix}_comments_per_week.svg"
     _save_cache(cache_path, rows)
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
@@ -417,11 +508,30 @@ def save_pr_activity_report(
         {"manual_comments": total_manual, "copilot_commands": total_copilot},
         "Manual comments vs Copilot commands",
     )
+    comments_per_pr_rows = _build_comments_per_pr_rows(rows)
+    _save_bar_graph(
+        prs_per_week_svg_path,
+        {row["week"]: int(row["pull_requests"]) for row in _build_prs_per_week_rows(rows)},
+        "Pull requests per week",
+    )
+    _save_bar_graph(
+        comments_per_pr_svg_path,
+        {f"PR #{row['number']}": int(row["total_comments"]) for row in comments_per_pr_rows},
+        "Comments per pull request",
+    )
+    _save_bar_graph(
+        comments_per_week_svg_path,
+        {row["week"]: int(row["total_comments"]) for row in _build_comments_per_week_rows(rows)},
+        "Comments per week",
+    )
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
         "status_svg": status_svg_path,
         "comments_svg": comments_svg_path,
+        "prs_per_week_svg": prs_per_week_svg_path,
+        "comments_per_pr_svg": comments_per_pr_svg_path,
+        "comments_per_week_svg": comments_per_week_svg_path,
         "cache": cache_path,
     }
 

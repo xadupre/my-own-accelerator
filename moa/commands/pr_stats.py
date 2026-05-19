@@ -41,6 +41,7 @@ SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_Y_AXIS_LABEL_X = 20
 SVG_X_AXIS_LABEL_Y_OFFSET = 24
+SVG_X_AXIS_LABEL_ROTATION = -15
 SVG_BAR_MIN_WIDTH = 600
 SVG_BAR_X_AXIS_LABEL_Y = 350
 
@@ -892,14 +893,14 @@ def _save_job_duration_line_graph(
     avg_pairs = [(x_pos(i), y_pos(v)) for i, v in enumerate(avg) if v is not None]
     avg_str = " ".join(f"{x:.1f},{y:.1f}" for x, y in avg_pairs)
 
-    # X-axis labels (every max(1, n//8)-th point, rotated 45°)
+    # X-axis labels (every max(1, n//8)-th point, rotated 15° clockwise)
     step = max(1, n // 8)
     x_label_elems = []
     for i in range(0, n, step):
         x = x_pos(i)
         x_label_elems.append(
             f'<text x="{x:.1f}" y="{top + plot_h + 20}" text-anchor="end" '
-            f'transform="rotate(-45 {x:.1f} {top + plot_h + 20})" '
+            f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} {x:.1f} {top + plot_h + 20})" '
             f'class="label" fill="#111" font-size="11">{escape(x_labels_raw[i])}</text>'
         )
 
@@ -1150,7 +1151,8 @@ def _save_bar_graph(
         )
         labels.append(
             f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
-            f'transform="rotate(-30 {x + bar_width / 2} {baseline + 20})" '
+            f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} '
+            f'{x + bar_width / 2} {baseline + 20})" '
             'class="label" fill="#111">'
             f"{escape(label)}</text>"
         )

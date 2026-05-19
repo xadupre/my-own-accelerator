@@ -86,10 +86,15 @@ def _parse_iso_datetime(value: str) -> datetime:
 
 
 def _default_prefix(repo: str) -> str:
+    safe_repo = _safe_repo_name(repo)
+    return f"pr_activity_{safe_repo}"
+
+
+def _safe_repo_name(repo: str) -> str:
     safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_")
     if not safe_repo:
         safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
-    return f"pr_activity_{safe_repo}"
+    return safe_repo
 
 
 def _default_since() -> str:
@@ -842,6 +847,8 @@ def save_pr_activity_report(
 ) -> dict[str, Any]:
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+    graph_dir = out / f"graphs_{_safe_repo_name(repo)}"
+    graph_dir.mkdir(parents=True, exist_ok=True)
     cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
     cached_rows = _load_cache(cache_path)
     rows = build_pr_activity_rows(
@@ -855,13 +862,13 @@ def save_pr_activity_report(
     )
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
-    status_svg_path = out / f"{prefix}_status.svg"
-    comments_svg_path = out / f"{prefix}_comments.svg"
-    prs_per_week_svg_path = out / f"{prefix}_prs_per_week.svg"
-    comments_per_pr_svg_path = out / f"{prefix}_comments_per_pr.svg"
-    comments_per_week_svg_path = out / f"{prefix}_comments_per_week.svg"
-    avg_duration_per_user_svg_path = out / f"{prefix}_avg_duration_per_user.svg"
-    avg_duration_per_week_svg_path = out / f"{prefix}_avg_duration_per_week.svg"
+    status_svg_path = graph_dir / f"{prefix}_status.svg"
+    comments_svg_path = graph_dir / f"{prefix}_comments.svg"
+    prs_per_week_svg_path = graph_dir / f"{prefix}_prs_per_week.svg"
+    comments_per_pr_svg_path = graph_dir / f"{prefix}_comments_per_pr.svg"
+    comments_per_week_svg_path = graph_dir / f"{prefix}_comments_per_week.svg"
+    avg_duration_per_user_svg_path = graph_dir / f"{prefix}_avg_duration_per_user.svg"
+    avg_duration_per_week_svg_path = graph_dir / f"{prefix}_avg_duration_per_week.svg"
     _save_cache(cache_path, rows)
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
@@ -914,7 +921,7 @@ def save_pr_activity_report(
         safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", job_name).strip("_")
         if not safe_name:
             safe_name = f"job_{hashlib.sha256(job_name.encode('utf-8')).hexdigest()[:8]}"
-        svg_path = out / f"{prefix}_job_duration_{safe_name}.svg"
+        svg_path = graph_dir / f"{prefix}_job_duration_{safe_name}.svg"
         _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
     return {

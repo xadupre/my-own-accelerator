@@ -26,12 +26,12 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 
 * ``<prefix>.csv``
 * ``<prefix>.xlsx``
-* ``<prefix>_status.svg``
-* ``<prefix>_comments.svg``
-* ``<prefix>_prs_per_week.svg``
-* ``<prefix>_comments_per_pr.svg``  — distribution of PRs by number of comments
-* ``<prefix>_comments_per_week.svg``
-* ``<prefix>_job_duration_<job>.svg`` (one per unique job name, successful runs only)
+* ``graphs_<repo>/<prefix>_status.svg``
+* ``graphs_<repo>/<prefix>_comments.svg``
+* ``graphs_<repo>/<prefix>_prs_per_week.svg``
+* ``graphs_<repo>/<prefix>_comments_per_pr.svg``  — distribution of PRs by number of comments
+* ``graphs_<repo>/<prefix>_comments_per_week.svg``
+* ``graphs_<repo>/<prefix>_job_duration_<job>.svg`` (one per unique job name, successful runs only)
 
 Each row includes pull request author, creation datetime, merge/close status,
 manual comment count, Copilot command count, and total workflow job duration
@@ -47,7 +47,8 @@ Use ``--since`` to only include pull requests created on/after a given date
 PR statistics cache is stored. By default, cache is written to
 ``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
 subsequent runs instead of requesting their comment statistics again.
-Generated files are written to the ``dump_pr_stats`` directory by default.
+Generated files are written to the ``dump_pr_stats`` directory by default, with
+SVG graphs stored in a repo-specific ``graphs_<repo>`` subdirectory.
 By default, generated file names use the ``pr_activity_<repo>`` prefix.
 Use ``-v`` or ``--verbose`` to print progress information to standard
 error while the command is running.

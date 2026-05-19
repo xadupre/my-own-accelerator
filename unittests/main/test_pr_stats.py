@@ -121,7 +121,9 @@ class TestPRStats(ExtTestCase):
         ]
         with tempfile.TemporaryDirectory() as tmp:
             with patch("moa.commands.pr_stats.build_pr_activity_rows", return_value=fake_rows):
-                outputs = save_pr_activity_report("o", "r", output_dir=tmp, prefix="report")
+                outputs = save_pr_activity_report(
+                    "o", "my:repo/name", output_dir=tmp, prefix="report"
+                )
             self.assertTrue(outputs["csv"].exists())
             self.assertTrue(outputs["xlsx"].exists())
             self.assertTrue(outputs["status_svg"].exists())
@@ -132,11 +134,24 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["avg_duration_per_user_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_week_svg"].exists())
             self.assertTrue(outputs["cache"].exists())
+            graph_dir = pathlib.Path(tmp) / "graphs_my_repo_name"
+            self.assertEqual(outputs["csv"].parent, pathlib.Path(tmp))
+            self.assertEqual(outputs["xlsx"].parent, pathlib.Path(tmp))
+            self.assertEqual(outputs["cache"].parent, pathlib.Path(tmp))
+            self.assertEqual(outputs["status_svg"].parent, graph_dir)
+            self.assertEqual(outputs["comments_svg"].parent, graph_dir)
+            self.assertEqual(outputs["prs_per_week_svg"].parent, graph_dir)
+            self.assertEqual(outputs["comments_per_pr_svg"].parent, graph_dir)
+            self.assertEqual(outputs["comments_per_week_svg"].parent, graph_dir)
+            self.assertEqual(outputs["avg_duration_per_user_svg"].parent, graph_dir)
+            self.assertEqual(outputs["avg_duration_per_week_svg"].parent, graph_dir)
             job_dur_svgs = outputs["job_duration_svgs"]
             self.assertIn("build", job_dur_svgs)
             self.assertIn("test", job_dur_svgs)
             self.assertTrue(job_dur_svgs["build"].exists())
             self.assertTrue(job_dur_svgs["test"].exists())
+            self.assertEqual(job_dur_svgs["build"].parent, graph_dir)
+            self.assertEqual(job_dur_svgs["test"].parent, graph_dir)
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
@@ -415,14 +430,16 @@ class TestPRStats(ExtTestCase):
     def test_main_prints_output_paths(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:
+            graph_dir = pathlib.Path(tmp) / "graphs_repo"
+            graph_dir.mkdir()
             fake_paths = {
                 "csv": tempfile.NamedTemporaryFile(dir=tmp, suffix=".csv", delete=False).name,
                 "xlsx": tempfile.NamedTemporaryFile(dir=tmp, suffix=".xlsx", delete=False).name,
                 "status_svg": tempfile.NamedTemporaryFile(
-                    dir=tmp, suffix=".svg", delete=False
+                    dir=graph_dir, suffix=".svg", delete=False
                 ).name,
                 "comments_svg": tempfile.NamedTemporaryFile(
-                    dir=tmp, suffix=".svg", delete=False
+                    dir=graph_dir, suffix=".svg", delete=False
                 ).name,
             }
             with (
@@ -441,6 +458,7 @@ class TestPRStats(ExtTestCase):
         self.assertRegex(since_val, r"^\d{4}-\d{2}-\d{2}$")
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
+        self.assertIn("/graphs_repo/", out.getvalue())
 
     def test_main_default_prefix_sanitizes_repo_name(self) -> None:
         fake_paths = {

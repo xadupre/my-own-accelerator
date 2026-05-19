@@ -928,15 +928,6 @@ def save_pr_activity_report(
     graph_dir.mkdir(parents=True, exist_ok=True)
     cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
     cached_rows = _load_cache(cache_path)
-    rows = build_pr_activity_rows(
-        owner=owner,
-        repo=repo,
-        token=token,
-        api_url=api_url,
-        since=since,
-        cached_rows=cached_rows,
-        verbose=verbose,
-    )
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
     status_svg_path = graph_dir / f"{prefix}_status.svg"
@@ -946,6 +937,22 @@ def save_pr_activity_report(
     comments_per_week_svg_path = graph_dir / f"{prefix}_comments_per_week.svg"
     avg_duration_per_user_svg_path = graph_dir / f"{prefix}_avg_duration_per_user.svg"
     avg_duration_per_week_svg_path = graph_dir / f"{prefix}_avg_duration_per_week.svg"
+    try:
+        rows = build_pr_activity_rows(
+            owner=owner,
+            repo=repo,
+            token=token,
+            api_url=api_url,
+            since=since,
+            cached_rows=cached_rows,
+            verbose=verbose,
+        )
+    except (HTTPError, URLError, OSError, ValueError):
+        fallback_rows = list(cached_rows.values())
+        if fallback_rows:
+            _save_cache(cache_path, fallback_rows)
+            _save_csv(csv_path, fallback_rows)
+        raise
     _save_cache(cache_path, rows)
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)

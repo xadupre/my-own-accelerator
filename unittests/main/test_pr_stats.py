@@ -535,6 +535,65 @@ class TestPRStats(ExtTestCase):
             err.getvalue(),
         )
 
+    def test_save_pr_activity_report_saves_cached_data_on_http_error(self) -> None:
+        """When build_pr_activity_rows raises HTTPError, cached data is saved to disk."""
+        cached_row = {
+            "number": 5,
+            "author": "alice",
+            "title": "Cached PR",
+            "created_at": "2026-01-01T00:00:00Z",
+            "merged_at": "2026-01-02T00:00:00Z",
+            "closed_at": "2026-01-02T00:00:00Z",
+            "status": "merged",
+            "manual_comments": 2,
+            "copilot_commands": 0,
+            "total_job_duration_hours": 0.0,
+            "successful_job_durations": [],
+            "html_url": "https://github.com/o/r/pull/5",
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = pathlib.Path(tmp) / "report_cache.json"
+            cache_path.write_text(json.dumps({"rows": {"5": cached_row}}), encoding="utf-8")
+            with self.assertRaises(HTTPError):
+                with patch(
+                    "moa.commands.pr_stats.build_pr_activity_rows",
+                    side_effect=HTTPError(
+                        "https://api.github.com", 500, "Server Error", {}, None
+                    ),
+                ):
+                    save_pr_activity_report(
+                        "o",
+                        "r",
+                        output_dir=tmp,
+                        prefix="report",
+                        cache_file=str(cache_path),
+                    )
+            csv_path = pathlib.Path(tmp) / "report.csv"
+            self.assertTrue(csv_path.exists(), "CSV should be saved even on HTTPError")
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["number"], "5")
+            saved_cache = json.loads(cache_path.read_text(encoding="utf-8"))
+            self.assertIn("5", saved_cache.get("rows", {}))
+
+    def test_save_pr_activity_report_no_save_when_no_cached_data_on_http_error(self) -> None:
+        """When build_pr_activity_rows raises HTTPError and cache is empty, no files written."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(HTTPError):
+                with patch(
+                    "moa.commands.pr_stats.build_pr_activity_rows",
+                    side_effect=HTTPError("https://api.github.com", 503, "Unavailable", {}, None),
+                ):
+                    save_pr_activity_report(
+                        "o",
+                        "r",
+                        output_dir=tmp,
+                        prefix="report",
+                    )
+            csv_path = pathlib.Path(tmp) / "report.csv"
+            self.assertFalse(csv_path.exists(), "No CSV should be written when cache is empty")
+
     def test_default_since_format_and_value(self) -> None:
         result = _default_since()
         self.assertRegex(result, r"^\d{4}-\d{2}-\d{2}$")

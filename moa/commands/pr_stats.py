@@ -494,7 +494,19 @@ def main(argv: list[str] | None = None) -> int:
             "Defaults to <output-dir>/<prefix>_cache.json."
         ),
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
+    )
     args = parser.parse_args(argv)
+    if args.verbose:
+        print(
+            f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
+            file=sys.stderr,
+        )
     try:
         outputs = save_pr_activity_report(
             owner=args.owner,
@@ -512,6 +524,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.verbose:
+        print("pr-stats: done.", file=sys.stderr)
     for _, path in outputs.items():
         print(path)
     return 0

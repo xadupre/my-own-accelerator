@@ -208,3 +208,23 @@ class TestPRStats(ExtTestCase):
         ):
             duration = _collect_pr_job_duration_seconds("o", "r", 22, "abc")
         self.assertEqual(duration, 150)
+
+    def test_main_verbose_flag_prints_progress(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with (
+            patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+        ):
+            code = main(["-v", "owner", "repo"])
+        self.assertEqual(code, 0)
+        self.assertIn("pr-stats: collecting pull request data for owner/repo...", err.getvalue())
+        self.assertIn("pr-stats: done.", err.getvalue())

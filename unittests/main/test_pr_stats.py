@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
 import zipfile
@@ -11,8 +12,10 @@ import pandas
 
 from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
+    SVG_LABEL_CHAR_WIDTH,
     _collect_pr_job_duration_seconds,
     _count_comments,
+    _save_bar_graph,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
@@ -200,6 +203,18 @@ class TestPRStats(ExtTestCase):
 
         ET.fromstring(worksheet_xml)
         self.assertNotIn(b"\x0b", worksheet_xml)
+
+    def test_save_bar_graph_adds_left_margin_for_long_x_labels(self) -> None:
+        values = {"manual_comments": 4, "copilot_commands": 2}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "graph.svg"
+            _save_bar_graph(path, values, "Long labels")
+            svg = path.read_text(encoding="utf-8")
+        expected_left = max(60, 20 + len("copilot_commands") * SVG_LABEL_CHAR_WIDTH)
+        self.assertIn(f'x1="{expected_left - 20}"', svg)
+        self.assertIn(f'<rect x="{expected_left}"', svg)
+        self.assertIn("manual_comments", svg)
+        self.assertIn("copilot_commands", svg)
 
     def test_build_pr_activity_rows_respects_since_date(self) -> None:
         pulls = [

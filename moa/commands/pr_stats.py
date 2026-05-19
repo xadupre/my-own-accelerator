@@ -548,7 +548,7 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         )
         labels.append(
             f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
-            f'transform="rotate(-45 {x + bar_width / 2} {baseline + 20})" '
+            f'transform="rotate(-30 {x + bar_width / 2} {baseline + 20})" '
             'class="label" fill="#111">'
             f"{escape(label)}</text>"
         )

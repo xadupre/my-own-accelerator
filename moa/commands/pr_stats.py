@@ -38,8 +38,8 @@ MAX_PR_QUERY_WORKERS = 8
 SVG_LABEL_CHAR_WIDTH = 7
 SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
-SVG_LINE_Y_AXIS_LABEL_X = 20
-SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN = 24
+SVG_Y_AXIS_LABEL_X = 20
+SVG_X_AXIS_LABEL_BOTTOM_MARGIN = 24
 SVG_BAR_MIN_WIDTH = 600
 SVG_BAR_X_AXIS_LABEL_Y = 350
 
@@ -655,12 +655,12 @@ def _save_job_duration_line_graph(
     )
     x_axis_label_elem = (
         f'<text x="{left + plot_w / 2:.1f}" '
-        f'y="{height - SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
+        f'y="{height - SVG_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
         f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
     )
     y_axis_label_elem = (
-        f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
-        f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
+        f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
+        f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
         f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
     )
 
@@ -888,9 +888,9 @@ def _save_bar_graph(
             else ""
         )
         + (
-            f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
+            f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
             f'text-anchor="middle" '
-            f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
+            f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
             f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
             if y_axis_label
             else ""

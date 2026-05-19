@@ -21,6 +21,15 @@ from .review_pr import _fetch_json
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
+DARK_THEME_SVG_CSS = """<style>
+@media (prefers-color-scheme: dark){
+.bg { fill: #0d1117; }
+.label { fill: #e6edf3; }
+.axis { stroke: #8b949e; }
+.bar { fill: #79c0ff; }
+}
+</style>"""
+DEFAULT_OUTPUT_DIR = "pr_stats"
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -290,8 +299,17 @@ def _xlsx_cell(col: int, row: int, value: Any) -> str:
     ref = f"{col_name}{row}"
     if isinstance(value, int):
         return f'<c r="{ref}"><v>{value}</v></c>'
-    text = escape(str(value))
+    text = escape(_xlsx_safe_text(str(value)))
     return f'<c r="{ref}" t="inlineStr"><is><t>{text}</t></is></c>'
+
+
+def _xlsx_safe_text(value: str) -> str:
+    # XML 1.0 valid chars for worksheet text nodes.
+    return "".join(
+        ch
+        for ch in value
+        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF or 0xE000 <= ord(ch) <= 0xFFFD
+    )
 
 
 def _save_xlsx(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
@@ -384,20 +402,28 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         height = int(value * scale) if max_value else 0
         y = baseline - height
         bars.append(
-            f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" fill="#4e79a7"/>'
+            f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
+            'class="bar" fill="#4e79a7"/>'
         )
         labels.append(
-            f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="middle">'
+            f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
+            f'transform="rotate(-45 {x + bar_width / 2} {baseline + 20})" '
+            'class="label" fill="#111">'
             f"{escape(label)}</text>"
         )
         labels.append(
-            f'<text x="{x + bar_width / 2}" y="{y - 6}" text-anchor="middle">{value}</text>'
+            f'<text x="{x + bar_width / 2}" y="{y - 6}" '
+            'text-anchor="middle" class="label" fill="#111">'
+            f"{value}</text>"
         )
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
-        f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18">{escape(title)}</text>'
+        f"{DARK_THEME_SVG_CSS}"
+        f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
+        f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
+        f'class="label" fill="#111">{escape(title)}</text>'
         f'<line x1="{left - 20}" y1="{baseline}" '
-        f'x2="{width - 20}" y2="{baseline}" stroke="#000"/>'
+        f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
         + "".join(bars)
         + "".join(labels)
         + "</svg>"
@@ -467,8 +493,8 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-url", default=api_url_default, help="GitHub API base URL")
     parser.add_argument(
         "--output-dir",
-        default=".",
-        help="Directory where output files are written (default: current directory).",
+        default=DEFAULT_OUTPUT_DIR,
+        help=f"Directory where output files are written (default: {DEFAULT_OUTPUT_DIR}).",
     )
     parser.add_argument(
         "--prefix",
@@ -498,7 +524,19 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
+    )
     args = parser.parse_args(argv)
+    if args.verbose:
+        print(
+            f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
+            file=sys.stderr,
+        )
     try:
         outputs = save_pr_activity_report(
             owner=args.owner,
@@ -516,6 +554,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
+    if args.verbose:
+        print("pr-stats: done.", file=sys.stderr)
     for _, path in outputs.items():
         print(path)
     return 0

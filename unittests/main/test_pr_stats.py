@@ -1,10 +1,13 @@
 import csv
 import json
 import tempfile
+import xml.etree.ElementTree as ET
+import zipfile
 from io import StringIO
 from unittest.mock import patch
 
 from moa.commands.pr_stats import (
+    DEFAULT_OUTPUT_DIR,
     _collect_pr_job_duration_seconds,
     _count_comments,
     build_pr_activity_rows,
@@ -81,11 +84,41 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["cache"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
+            status_svg = outputs["status_svg"].read_text(encoding="utf-8")
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
         self.assertEqual(rows[0]["total_job_duration_seconds"], "180")
+        self.assertIn("prefers-color-scheme: dark", status_svg)
+        self.assertIn('class="bar"', status_svg)
+        self.assertIn('class="label"', status_svg)
         self.assertIn("1", cache["rows"])
+        self.assertIn('transform="rotate(-45', status_svg)
+
+    def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
+        fake_rows = [
+            {
+                "number": 1,
+                "author": "alice",
+                "title": "bad\x0btitle",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",
+                "closed_at": "2026-01-03T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 2,
+                "copilot_commands": 1,
+                "total_job_duration_seconds": 180,
+                "html_url": "https://github.com/o/r/pull/1",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("moa.commands.pr_stats.build_pr_activity_rows", return_value=fake_rows):
+                outputs = save_pr_activity_report("o", "r", output_dir=tmp, prefix="report")
+            with zipfile.ZipFile(outputs["xlsx"], "r") as zf:
+                worksheet_xml = zf.read("xl/worksheets/sheet1.xml")
+
+        ET.fromstring(worksheet_xml)
+        self.assertNotIn(b"\x0b", worksheet_xml)
 
     def test_build_pr_activity_rows_respects_since_date(self) -> None:
         pulls = [
@@ -171,11 +204,14 @@ class TestPRStats(ExtTestCase):
                 ).name,
             }
             with (
-                patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+                patch(
+                    "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+                ) as mocked_save,
                 patch("sys.stdout", out),
             ):
                 code = main(["owner", "repo"])
         self.assertEqual(code, 0)
+        self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
 
@@ -204,3 +240,23 @@ class TestPRStats(ExtTestCase):
         ):
             duration = _collect_pr_job_duration_seconds("o", "r", 22, "abc")
         self.assertEqual(duration, 150)
+
+    def test_main_verbose_flag_prints_progress(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with (
+            patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+        ):
+            code = main(["-v", "owner", "repo"])
+        self.assertEqual(code, 0)
+        self.assertIn("pr-stats: collecting pull request data for owner/repo...", err.getvalue())
+        self.assertIn("pr-stats: done.", err.getvalue())

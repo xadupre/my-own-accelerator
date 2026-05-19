@@ -141,6 +141,10 @@ Optional Arguments
 
         review-pr --copilot-review --model openai/gpt-4o xadupre my-own-accelerator 1
 
+``-v``, ``--verbose``
+    Print progress information to standard error while the command is
+    running.
+
 ``-h``, ``--help``
     Print a short help message and exit.
 

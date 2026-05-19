@@ -5,7 +5,7 @@ The PR activity report command is available either as a script:
 
 .. code-block:: bash
 
-    pr-stats xadupre my-own-accelerator --output-dir . --prefix pr_activity
+    pr-stats xadupre my-own-accelerator --prefix pr_activity
 
 or through the package entrypoint:
 
@@ -38,3 +38,6 @@ Use ``--since`` to only include pull requests created on/after a given date
 PR statistics cache is stored. By default, cache is written to
 ``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
 subsequent runs instead of requesting their comment statistics again.
+Generated files are written to the ``pr_stats`` directory by default.
+Use ``-v`` or ``--verbose`` to print progress information to standard
+error while the command is running.

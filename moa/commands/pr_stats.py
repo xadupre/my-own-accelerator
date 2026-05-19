@@ -126,7 +126,7 @@ def _default_since() -> str:
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
-    """Load cached PR rows and return an empty cache on missing/unreadable/bad JSON data."""
+    """Load cached PR rows keyed by PR number, or return an empty dict on load errors."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -767,7 +767,7 @@ def _save_csv(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
 
 
 def _xlsx_safe_text(value: str) -> str:
-    """Strip XML-invalid control characters from XLSX text cell content."""
+    """Strip XML-invalid control characters from XLSX text cell content and return it."""
     # Remove control chars invalid in XML 1.0 (except tab/newline/CR) to prevent XLSX corruption.
     return "".join(
         ch

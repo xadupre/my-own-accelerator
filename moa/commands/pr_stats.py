@@ -403,7 +403,7 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         ".bg{fill:#0d1117;}\n"
         ".label{fill:#e6edf3;}\n"
         ".axis{stroke:#8b949e;}\n"
-        ".bar{fill:#79c0ff;}"
+        ".bar{fill:#79c0ff;}\n"
         "}"
         "</style>"
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'

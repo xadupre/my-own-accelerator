@@ -12,7 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from html import escape
 from typing import Any
 from urllib import parse, request
@@ -742,6 +742,18 @@ def _week_label(value: str) -> str:
     return f"{iso_week.year}-W{iso_week.week:02d}"
 
 
+def _week_label_first_day(value: str) -> str:
+    match = re.fullmatch(r"(\d{4})-W(\d{2})", value)
+    if not match:
+        return value
+    year = int(match.group(1))
+    week = int(match.group(2))
+    try:
+        return date.fromisocalendar(year, week, 1).isoformat()
+    except ValueError:
+        return value
+
+
 def _compute_pr_duration_hours(row: dict[str, Any]) -> float | None:
     """Return hours from created_at to merged_at, or None if data is missing."""
     created_at = str(row.get("created_at", ""))
@@ -1321,7 +1333,10 @@ def save_pr_activity_report(
     )
     _save_bar_graph(
         prs_per_week_svg_path,
-        {row["week"]: int(row["pull_requests"]) for row in _build_prs_per_week_rows(rows)},
+        {
+            _week_label_first_day(row["week"]): int(row["pull_requests"])
+            for row in _build_prs_per_week_rows(rows)
+        },
         "Pull requests per week",
         x_axis_label="Week",
         y_axis_label="Pull requests (count)",
@@ -1335,7 +1350,10 @@ def save_pr_activity_report(
     )
     _save_bar_graph(
         comments_per_week_svg_path,
-        {row["week"]: int(row["total_comments"]) for row in _build_comments_per_week_rows(rows)},
+        {
+            _week_label_first_day(row["week"]): int(row["total_comments"])
+            for row in _build_comments_per_week_rows(rows)
+        },
         "Comments per week",
         x_axis_label="Week",
         y_axis_label="Comments (count)",
@@ -1353,7 +1371,7 @@ def save_pr_activity_report(
     _save_bar_graph(
         avg_duration_per_week_svg_path,
         {
-            row["week"]: row["avg_duration_hours"]
+            _week_label_first_day(row["week"]): row["avg_duration_hours"]
             for row in _build_avg_duration_per_week_rows(rows)
         },
         "Avg PR duration per week (hours)",

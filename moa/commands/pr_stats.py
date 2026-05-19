@@ -776,10 +776,11 @@ def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[s
         if duration is None:
             continue
         data.setdefault(author, []).append(duration)
-    return [
+    result = [
         {"author": author, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
-        for author, ds in sorted(data.items())
+        for author, ds in data.items()
     ]
+    return sorted(result, key=lambda row: (-float(row["avg_duration_hours"]), str(row["author"])))
 
 
 def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:

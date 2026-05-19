@@ -16,6 +16,7 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
     SVG_X_AXIS_LABEL_ROTATION,
+    _build_avg_duration_per_user_rows,
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
@@ -315,6 +316,38 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(bob_row["week"], "2026-W03")
         self.assertEqual(bob_row["pr_count"], 1)
         self.assertEqual(bob_row["avg_duration_hours"], 24.0)
+
+    def test_build_avg_duration_per_user_rows_sorted_by_decreasing_duration(self) -> None:
+        rows = [
+            {
+                "author": "bob",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",  # 48h
+            },
+            {
+                "author": "alice",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",  # 24h
+            },
+            {
+                "author": "carol",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",  # 48h
+            },
+            {
+                "author": "dan",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "",  # not merged, excluded
+            },
+        ]
+        self.assertEqual(
+            _build_avg_duration_per_user_rows(rows),
+            [
+                {"author": "bob", "avg_duration_hours": 48.0},
+                {"author": "carol", "avg_duration_hours": 48.0},
+                {"author": "alice", "avg_duration_hours": 24.0},
+            ],
+        )
 
     def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
         fake_rows = [

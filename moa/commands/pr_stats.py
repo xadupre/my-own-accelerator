@@ -298,13 +298,12 @@ def build_pr_activity_rows(
             api_url=api_url,
         )
         merged_at = pr.get("merged_at")
-        created_at = str(pr.get("created_at", ""))
         rows.append(
             {
                 "number": number,
                 "author": (pr.get("user") or {}).get("login", ""),
                 "title": pr.get("title", ""),
-                "created_at": created_at,
+                "created_at": str(pr.get("created_at", "")),
                 "merged_at": merged_at or "",
                 "closed_at": pr.get("closed_at", ""),
                 "status": "merged" if merged_at else "cancelled",

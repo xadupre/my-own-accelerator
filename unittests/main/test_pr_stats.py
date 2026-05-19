@@ -201,6 +201,7 @@ class TestPRStats(ExtTestCase):
         self.assertNotIn("2026-W01", comments_per_week_svg)
         self.assertIn("Avg PR duration per user", avg_duration_per_user_svg)
         self.assertIn("Duration (hours)", avg_duration_per_user_svg)
+        self.assertIn("n=1", avg_duration_per_user_svg)
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
         self.assertIn("2025-12-29", avg_duration_per_week_svg)
         self.assertNotIn("2026-W01", avg_duration_per_week_svg)
@@ -374,9 +375,9 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(
             _build_avg_duration_per_user_rows(rows),
             [
-                {"author": "bob", "avg_duration_hours": 48.0},
-                {"author": "carol", "avg_duration_hours": 48.0},
-                {"author": "alice", "avg_duration_hours": 24.0},
+                {"author": "bob", "avg_duration_hours": 48.0, "pr_count": 1},
+                {"author": "carol", "avg_duration_hours": 48.0, "pr_count": 1},
+                {"author": "alice", "avg_duration_hours": 24.0, "pr_count": 1},
             ],
         )
 
@@ -418,6 +419,18 @@ class TestPRStats(ExtTestCase):
         self.assertIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} ', svg)
         self.assertIn("manual_comments", svg)
         self.assertIn("copilot_commands", svg)
+
+    def test_save_bar_graph_renders_bar_labels(self) -> None:
+        values = {"alice": 48.0, "bob": 24.0}
+        bar_labels = {"alice": "n=3", "bob": "n=1"}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "graph.svg"
+            _save_bar_graph(path, values, "Avg duration", bar_labels=bar_labels)
+            svg = path.read_text(encoding="utf-8")
+        self.assertIn("n=3", svg)
+        self.assertIn("n=1", svg)
+        # bar_labels are rendered in a smaller, muted font
+        self.assertIn('fill="#888" font-size="11"', svg)
 
     def test_build_pr_activity_rows_respects_since_date(self) -> None:
         pulls = [

@@ -16,7 +16,7 @@ from moa.commands.pr_stats import (
     SVG_LABEL_CHAR_WIDTH,
     _build_avg_duration_per_user_week_rows,
     _build_pr_comments_distribution,
-    _collect_pr_job_duration_seconds,
+    _collect_pr_job_duration_hours,
     _count_comments,
     _default_since,
     _save_bar_graph,
@@ -57,7 +57,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(3, 1)),
-            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=240),
+            patch("moa.commands.pr_stats._collect_pr_job_duration_hours", return_value=0.07),
         ):
             rows = build_pr_activity_rows("o", "r")
 
@@ -66,7 +66,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(rows[0]["status"], "merged")
         self.assertEqual(rows[0]["manual_comments"], 3)
         self.assertEqual(rows[0]["copilot_commands"], 1)
-        self.assertEqual(rows[0]["total_job_duration_seconds"], 240)
+        self.assertEqual(rows[0]["total_job_duration_hours"], 0.07)
 
     def test_save_pr_activity_report_writes_files(self) -> None:
         fake_rows = [
@@ -80,7 +80,7 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 2,
                 "copilot_commands": 1,
-                "total_job_duration_seconds": 180,
+                "total_job_duration_hours": 0.05,
                 "html_url": "https://github.com/o/r/pull/1",
             },
             {
@@ -93,7 +93,7 @@ class TestPRStats(ExtTestCase):
                 "status": "cancelled",
                 "manual_comments": 1,
                 "copilot_commands": 2,
-                "total_job_duration_seconds": 0,
+                "total_job_duration_hours": 0.0,
                 "html_url": "https://github.com/o/r/pull/2",
             },
         ]
@@ -126,7 +126,7 @@ class TestPRStats(ExtTestCase):
             xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
-        self.assertEqual(rows[0]["total_job_duration_seconds"], "180")
+        self.assertEqual(rows[0]["total_job_duration_hours"], "0.05")
         self.assertIn("prefers-color-scheme: dark", status_svg)
         self.assertIn('class="bar"', status_svg)
         self.assertIn('class="label"', status_svg)
@@ -204,7 +204,7 @@ class TestPRStats(ExtTestCase):
             xlsx_sheets["Comments distribution"].to_dict(orient="records"),
             [{"total_comments": 3, "pull_requests": 2}],
         )
-        # Only PR #1 (alice, merged 2026-01-03 in W01) contributes; duration = 2 days = 172800s
+        # Only PR #1 (alice, merged 2026-01-03 in W01) contributes; duration = 2 days = 48h
         self.assertEqual(
             xlsx_sheets["Avg PR duration"].to_dict(orient="records"),
             [
@@ -212,7 +212,7 @@ class TestPRStats(ExtTestCase):
                     "author": "alice",
                     "week": "2026-W01",
                     "pr_count": 1,
-                    "avg_duration_seconds": 172800,
+                    "avg_duration_hours": 48.0,
                 }
             ],
         )
@@ -223,17 +223,17 @@ class TestPRStats(ExtTestCase):
             {
                 "author": "alice",
                 "created_at": "2026-01-01T00:00:00Z",
-                "merged_at": "2026-01-03T00:00:00Z",  # 2 days = 172800s, merged in W01
+                "merged_at": "2026-01-03T00:00:00Z",  # 2 days = 48h, merged in W01
             },
             {
                 "author": "alice",
                 "created_at": "2026-01-05T00:00:00Z",
-                "merged_at": "2026-01-07T00:00:00Z",  # 2 days = 172800s, merged in W02
+                "merged_at": "2026-01-07T00:00:00Z",  # 2 days = 48h, merged in W02
             },
             {
                 "author": "bob",
                 "created_at": "2026-01-12T00:00:00Z",
-                "merged_at": "2026-01-13T00:00:00Z",  # 1 day = 86400s, merged in W03
+                "merged_at": "2026-01-13T00:00:00Z",  # 1 day = 24h, merged in W03
             },
             {
                 "author": "carol",
@@ -247,12 +247,12 @@ class TestPRStats(ExtTestCase):
         alice_w02 = next(r for r in result if r["author"] == "alice" and r["week"] == "2026-W02")
         bob_row = next(r for r in result if r["author"] == "bob")
         self.assertEqual(alice_w01["pr_count"], 1)
-        self.assertEqual(alice_w01["avg_duration_seconds"], 172800)
+        self.assertEqual(alice_w01["avg_duration_hours"], 48.0)
         self.assertEqual(alice_w02["pr_count"], 1)
-        self.assertEqual(alice_w02["avg_duration_seconds"], 172800)
+        self.assertEqual(alice_w02["avg_duration_hours"], 48.0)
         self.assertEqual(bob_row["week"], "2026-W03")
         self.assertEqual(bob_row["pr_count"], 1)
-        self.assertEqual(bob_row["avg_duration_seconds"], 86400)
+        self.assertEqual(bob_row["avg_duration_hours"], 24.0)
 
     def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
         fake_rows = [
@@ -266,7 +266,7 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 2,
                 "copilot_commands": 1,
-                "total_job_duration_seconds": 180,
+                "total_job_duration_hours": 0.05,
                 "html_url": "https://github.com/o/r/pull/1",
             }
         ]
@@ -318,7 +318,7 @@ class TestPRStats(ExtTestCase):
         with (
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
-            patch("moa.commands.pr_stats._collect_pr_job_duration_seconds", return_value=30),
+            patch("moa.commands.pr_stats._collect_pr_job_duration_hours", return_value=0.01),
         ):
             rows = build_pr_activity_rows("o", "r", since="2026-01-01")
         self.assertEqual(len(rows), 1)
@@ -348,7 +348,7 @@ class TestPRStats(ExtTestCase):
                 "status": "merged",
                 "manual_comments": 9,
                 "copilot_commands": 4,
-                "total_job_duration_seconds": 456,
+                "total_job_duration_hours": 0.13,
                 "html_url": "https://github.com/o/r/pull/22",
             }
         }
@@ -359,7 +359,7 @@ class TestPRStats(ExtTestCase):
             rows = build_pr_activity_rows("o", "r", cached_rows=cached_rows)
         self.assertEqual(rows[0]["manual_comments"], 9)
         self.assertEqual(rows[0]["copilot_commands"], 4)
-        self.assertEqual(rows[0]["total_job_duration_seconds"], 456)
+        self.assertEqual(rows[0]["total_job_duration_hours"], 0.13)
         mocked_collect.assert_not_called()
 
     def test_default_since_format_and_value(self) -> None:
@@ -433,7 +433,7 @@ class TestPRStats(ExtTestCase):
         expected = hashlib.sha256(b"...").hexdigest()[:8]
         self.assertEqual(mocked.call_args.kwargs["prefix"], f"pr_activity_repo_{expected}")
 
-    def test_collect_pr_job_duration_seconds(self) -> None:
+    def test_collect_pr_job_duration_hours(self) -> None:
         runs_payload = {
             "workflow_runs": [
                 {"id": 101, "pull_requests": [{"number": 22}]},
@@ -456,8 +456,8 @@ class TestPRStats(ExtTestCase):
             "moa.commands.pr_stats._fetch_json",
             side_effect=[runs_payload, jobs_run_101],
         ):
-            duration = _collect_pr_job_duration_seconds("o", "r", 22, "abc")
-        self.assertEqual(duration, 150)
+            duration = _collect_pr_job_duration_hours("o", "r", 22, "abc")
+        self.assertEqual(duration, round(150 / 3600, 2))
 
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()

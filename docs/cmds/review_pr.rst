@@ -32,14 +32,11 @@ Synopsis
 --------
 
 .. runpython::
-    :rst:
 
     from moa.commands.review_pr import _build_parser
     parser = _build_parser()
-    usage = parser.format_usage().strip().replace("usage: ", "", 1)
-    usage = f"python -m moa {usage}"
-    indented = "\n".join("    " + line for line in usage.splitlines())
-    print(f".. code-block:: text\n\n{indented}")
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
 
 Positional Arguments
 --------------------

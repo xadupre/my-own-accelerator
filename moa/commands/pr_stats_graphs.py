@@ -31,7 +31,13 @@ SVG_HORIZONTAL_BAR_VALUE_PADDING = 20
 
 
 def week_label_first_day(value: str) -> str:
-    """Converts ``YYYY-Www`` ISO week labels into the corresponding Monday date."""
+    """Returns the Monday date for an ISO week label.
+
+    The function expects a label formatted as ``YYYY-Www`` and returns the
+    corresponding first day of that week in ``YYYY-MM-DD`` format.
+    If *value* does not match the expected format or cannot be converted,
+    the input value is returned unchanged.
+    """
     match = re.fullmatch(r"(\d{4})-W(\d{2})", value)
     if not match:
         return value
@@ -44,7 +50,13 @@ def week_label_first_day(value: str) -> str:
 
 
 def compute_moving_average(values: list[float], window: int = 10) -> list[float | None]:
-    """Computes a moving average of *values* with ``None`` until the window is full."""
+    """Computes a simple moving average sequence.
+
+    :param values: Ordered numeric values to average.
+    :param window: Number of points per averaging window.
+    :return: A list the same length as *values*, with ``None`` for entries
+        before enough values are available to fill one full window.
+    """
     result: list[float | None] = []
     for i, _ in enumerate(values):
         if i + 1 < window:
@@ -62,7 +74,13 @@ def save_job_duration_line_graph(
     x_axis_label: str = "Completion date",
     y_axis_label: str = "Duration (minutes)",
 ) -> None:
-    """Saves an SVG line graph for job durations with an optional moving-average line."""
+    """Saves a job-duration SVG line chart.
+
+    The chart plots one point per entry in *series* using ``duration_seconds``
+    converted to minutes and uses the ``completed_at`` date portion for
+    x-axis labels. When enough values are available, a moving-average line
+    (``moving_avg_window``) is rendered in addition to the raw series.
+    """
     width = 800
     height = 420
     left = 70
@@ -195,7 +213,12 @@ def save_job_duration_line_graph(
 def save_graphs_html_report(
     path: pathlib.Path, repo: str, graphs: list[tuple[str, pathlib.Path]]
 ) -> None:
-    """Saves an HTML page embedding all generated SVG graphs."""
+    """Builds an HTML report that embeds SVG graph files inline.
+
+    :param path: Destination HTML file.
+    :param repo: Repository label displayed in the page title.
+    :param graphs: Ordered ``(title, svg_path)`` pairs to include as sections.
+    """
     title = f"PR stats graphs for {repo}"
     section_chunks = []
     for graph_title, graph_path in graphs:
@@ -244,7 +267,17 @@ def save_bar_graph(
     bar_labels: dict[str, str] | None = None,
     horizontal: bool = False,
 ) -> None:
-    """Saves a themed SVG bar graph, vertical by default or horizontal when requested."""
+    """Saves a themed SVG bar chart.
+
+    :param path: Destination SVG path.
+    :param values: Mapping of category label to numeric value.
+    :param title: Graph title.
+    :param x_axis_label: Optional x-axis label.
+    :param y_axis_label: Optional y-axis label.
+    :param bar_labels: Optional secondary labels rendered near each bar.
+    :param horizontal: When ``True``, renders a horizontal bar chart;
+        otherwise renders a vertical bar chart.
+    """
     if not values:
         values = {"none": 0}
     max_value = max(values.values()) if values else 0

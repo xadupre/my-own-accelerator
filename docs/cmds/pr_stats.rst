@@ -31,6 +31,7 @@ The command scans completed pull requests (open PRs are skipped) and produces:
 * ``graphs_<repo>/<prefix>_prs_per_week.svg``
 * ``graphs_<repo>/<prefix>_comments_per_pr.svg``  — distribution of PRs by number of comments
 * ``graphs_<repo>/<prefix>_comments_per_week.svg``
+* ``graphs_<repo>/<prefix>_graphs.html`` — final HTML report embedding all generated graphs
 * ``graphs_<repo>/<prefix>_job_duration_<job>.svg`` (one per unique job name, successful runs only)
 
 Each row includes pull request author, creation datetime, merge/close status,

@@ -16,6 +16,7 @@ from moa.commands.pr_stats import (
     DEFAULT_OUTPUT_DIR,
     SVG_LABEL_CHAR_WIDTH,
     SVG_X_AXIS_LABEL_ROTATION,
+    _build_avg_duration_per_user_rows,
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
@@ -136,6 +137,7 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["comments_per_week_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_user_svg"].exists())
             self.assertTrue(outputs["avg_duration_per_week_svg"].exists())
+            self.assertTrue(outputs["graphs_html"].exists())
             self.assertTrue(outputs["cache"].exists())
             graph_dir = pathlib.Path(tmp) / "graphs_my_repo_name"
             self.assertEqual(outputs["csv"].parent, pathlib.Path(tmp))
@@ -148,6 +150,7 @@ class TestPRStats(ExtTestCase):
             self.assertEqual(outputs["comments_per_week_svg"].parent, graph_dir)
             self.assertEqual(outputs["avg_duration_per_user_svg"].parent, graph_dir)
             self.assertEqual(outputs["avg_duration_per_week_svg"].parent, graph_dir)
+            self.assertEqual(outputs["graphs_html"].parent, graph_dir)
             job_dur_svgs = outputs["job_duration_svgs"]
             self.assertIn("build", job_dur_svgs)
             self.assertIn("test", job_dur_svgs)
@@ -168,6 +171,7 @@ class TestPRStats(ExtTestCase):
             avg_duration_per_week_svg = outputs["avg_duration_per_week_svg"].read_text(
                 encoding="utf-8"
             )
+            graphs_html = outputs["graphs_html"].read_text(encoding="utf-8")
             job_build_svg = job_dur_svgs["build"].read_text(encoding="utf-8")
             xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
@@ -195,6 +199,16 @@ class TestPRStats(ExtTestCase):
         self.assertIn("Avg PR duration per week", avg_duration_per_week_svg)
         self.assertIn("2025-12-29", avg_duration_per_week_svg)
         self.assertNotIn("2026-W01", avg_duration_per_week_svg)
+        self.assertIn("PR stats graphs for o/my:repo/name", graphs_html)
+        self.assertIn("report_status.svg", graphs_html)
+        self.assertIn("report_comments.svg", graphs_html)
+        self.assertIn("report_prs_per_week.svg", graphs_html)
+        self.assertIn("report_comments_per_pr.svg", graphs_html)
+        self.assertIn("report_comments_per_week.svg", graphs_html)
+        self.assertIn("report_avg_duration_per_user.svg", graphs_html)
+        self.assertIn("report_avg_duration_per_week.svg", graphs_html)
+        self.assertIn("report_job_duration_build.svg", graphs_html)
+        self.assertIn("report_job_duration_test.svg", graphs_html)
         self.assertIn("Job duration: build", job_build_svg)
         self.assertIn("Duration (minutes)", job_build_svg)
         self.assertIn("Completion date", job_build_svg)
@@ -323,6 +337,38 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(bob_row["week"], "2026-W03")
         self.assertEqual(bob_row["pr_count"], 1)
         self.assertEqual(bob_row["avg_duration_hours"], 24.0)
+
+    def test_build_avg_duration_per_user_rows_sorted_by_decreasing_duration(self) -> None:
+        rows = [
+            {
+                "author": "bob",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",  # 48h
+            },
+            {
+                "author": "alice",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",  # 24h
+            },
+            {
+                "author": "carol",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",  # 48h
+            },
+            {
+                "author": "dan",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "",  # not merged, excluded
+            },
+        ]
+        self.assertEqual(
+            _build_avg_duration_per_user_rows(rows),
+            [
+                {"author": "bob", "avg_duration_hours": 48.0},
+                {"author": "carol", "avg_duration_hours": 48.0},
+                {"author": "alice", "avg_duration_hours": 24.0},
+            ],
+        )
 
     def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
         fake_rows = [
@@ -522,6 +568,7 @@ class TestPRStats(ExtTestCase):
             pull_head_shas={1: "abc", 2: "def"},
             token=None,
             api_url="https://api.github.com",
+            verbose=False,
         )
         mocked_single.assert_not_called()
         self.assertEqual([row["number"] for row in rows], [1, 2])
@@ -701,6 +748,9 @@ class TestPRStats(ExtTestCase):
                 "comments_svg": tempfile.NamedTemporaryFile(
                     dir=graph_dir, suffix=".svg", delete=False
                 ).name,
+                "graphs_html": tempfile.NamedTemporaryFile(
+                    dir=graph_dir, suffix=".html", delete=False
+                ).name,
             }
             with (
                 patch(
@@ -719,6 +769,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
         self.assertIn("/graphs_repo/", out.getvalue())
+        self.assertIn(".html", out.getvalue())
 
     def test_main_default_prefix_sanitizes_repo_name(self) -> None:
         fake_paths = {
@@ -853,6 +904,39 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(results[23][0], 60)
         self.assertEqual(results[23][1], [])
         self.assertEqual(results[24], (0, []))
+
+    def test_collect_pr_job_info_batch_verbose(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "head_sha": "sha1", "pull_requests": [{"number": 22}]},
+            ]
+        }
+        jobs_run_101 = [
+            {
+                "name": "build",
+                "started_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:30Z",
+                "conclusion": "success",
+            }
+        ]
+        import io
+
+        buf = io.StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
+            patch(
+                "moa.commands.pr_stats._fetch_workflow_run_jobs",
+                return_value=jobs_run_101,
+            ),
+            patch("sys.stderr", buf),
+        ):
+            results = _collect_pr_job_info_batch(
+                "o", "r", {22: "sha1"}, token="abc", verbose=True
+            )
+        output = buf.getvalue()
+        self.assertIn("fetching workflow runs page 1", output)
+        self.assertIn("collecting job info for PR #22", output)
+        self.assertEqual(results[22][0], 90)
 
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [

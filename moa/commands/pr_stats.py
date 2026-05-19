@@ -436,6 +436,7 @@ def _collect_pr_job_info_batch(
     pull_head_shas: dict[int, str],
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> dict[int, tuple[int, list[dict[str, Any]]]]:
     if not pull_head_shas:
         return {}
@@ -450,6 +451,12 @@ def _collect_pr_job_info_batch(
     page = 1
     try:
         while True:
+            if verbose:
+                print(
+                    f"pr-stats: fetching workflow runs page {page}...",
+                    file=sys.stderr,
+                    flush=True,
+                )
             runs_url = f"{base}/actions/runs?" + parse.urlencode(
                 {"event": "pull_request", "per_page": PAGE_SIZE, "page": page}
             )
@@ -485,7 +492,16 @@ def _collect_pr_job_info_batch(
         # Any workflow-runs batch failure falls back to per-PR REST queries.
         return {}
     results: dict[int, tuple[int, list[dict[str, Any]]]] = {}
-    for pull_number in sorted(run_ids_by_pr):
+    pr_numbers = sorted(run_ids_by_pr)
+    for idx, pull_number in enumerate(pr_numbers, 1):
+        if verbose:
+            run_count = len(run_ids_by_pr[pull_number])
+            print(
+                f"pr-stats: collecting job info for PR #{pull_number}"
+                f" ({idx}/{len(pr_numbers)}, {run_count} run(s))...",
+                file=sys.stderr,
+                flush=True,
+            )
         total_seconds = 0
         successful_jobs: list[dict[str, Any]] = []
         for run_id in sorted(run_ids_by_pr[pull_number]):
@@ -648,6 +664,7 @@ def build_pr_activity_rows(
         pull_head_shas=uncached_heads,
         token=token,
         api_url=api_url,
+        verbose=verbose,
     )
     for i, pr in enumerate(filtered):
         number = int(pr.get("number", 0))
@@ -788,10 +805,11 @@ def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[s
         if duration is None:
             continue
         data.setdefault(author, []).append(duration)
-    return [
+    result = [
         {"author": author, "avg_duration_hours": round(sum(ds) / len(ds), 2)}
-        for author, ds in sorted(data.items())
+        for author, ds in data.items()
     ]
+    return sorted(result, key=lambda row: (-float(row["avg_duration_hours"]), str(row["author"])))
 
 
 def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -991,6 +1009,47 @@ def _save_job_duration_line_graph(
         + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
+
+
+def _save_graphs_html_report(
+    path: pathlib.Path, repo: str, graphs: list[tuple[str, pathlib.Path]]
+) -> None:
+    title = f"PR stats graphs for {repo}"
+    section_chunks = []
+    for graph_title, graph_path in graphs:
+        section_chunks.append(
+            "\n".join(
+                [
+                    "<section>",
+                    f"<h2>{escape(graph_title)}</h2>",
+                    f'<img src="{escape(graph_path.name)}" alt="{escape(graph_title)} graph">',
+                    "</section>",
+                ]
+            )
+        )
+    sections = "\n".join(section_chunks)
+    html = "\n".join(
+        [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            "<meta charset='utf-8'>",
+            f"<title>{escape(title)}</title>",
+            "<style>",
+            "body{font-family:Arial,sans-serif;margin:20px;}",
+            "img{max-width:100%;height:auto;}",
+            "section{margin:24px 0;}",
+            "h2{margin-bottom:8px;}",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>{escape(title)}</h1>",
+            sections,
+            "</body>",
+            "</html>",
+        ]
+    )
+    path.write_text(html, encoding="utf-8")
 
 
 def _build_comments_per_pr_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1233,6 +1292,7 @@ def save_pr_activity_report(
     comments_per_week_svg_path = graph_dir / f"{prefix}_comments_per_week.svg"
     avg_duration_per_user_svg_path = graph_dir / f"{prefix}_avg_duration_per_user.svg"
     avg_duration_per_week_svg_path = graph_dir / f"{prefix}_avg_duration_per_week.svg"
+    graphs_html_path = graph_dir / f"{prefix}_graphs.html"
     try:
         rows = build_pr_activity_rows(
             owner=owner,
@@ -1330,6 +1390,20 @@ def save_pr_activity_report(
         svg_path = graph_dir / f"{prefix}_job_duration_{safe_name}.svg"
         _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
+    report_graphs: list[tuple[str, pathlib.Path]] = [
+        ("Pull requests by status", status_svg_path),
+        ("Manual comments vs Copilot commands", comments_svg_path),
+        ("Pull requests per week", prs_per_week_svg_path),
+        ("PR count by number of comments", comments_per_pr_svg_path),
+        ("Comments per week", comments_per_week_svg_path),
+        ("Avg PR duration per user", avg_duration_per_user_svg_path),
+        ("Avg PR duration per week", avg_duration_per_week_svg_path),
+    ]
+    report_graphs.extend(
+        (f"Job duration: {job_name}", svg_path)
+        for job_name, svg_path in sorted(job_duration_svgs.items())
+    )
+    _save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
@@ -1341,6 +1415,7 @@ def save_pr_activity_report(
         "avg_duration_per_user_svg": avg_duration_per_user_svg_path,
         "avg_duration_per_week_svg": avg_duration_per_week_svg_path,
         "job_duration_svgs": job_duration_svgs,
+        "graphs_html": graphs_html_path,
         "cache": cache_path,
     }
 

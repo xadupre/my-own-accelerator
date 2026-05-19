@@ -1,4 +1,5 @@
 import csv
+import hashlib
 import json
 import tempfile
 import xml.etree.ElementTree as ET
@@ -212,8 +213,40 @@ class TestPRStats(ExtTestCase):
                 code = main(["owner", "repo"])
         self.assertEqual(code, 0)
         self.assertEqual(mocked_save.call_args.kwargs["output_dir"], DEFAULT_OUTPUT_DIR)
+        self.assertEqual(mocked_save.call_args.kwargs["prefix"], "pr_activity_repo")
         self.assertIn(".csv", out.getvalue())
         self.assertIn(".xlsx", out.getvalue())
+
+    def test_main_default_prefix_sanitizes_repo_name(self) -> None:
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with patch(
+            "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+        ) as mocked:
+            code = main(["owner", "my:repo/name"])
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked.call_args.kwargs["prefix"], "pr_activity_my_repo_name")
+
+    def test_main_default_prefix_fallback_is_stable_for_invalid_repo(self) -> None:
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with patch(
+            "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+        ) as mocked:
+            code = main(["owner", "..."])
+        self.assertEqual(code, 0)
+        expected = hashlib.sha256(b"...").hexdigest()[:8]
+        self.assertEqual(mocked.call_args.kwargs["prefix"], f"pr_activity_repo_{expected}")
 
     def test_collect_pr_job_duration_seconds(self) -> None:
         runs_payload = {

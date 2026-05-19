@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import os
 import pathlib
@@ -29,7 +30,7 @@ DARK_THEME_SVG_CSS = """<style>
 .bar { fill: #79c0ff; }
 }
 </style>"""
-DEFAULT_OUTPUT_DIR = "pr_stats"
+DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 
 
 def _fetch_paginated(url: str, token: str | None = None) -> list[dict[str, Any]]:
@@ -68,6 +69,13 @@ def _parse_iso_datetime(value: str) -> datetime:
     if "T" not in cleaned:
         cleaned = f"{cleaned}T00:00:00Z"
     return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+
+
+def _default_prefix(repo: str) -> str:
+    safe_repo = re.sub(r"[^A-Za-z0-9_-]+", "_", repo).strip("_")
+    if not safe_repo:
+        safe_repo = f"repo_{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:8]}"
+    return f"pr_activity_{safe_repo}"
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
@@ -500,8 +508,8 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--prefix",
-        default="pr_activity",
-        help="Filename prefix for generated files.",
+        default=None,
+        help="Filename prefix for generated files (default: pr_activity_<repo>).",
     )
     parser.add_argument(
         "--since",
@@ -527,6 +535,7 @@ def main(argv: list[str] | None = None) -> int:
         help="Print progress information to stderr.",
     )
     args = parser.parse_args(argv)
+    prefix = args.prefix or _default_prefix(args.repo)
     if args.verbose:
         print(
             f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
@@ -537,7 +546,7 @@ def main(argv: list[str] | None = None) -> int:
             owner=args.owner,
             repo=args.repo,
             output_dir=args.output_dir,
-            prefix=args.prefix,
+            prefix=prefix,
             token=args.token,
             api_url=args.api_url,
             since=args.since,

@@ -207,8 +207,6 @@ class TestPRStats(ExtTestCase):
         self.assertIn("report_comments_per_week.svg", graphs_html)
         self.assertIn("report_avg_duration_per_user.svg", graphs_html)
         self.assertIn("report_avg_duration_per_week.svg", graphs_html)
-        self.assertIn("report_job_duration_build.svg", graphs_html)
-        self.assertIn("report_job_duration_test.svg", graphs_html)
         self.assertIn("job_durations/report_job_duration_build.svg", graphs_html)
         self.assertIn("job_durations/report_job_duration_test.svg", graphs_html)
         self.assertIn("Job duration: build", job_build_svg)

@@ -75,7 +75,20 @@ class TestPRStats(ExtTestCase):
                 "copilot_commands": 1,
                 "total_job_duration_seconds": 180,
                 "html_url": "https://github.com/o/r/pull/1",
-            }
+            },
+            {
+                "number": 2,
+                "author": "bob",
+                "title": "B",
+                "created_at": "2026-01-08T00:00:00Z",
+                "merged_at": "",
+                "closed_at": "2026-01-08T12:00:00Z",
+                "status": "cancelled",
+                "manual_comments": 1,
+                "copilot_commands": 2,
+                "total_job_duration_seconds": 0,
+                "html_url": "https://github.com/o/r/pull/2",
+            },
         ]
         with tempfile.TemporaryDirectory() as tmp:
             with patch("moa.commands.pr_stats.build_pr_activity_rows", return_value=fake_rows):
@@ -84,12 +97,18 @@ class TestPRStats(ExtTestCase):
             self.assertTrue(outputs["xlsx"].exists())
             self.assertTrue(outputs["status_svg"].exists())
             self.assertTrue(outputs["comments_svg"].exists())
+            self.assertTrue(outputs["prs_per_week_svg"].exists())
+            self.assertTrue(outputs["comments_per_pr_svg"].exists())
+            self.assertTrue(outputs["comments_per_week_svg"].exists())
             self.assertTrue(outputs["cache"].exists())
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
             status_svg = outputs["status_svg"].read_text(encoding="utf-8")
-            xlsx_rows = pandas.read_excel(outputs["xlsx"]).to_dict(orient="records")
+            comments_per_pr_svg = outputs["comments_per_pr_svg"].read_text(encoding="utf-8")
+            comments_per_week_svg = outputs["comments_per_week_svg"].read_text(encoding="utf-8")
+            prs_per_week_svg = outputs["prs_per_week_svg"].read_text(encoding="utf-8")
+            xlsx_sheets = pandas.read_excel(outputs["xlsx"], sheet_name=None)
         self.assertEqual(rows[0]["author"], "alice")
         self.assertEqual(rows[0]["copilot_commands"], "1")
         self.assertEqual(rows[0]["total_job_duration_seconds"], "180")
@@ -98,8 +117,64 @@ class TestPRStats(ExtTestCase):
         self.assertIn('class="label"', status_svg)
         self.assertIn("1", cache["rows"])
         self.assertIn('transform="rotate(-45', status_svg)
-        self.assertEqual(xlsx_rows[0]["author"], "alice")
-        self.assertEqual(xlsx_rows[0]["copilot_commands"], 1)
+        self.assertIn("Pull requests per week", prs_per_week_svg)
+        self.assertIn("Comments per pull request", comments_per_pr_svg)
+        self.assertIn("Comments per week", comments_per_week_svg)
+        self.assertEqual(
+            set(xlsx_sheets),
+            {"PR activity", "PRs per week", "Comments per PR", "Comments per week"},
+        )
+        self.assertEqual(
+            xlsx_sheets["PR activity"].to_dict(orient="records")[0]["author"], "alice"
+        )
+        self.assertEqual(
+            xlsx_sheets["PR activity"].to_dict(orient="records")[0]["copilot_commands"], 1
+        )
+        self.assertEqual(
+            xlsx_sheets["PRs per week"].to_dict(orient="records"),
+            [
+                {"week": "2026-W01", "pull_requests": 1},
+                {"week": "2026-W02", "pull_requests": 1},
+            ],
+        )
+        self.assertEqual(
+            xlsx_sheets["Comments per PR"].to_dict(orient="records"),
+            [
+                {
+                    "number": 1,
+                    "title": "A",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "manual_comments": 2,
+                    "copilot_commands": 1,
+                    "total_comments": 3,
+                },
+                {
+                    "number": 2,
+                    "title": "B",
+                    "created_at": "2026-01-08T00:00:00Z",
+                    "manual_comments": 1,
+                    "copilot_commands": 2,
+                    "total_comments": 3,
+                },
+            ],
+        )
+        self.assertEqual(
+            xlsx_sheets["Comments per week"].to_dict(orient="records"),
+            [
+                {
+                    "week": "2026-W01",
+                    "manual_comments": 2,
+                    "copilot_commands": 1,
+                    "total_comments": 3,
+                },
+                {
+                    "week": "2026-W02",
+                    "manual_comments": 1,
+                    "copilot_commands": 2,
+                    "total_comments": 3,
+                },
+            ],
+        )
 
     def test_save_pr_activity_report_writes_valid_xlsx_xml(self) -> None:
         fake_rows = [

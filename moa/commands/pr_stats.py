@@ -36,6 +36,7 @@ DARK_THEME_SVG_CSS = """<style>
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 MAX_PR_QUERY_WORKERS = 8
 SVG_LABEL_CHAR_WIDTH = 7
+SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_LINE_Y_AXIS_LABEL_X = 20
 SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN = 24
@@ -650,6 +651,16 @@ def _save_job_duration_line_graph(
         if avg_str
         else ""
     )
+    x_axis_label_elem = (
+        f'<text x="{left + plot_w / 2:.1f}" '
+        f'y="{height - SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
+        f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
+    )
+    y_axis_label_elem = (
+        f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
+        f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
+        f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
+    )
 
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}">'
@@ -667,12 +678,9 @@ def _save_job_duration_line_graph(
         + avg_line
         + "".join(x_label_elems)
         + legend_elems
-        + f'<text x="{left + plot_w / 2:.1f}" '
-        f'y="{height - SVG_LINE_X_AXIS_LABEL_BOTTOM_MARGIN}" text-anchor="middle" '
-        f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-        + f'<text x="{SVG_LINE_Y_AXIS_LABEL_X}" y="{top + plot_h / 2:.1f}" text-anchor="middle" '
-        f'transform="rotate(-90 {SVG_LINE_Y_AXIS_LABEL_X} {top + plot_h / 2:.1f})" '
-        f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>' + "</svg>"
+        + x_axis_label_elem
+        + y_axis_label_elem
+        + "</svg>"
     )
     path.write_text(svg, encoding="utf-8")
 
@@ -832,7 +840,7 @@ def _save_bar_graph(
     gap = 40
     left = max(60, 20 + max_label_len * SVG_LABEL_CHAR_WIDTH)
     baseline = 300
-    width = max(600, left + len(values) * (bar_width + gap) + 20)
+    width = max(600, left + len(values) * (bar_width + gap) + SVG_AXIS_MARGIN)
     y_axis_mid = (SVG_AXIS_TOP + baseline) / 2
     scale = 200 / max_value if max_value else 0
     bars = []
@@ -862,10 +870,11 @@ def _save_bar_graph(
         f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
         f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
         f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - 20}" y1="{SVG_AXIS_TOP}" x2="{left - 20}" y2="{baseline}" '
+        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{SVG_AXIS_TOP}" '
+        f'x2="{left - SVG_AXIS_MARGIN}" y2="{baseline}" '
         'class="axis" stroke="#000"/>'
-        f'<line x1="{left - 20}" y1="{baseline}" '
-        f'x2="{width - 20}" y2="{baseline}" class="axis" stroke="#000"/>'
+        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{baseline}" '
+        f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
         + "".join(bars)
         + "".join(labels)
         + (

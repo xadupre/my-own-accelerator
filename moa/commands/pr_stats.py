@@ -985,24 +985,39 @@ def _save_graphs_html_report(
     path: pathlib.Path, repo: str, graphs: list[tuple[str, pathlib.Path]]
 ) -> None:
     title = f"PR stats graphs for {repo}"
-    sections = "\n".join(
-        (
-            "<section>"
-            f"<h2>{escape(graph_title)}</h2>"
-            f'<img src="{escape(graph_path.name)}" alt="{escape(graph_title)} graph">'
-            "</section>"
+    section_chunks = []
+    for graph_title, graph_path in graphs:
+        section_chunks.append(
+            "\n".join(
+                [
+                    "<section>",
+                    f"<h2>{escape(graph_title)}</h2>",
+                    f'<img src="{escape(graph_path.name)}" alt="{escape(graph_title)} graph">',
+                    "</section>",
+                ]
+            )
         )
-        for graph_title, graph_path in graphs
-    )
-    html = (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'>"
-        f"<title>{escape(title)}</title>"
-        "<style>body{font-family:Arial,sans-serif;margin:20px;}img{max-width:100%;height:auto;}"
-        "section{margin:24px 0;}h2{margin-bottom:8px;}</style>"
-        "</head><body>"
-        f"<h1>{escape(title)}</h1>"
-        f"{sections}"
-        "</body></html>"
+    sections = "\n".join(section_chunks)
+    html = "\n".join(
+        [
+            "<!DOCTYPE html>",
+            "<html>",
+            "<head>",
+            "<meta charset='utf-8'>",
+            f"<title>{escape(title)}</title>",
+            "<style>",
+            "body{font-family:Arial,sans-serif;margin:20px;}",
+            "img{max-width:100%;height:auto;}",
+            "section{margin:24px 0;}",
+            "h2{margin-bottom:8px;}",
+            "</style>",
+            "</head>",
+            "<body>",
+            f"<h1>{escape(title)}</h1>",
+            sections,
+            "</body>",
+            "</html>",
+        ]
     )
     path.write_text(html, encoding="utf-8")
 
@@ -1345,8 +1360,8 @@ def save_pr_activity_report(
         ("Pull requests per week", prs_per_week_svg_path),
         ("PR count by number of comments", comments_per_pr_svg_path),
         ("Comments per week", comments_per_week_svg_path),
-        ("Avg PR duration per user (hours)", avg_duration_per_user_svg_path),
-        ("Avg PR duration per week (hours)", avg_duration_per_week_svg_path),
+        ("Avg PR duration per user", avg_duration_per_user_svg_path),
+        ("Avg PR duration per week", avg_duration_per_week_svg_path),
     ]
     report_graphs.extend(
         (f"Job duration: {job_name}", svg_path)

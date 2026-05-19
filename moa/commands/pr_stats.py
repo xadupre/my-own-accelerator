@@ -382,10 +382,10 @@ def build_pr_activity_rows(
             index, pr_number = pending[future]
             try:
                 rows[index] = future.result()
-            except HTTPError:
+            except HTTPError as e:
                 print(
                     f"pr-stats: warning: failed to collect stats for PR #{pr_number} "
-                    "(HTTPError); continuing with partial data.",
+                    f"(HTTPError {e.code}); continuing with partial data.",
                     file=sys.stderr,
                 )
             completed += 1

@@ -524,7 +524,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["number"], 1)
         self.assertIn(
-            "pr-stats: warning: failed to collect stats for PR #2 (HTTPError); "
+            "pr-stats: warning: failed to collect stats for PR #2 (HTTPError 403); "
             "continuing with partial data.",
             err.getvalue(),
         )

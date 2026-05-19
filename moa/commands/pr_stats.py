@@ -1250,6 +1250,7 @@ def _save_bar_graph(
     x_axis_label: str | None = None,
     y_axis_label: str | None = None,
     bar_labels: dict[str, str] | None = None,
+    horizontal: bool = False,
 ) -> None:
     if not values:
         values = {"none": 0}
@@ -1264,65 +1265,129 @@ def _save_bar_graph(
     scale = 200 / max_value if max_value else 0
     bars = []
     labels = []
-    for i, (label, value) in enumerate(values.items()):
-        x = left + i * (bar_width + gap)
-        height = int(value * scale) if max_value else 0
-        y = baseline - height
-        bars.append(
-            f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
-            'class="bar" fill="#4e79a7"/>'
-        )
-        labels.append(
-            f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
-            f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} '
-            f'{x + bar_width / 2} {baseline + 20})" '
-            'class="label" fill="#111">'
-            f"{escape(label)}</text>"
-        )
-        extra_label = bar_labels.get(label) if bar_labels else None
-        value_y = y - 18 if extra_label else y - 6
-        labels.append(
-            f'<text x="{x + bar_width / 2}" y="{value_y}" '
-            'text-anchor="middle" class="label" fill="#111">'
-            f"{value}</text>"
-        )
-        if extra_label:
-            labels.append(
-                f'<text x="{x + bar_width / 2}" y="{y - 6}" '
-                'text-anchor="middle" class="label" fill="#888" font-size="11">'
-                f"{escape(extra_label)}</text>"
+    if horizontal:
+        bar_height = 24
+        y_gap = 18
+        top = 60
+        bottom = top + len(values) * (bar_height + y_gap)
+        width = max(SVG_BAR_MIN_WIDTH, left + 280 + SVG_AXIS_MARGIN)
+        graph_right = width - SVG_AXIS_MARGIN - 20
+        scale = (graph_right - left) / max_value if max_value else 0
+        y_axis_label_y = (top + bottom) / 2
+        for i, (label, value) in enumerate(values.items()):
+            y = top + i * (bar_height + y_gap)
+            bar_len = int(value * scale) if max_value else 0
+            bars.append(
+                f'<rect x="{left}" y="{y}" width="{bar_len}" height="{bar_height}" '
+                'class="bar" fill="#4e79a7"/>'
             )
-    svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
-        f"{DARK_THEME_SVG_CSS}"
-        f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
-        f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
-        f'class="label" fill="#111">{escape(title)}</text>'
-        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{SVG_AXIS_TOP}" '
-        f'x2="{left - SVG_AXIS_MARGIN}" y2="{baseline}" '
-        'class="axis" stroke="#000"/>'
-        f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{baseline}" '
-        f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
-        + "".join(bars)
-        + "".join(labels)
-        + (
-            f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
-            f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '
-            f'text-anchor="middle" '
-            f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
-            if x_axis_label
-            else ""
+            labels.append(
+                f'<text x="{left - 8}" y="{y + bar_height / 2 + 4}" text-anchor="end" '
+                'class="label" fill="#111">'
+                f"{escape(label)}</text>"
+            )
+            labels.append(
+                f'<text x="{left + bar_len + 6}" y="{y + bar_height / 2 + 4}" '
+                'text-anchor="start" class="label" fill="#111">'
+                f"{value}</text>"
+            )
+            extra_label = bar_labels.get(label) if bar_labels else None
+            if extra_label:
+                labels.append(
+                    f'<text x="{left + bar_len + 6}" y="{y + bar_height / 2 + 18}" '
+                    'text-anchor="start" class="label" fill="#888" font-size="11">'
+                    f"{escape(extra_label)}</text>"
+                )
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{bottom + 50}">'
+            f"{DARK_THEME_SVG_CSS}"
+            f'<rect class="bg" x="0" y="0" width="{width}" height="{bottom + 50}" fill="#fff"/>'
+            f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
+            f'class="label" fill="#111">{escape(title)}</text>'
+            f'<line x1="{left}" y1="{SVG_AXIS_TOP}" '
+            f'x2="{left}" y2="{bottom}" class="axis" stroke="#000"/>'
+            f'<line x1="{left}" y1="{bottom}" '
+            f'x2="{graph_right}" y2="{bottom}" class="axis" stroke="#000"/>'
+            + "".join(bars)
+            + "".join(labels)
+            + (
+                f'<text x="{left + (graph_right - left) / 2:.1f}" '
+                f'y="{bottom + SVG_X_AXIS_LABEL_Y_OFFSET}" '
+                f'text-anchor="middle" '
+                f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
+                if x_axis_label
+                else ""
+            )
+            + (
+                f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
+                f'text-anchor="middle" '
+                f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
+                f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
+                if y_axis_label
+                else ""
+            )
+            + "</svg>"
         )
-        + (
-            f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
-            f'text-anchor="middle" '
-            f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
-            f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
-            if y_axis_label
-            else ""
+    else:
+        for i, (label, value) in enumerate(values.items()):
+            x = left + i * (bar_width + gap)
+            height = int(value * scale) if max_value else 0
+            y = baseline - height
+            bars.append(
+                f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
+                'class="bar" fill="#4e79a7"/>'
+            )
+            labels.append(
+                f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
+                f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} '
+                f'{x + bar_width / 2} {baseline + 20})" '
+                'class="label" fill="#111">'
+                f"{escape(label)}</text>"
+            )
+            extra_label = bar_labels.get(label) if bar_labels else None
+            value_y = y - 18 if extra_label else y - 6
+            labels.append(
+                f'<text x="{x + bar_width / 2}" y="{value_y}" '
+                'text-anchor="middle" class="label" fill="#111">'
+                f"{value}</text>"
+            )
+            if extra_label:
+                labels.append(
+                    f'<text x="{x + bar_width / 2}" y="{y - 6}" '
+                    'text-anchor="middle" class="label" fill="#888" font-size="11">'
+                    f"{escape(extra_label)}</text>"
+                )
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
+            f"{DARK_THEME_SVG_CSS}"
+            f'<rect class="bg" x="0" y="0" width="{width}" height="360" fill="#fff"/>'
+            f'<text x="{width/2}" y="28" text-anchor="middle" font-size="18" '
+            f'class="label" fill="#111">{escape(title)}</text>'
+            f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{SVG_AXIS_TOP}" '
+            f'x2="{left - SVG_AXIS_MARGIN}" y2="{baseline}" '
+            'class="axis" stroke="#000"/>'
+            f'<line x1="{left - SVG_AXIS_MARGIN}" y1="{baseline}" '
+            f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
+            + "".join(bars)
+            + "".join(labels)
+            + (
+                f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
+                f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '
+                f'text-anchor="middle" '
+                f'class="label" fill="#111" font-size="12">{escape(x_axis_label)}</text>'
+                if x_axis_label
+                else ""
+            )
+            + (
+                f'<text x="{SVG_Y_AXIS_LABEL_X}" y="{y_axis_label_y:.1f}" '
+                f'text-anchor="middle" '
+                f'transform="rotate(-90 {SVG_Y_AXIS_LABEL_X} {y_axis_label_y:.1f})" '
+                f'class="label" fill="#111" font-size="12">{escape(y_axis_label)}</text>'
+                if y_axis_label
+                else ""
+            )
+            + "</svg>"
         )
-        + "</svg>"
-    )
     path.write_text(svg, encoding="utf-8")
 
 
@@ -1424,9 +1489,10 @@ def save_pr_activity_report(
         avg_duration_per_user_svg_path,
         {row["author"]: row["avg_duration_hours"] for row in avg_duration_per_user_data},
         "Avg PR duration per user (hours)",
-        x_axis_label="Author",
-        y_axis_label="Duration (hours)",
+        x_axis_label="Duration (hours)",
+        y_axis_label="Author",
         bar_labels={row["author"]: f"n={row['pr_count']}" for row in avg_duration_per_user_data},
+        horizontal=True,
     )
     _save_bar_graph(
         avg_duration_per_week_svg_path,

@@ -150,7 +150,14 @@ def _collect_pr_comment_stats(
     pull_number: int,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> tuple[int, int]:
+    if verbose:
+        print(
+            f"pr-stats: fetching comment stats for PR #{pull_number}...",
+            file=sys.stderr,
+            flush=True,
+        )
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
     issue_comments = _fetch_paginated(f"{base}/issues/{pull_number}/comments", token)
     review_comments = _fetch_paginated(f"{base}/pulls/{pull_number}/comments", token)
@@ -228,12 +235,21 @@ def _collect_pr_comment_stats_batch(
     pull_numbers: list[int],
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> dict[int, tuple[int, int]]:
     if not pull_numbers:
         return {}
     results: dict[int, tuple[int, int]] = {}
-    for start in range(0, len(pull_numbers), PR_COMMENT_BATCH_SIZE):
+    total_batches = (len(pull_numbers) + PR_COMMENT_BATCH_SIZE - 1) // PR_COMMENT_BATCH_SIZE
+    for batch_num, start in enumerate(range(0, len(pull_numbers), PR_COMMENT_BATCH_SIZE), 1):
         chunk = pull_numbers[start : start + PR_COMMENT_BATCH_SIZE]
+        if verbose:
+            print(
+                f"pr-stats: fetching comment stats batch {batch_num}/{total_batches}"
+                f" ({len(chunk)} PR(s))...",
+                file=sys.stderr,
+                flush=True,
+            )
         query = _build_pr_comments_batch_query(owner, repo, chunk)
         fallback = set(chunk)
         try:
@@ -309,6 +325,7 @@ def _collect_pr_comment_stats_batch(
                     pull_number=number,
                     token=token,
                     api_url=api_url,
+                    verbose=verbose,
                 )
             except HTTPError:
                 # Keep this PR unresolved here; row-building handles the warning/skip behavior.
@@ -386,6 +403,7 @@ def _collect_pr_job_info(
     head_sha: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> tuple[int, list[dict[str, Any]]]:
     """Return (total_duration_seconds, successful_job_durations).
 
@@ -395,6 +413,12 @@ def _collect_pr_job_info(
     """
     if not head_sha:
         return 0, []
+    if verbose:
+        print(
+            f"pr-stats: collecting job info for PR #{pull_number}...",
+            file=sys.stderr,
+            flush=True,
+        )
     runs = _fetch_workflow_runs_by_head_sha(owner, repo, head_sha, token, api_url)
     total_seconds = 0
     successful_jobs: list[dict[str, Any]] = []
@@ -534,8 +558,11 @@ def _collect_pr_job_duration_hours(
     head_sha: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> float:
-    total_seconds, _ = _collect_pr_job_info(owner, repo, pull_number, head_sha, token, api_url)
+    total_seconds, _ = _collect_pr_job_info(
+        owner, repo, pull_number, head_sha, token, api_url, verbose
+    )
     return round(total_seconds / 3600, 2)
 
 
@@ -546,8 +573,11 @@ def _collect_pr_job_duration_seconds(
     head_sha: str,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> int:
-    total_seconds, _ = _collect_pr_job_info(owner, repo, pull_number, head_sha, token, api_url)
+    total_seconds, _ = _collect_pr_job_info(
+        owner, repo, pull_number, head_sha, token, api_url, verbose
+    )
     return total_seconds
 
 
@@ -646,6 +676,7 @@ def build_pr_activity_rows(
         pull_numbers=uncached_numbers,
         token=token,
         api_url=api_url,
+        verbose=verbose,
     )
     uncached_heads = {
         int(pr.get("number", 0)): str((pr.get("head") or {}).get("sha", ""))

@@ -20,6 +20,8 @@ from moa.commands.pr_stats import (
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
+    _collect_pr_comment_stats,
+    _collect_pr_comment_stats_batch,
     _collect_pr_job_duration_hours,
     _collect_pr_job_info,
     _collect_pr_job_info_batch,
@@ -515,6 +517,7 @@ class TestPRStats(ExtTestCase):
             pull_numbers=[1, 2],
             token=None,
             api_url="https://api.github.com",
+            verbose=False,
         )
         self.assertEqual([row["number"] for row in rows], [1, 2])
         self.assertEqual([row["manual_comments"] for row in rows], [1, 2])
@@ -598,8 +601,9 @@ class TestPRStats(ExtTestCase):
             pull_number: int,
             token: str | None = None,
             api_url: str = "https://api.github.com",
+            verbose: bool = False,
         ) -> tuple[int, int]:
-            del owner, repo, token, api_url
+            del owner, repo, token, api_url, verbose
             if pull_number == 2:
                 raise HTTPError("https://api.github.com", 403, "rate limited", {}, None)
             return 1, 0
@@ -930,7 +934,73 @@ class TestPRStats(ExtTestCase):
         self.assertIn("collecting job info for PR #22", output)
         self.assertEqual(results[22][0], 90)
 
-    def test_build_job_duration_sheet_rows(self) -> None:
+    def test_collect_pr_comment_stats_verbose(self) -> None:
+        import io
+
+        buf = io.StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=[]),
+            patch("sys.stderr", buf),
+        ):
+            manual, copilot = _collect_pr_comment_stats("o", "r", 42, verbose=True)
+        output = buf.getvalue()
+        self.assertIn("fetching comment stats for PR #42", output)
+        self.assertEqual(manual, 0)
+        self.assertEqual(copilot, 0)
+
+    def test_collect_pr_comment_stats_batch_verbose(self) -> None:
+        import io
+
+        buf = io.StringIO()
+        with (
+            patch(
+                "moa.commands.pr_stats._fetch_graphql_json",
+                side_effect=OSError("network"),
+            ),
+            patch(
+                "moa.commands.pr_stats._collect_pr_comment_stats",
+                return_value=(1, 0),
+            ) as mocked_fallback,
+            patch("sys.stderr", buf),
+        ):
+            results = _collect_pr_comment_stats_batch("o", "r", [5, 6], verbose=True)
+        output = buf.getvalue()
+        self.assertIn("fetching comment stats batch 1/1", output)
+        # Fallback calls pass verbose=True through to _collect_pr_comment_stats
+        for call in mocked_fallback.call_args_list:
+            self.assertTrue(call.kwargs.get("verbose") or (len(call.args) > 5 and call.args[5]))
+        self.assertEqual(results[5], (1, 0))
+        self.assertEqual(results[6], (1, 0))
+
+    def test_collect_pr_job_info_verbose(self) -> None:
+        import io
+
+        buf = io.StringIO()
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "head_sha": "sha1", "pull_requests": [{"number": 7}]},
+            ]
+        }
+        jobs_run_101 = {
+            "jobs": [
+                {
+                    "name": "build",
+                    "started_at": "2026-01-01T00:00:00Z",
+                    "completed_at": "2026-01-01T00:01:00Z",
+                    "conclusion": "success",
+                }
+            ]
+        }
+        with (
+            patch("moa.commands.pr_stats._fetch_json", side_effect=[runs_payload, jobs_run_101]),
+            patch("sys.stderr", buf),
+        ):
+            total, jobs = _collect_pr_job_info("o", "r", 7, "sha1", verbose=True)
+        output = buf.getvalue()
+        self.assertIn("collecting job info for PR #7", output)
+        self.assertEqual(total, 60)
+        self.assertEqual(len(jobs), 1)
+
         pr_rows = [
             {
                 "number": 1,

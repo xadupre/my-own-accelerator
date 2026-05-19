@@ -436,6 +436,7 @@ def _collect_pr_job_info_batch(
     pull_head_shas: dict[int, str],
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> dict[int, tuple[int, list[dict[str, Any]]]]:
     if not pull_head_shas:
         return {}
@@ -450,6 +451,12 @@ def _collect_pr_job_info_batch(
     page = 1
     try:
         while True:
+            if verbose:
+                print(
+                    f"pr-stats: fetching workflow runs page {page}...",
+                    file=sys.stderr,
+                    flush=True,
+                )
             runs_url = f"{base}/actions/runs?" + parse.urlencode(
                 {"event": "pull_request", "per_page": PAGE_SIZE, "page": page}
             )
@@ -485,7 +492,16 @@ def _collect_pr_job_info_batch(
         # Any workflow-runs batch failure falls back to per-PR REST queries.
         return {}
     results: dict[int, tuple[int, list[dict[str, Any]]]] = {}
-    for pull_number in sorted(run_ids_by_pr):
+    pr_numbers = sorted(run_ids_by_pr)
+    for idx, pull_number in enumerate(pr_numbers, 1):
+        if verbose:
+            run_count = len(run_ids_by_pr[pull_number])
+            print(
+                f"pr-stats: collecting job info for PR #{pull_number}"
+                f" ({idx}/{len(pr_numbers)}, {run_count} run(s))...",
+                file=sys.stderr,
+                flush=True,
+            )
         total_seconds = 0
         successful_jobs: list[dict[str, Any]] = []
         for run_id in sorted(run_ids_by_pr[pull_number]):
@@ -648,6 +664,7 @@ def build_pr_activity_rows(
         pull_head_shas=uncached_heads,
         token=token,
         api_url=api_url,
+        verbose=verbose,
     )
     for i, pr in enumerate(filtered):
         number = int(pr.get("number", 0))

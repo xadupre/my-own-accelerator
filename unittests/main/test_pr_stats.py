@@ -547,6 +547,7 @@ class TestPRStats(ExtTestCase):
             pull_head_shas={1: "abc", 2: "def"},
             token=None,
             api_url="https://api.github.com",
+            verbose=False,
         )
         mocked_single.assert_not_called()
         self.assertEqual([row["number"] for row in rows], [1, 2])
@@ -878,6 +879,39 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(results[23][0], 60)
         self.assertEqual(results[23][1], [])
         self.assertEqual(results[24], (0, []))
+
+    def test_collect_pr_job_info_batch_verbose(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {"id": 101, "head_sha": "sha1", "pull_requests": [{"number": 22}]},
+            ]
+        }
+        jobs_run_101 = [
+            {
+                "name": "build",
+                "started_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:30Z",
+                "conclusion": "success",
+            }
+        ]
+        import io
+
+        buf = io.StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
+            patch(
+                "moa.commands.pr_stats._fetch_workflow_run_jobs",
+                return_value=jobs_run_101,
+            ),
+            patch("sys.stderr", buf),
+        ):
+            results = _collect_pr_job_info_batch(
+                "o", "r", {22: "sha1"}, token="abc", verbose=True
+            )
+        output = buf.getvalue()
+        self.assertIn("fetching workflow runs page 1", output)
+        self.assertIn("collecting job info for PR #22", output)
+        self.assertEqual(results[22][0], 90)
 
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [

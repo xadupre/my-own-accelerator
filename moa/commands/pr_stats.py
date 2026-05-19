@@ -12,7 +12,6 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from html import escape
 from typing import Any
@@ -38,7 +37,6 @@ SVG_LABEL_CHAR_WIDTH = 7
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
-MAX_PR_STATS_WORKERS = 8
 SVG_AXIS_MARGIN = 20
 SVG_AXIS_TOP = 40
 SVG_Y_AXIS_LABEL_X = 20
@@ -431,6 +429,87 @@ def _collect_pr_job_info(
     return total_seconds, successful_jobs
 
 
+def _collect_pr_job_info_batch(
+    owner: str,
+    repo: str,
+    pull_head_shas: dict[int, str],
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> dict[int, tuple[int, list[dict[str, Any]]]]:
+    if not pull_head_shas:
+        return {}
+    by_sha: dict[str, list[int]] = {}
+    for pull_number, head_sha in pull_head_shas.items():
+        if head_sha:
+            by_sha.setdefault(head_sha, []).append(pull_number)
+    if not by_sha:
+        return {}
+    run_ids_by_pr: dict[int, set[int]] = {number: set() for number in pull_head_shas}
+    base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
+    page = 1
+    try:
+        while True:
+            runs_url = f"{base}/actions/runs?" + parse.urlencode(
+                {"event": "pull_request", "per_page": PAGE_SIZE, "page": page}
+            )
+            data = _fetch_json(runs_url, token)
+            if not isinstance(data, dict):
+                break
+            workflow_runs = data.get("workflow_runs")
+            if not isinstance(workflow_runs, list) or not workflow_runs:
+                break
+            if any(not isinstance(item, dict) for item in workflow_runs):
+                raise ValueError("Unexpected workflow runs payload returned by API.")
+            for run in workflow_runs:
+                head_sha = str(run.get("head_sha", ""))
+                pull_numbers = by_sha.get(head_sha, [])
+                if not pull_numbers:
+                    continue
+                run_id = int(run.get("id", 0))
+                if run_id <= 0:
+                    continue
+                run_pull_numbers = {
+                    int(pr.get("number", 0))
+                    for pr in run.get("pull_requests", [])
+                    if isinstance(pr, dict)
+                }
+                for pull_number in pull_numbers:
+                    if run_pull_numbers and pull_number not in run_pull_numbers:
+                        continue
+                    run_ids_by_pr.setdefault(pull_number, set()).add(run_id)
+            if len(workflow_runs) < PAGE_SIZE:
+                break
+            page += 1
+    except (OSError, ValueError, HTTPError, URLError):
+        # Any workflow-runs batch failure falls back to per-PR REST queries.
+        return {}
+    results: dict[int, tuple[int, list[dict[str, Any]]]] = {}
+    for pull_number in sorted(run_ids_by_pr):
+        total_seconds = 0
+        successful_jobs: list[dict[str, Any]] = []
+        for run_id in sorted(run_ids_by_pr[pull_number]):
+            for job in _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url):
+                started_at = str(job.get("started_at", ""))
+                completed_at = str(job.get("completed_at", ""))
+                if not started_at or not completed_at:
+                    continue
+                started_dt = _parse_iso_datetime(started_at)
+                completed_dt = _parse_iso_datetime(completed_at)
+                if completed_dt >= started_dt:
+                    duration = int((completed_dt - started_dt).total_seconds())
+                    total_seconds += duration
+                    if job.get("conclusion") == "success":
+                        successful_jobs.append(
+                            {
+                                "job_name": str(job.get("name", "")),
+                                "completed_at": completed_at,
+                                "duration_seconds": duration,
+                            }
+                        )
+        results[pull_number] = (total_seconds, successful_jobs)
+    return results
+
+
 def _collect_pr_job_duration_hours(
     owner: str,
     repo: str,
@@ -462,6 +541,7 @@ def _build_pr_activity_row(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     comment_stats: tuple[int, int] | None = None,
+    job_info: tuple[int, list[dict[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     number = int(pr.get("number", 0))
     if comment_stats is None:
@@ -474,14 +554,17 @@ def _build_pr_activity_row(
         )
     else:
         manual_comments, copilot_commands = comment_stats
-    total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
-        owner=owner,
-        repo=repo,
-        pull_number=number,
-        head_sha=str((pr.get("head") or {}).get("sha", "")),
-        token=token,
-        api_url=api_url,
-    )
+    if job_info is None:
+        total_job_duration_seconds, successful_job_durations = _collect_pr_job_info(
+            owner=owner,
+            repo=repo,
+            pull_number=number,
+            head_sha=str((pr.get("head") or {}).get("sha", "")),
+            token=token,
+            api_url=api_url,
+        )
+    else:
+        total_job_duration_seconds, successful_job_durations = job_info
     total_job_duration_hours = round(total_job_duration_seconds / 3600, 2)
     merged_at = pr.get("merged_at")
     return {
@@ -541,7 +624,18 @@ def build_pr_activity_rows(
         token=token,
         api_url=api_url,
     )
-    uncached_entries: list[tuple[int, dict[str, Any], int]] = []
+    uncached_heads = {
+        int(pr.get("number", 0)): str((pr.get("head") or {}).get("sha", ""))
+        for pr in filtered
+        if not cache.get(str(int(pr.get("number", 0))))
+    }
+    job_info_stats = _collect_pr_job_info_batch(
+        owner=owner,
+        repo=repo,
+        pull_head_shas=uncached_heads,
+        token=token,
+        api_url=api_url,
+    )
     for i, pr in enumerate(filtered):
         number = int(pr.get("number", 0))
         cached = cache.get(str(number))
@@ -551,35 +645,25 @@ def build_pr_activity_rows(
             if verbose:
                 _print_progress(completed, total)
             continue
-        uncached_entries.append((i, pr, number))
-    if uncached_entries:
-        max_workers = min(MAX_PR_STATS_WORKERS, len(uncached_entries))
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {
-                executor.submit(
-                    _build_pr_activity_row,
-                    pr,
-                    owner,
-                    repo,
-                    token,
-                    api_url,
-                    comment_stats.get(number),
-                ): (i, number)
-                for i, pr, number in uncached_entries
-            }
-            for future in as_completed(futures):
-                i, number = futures[future]
-                try:
-                    rows[i] = future.result()
-                except HTTPError as e:
-                    print(
-                        f"pr-stats: warning: failed to collect stats for PR #{number} "
-                        f"(HTTPError {e.code}); continuing with partial data.",
-                        file=sys.stderr,
-                    )
-                completed += 1
-                if verbose:
-                    _print_progress(completed, total)
+        try:
+            rows[i] = _build_pr_activity_row(
+                pr,
+                owner,
+                repo,
+                token,
+                api_url,
+                comment_stats.get(number),
+                job_info_stats.get(number),
+            )
+        except HTTPError as e:
+            print(
+                f"pr-stats: warning: failed to collect stats for PR #{number} "
+                f"(HTTPError {e.code}); continuing with partial data.",
+                file=sys.stderr,
+            )
+        completed += 1
+        if verbose:
+            _print_progress(completed, total)
     return [row for row in rows if row is not None]
 
 

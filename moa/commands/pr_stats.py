@@ -1068,12 +1068,13 @@ def _save_graphs_html_report(
     title = f"PR stats graphs for {repo}"
     section_chunks = []
     for graph_title, graph_path in graphs:
+        rel = graph_path.relative_to(path.parent)
         section_chunks.append(
             "\n".join(
                 [
                     "<section>",
                     f"<h2>{escape(graph_title)}</h2>",
-                    f'<img src="{escape(graph_path.name)}" alt="{escape(graph_title)} graph">',
+                    f'<img src="{escape(rel.as_posix())}" alt="{escape(graph_title)} graph">',
                     "</section>",
                 ]
             )
@@ -1439,6 +1440,8 @@ def save_pr_activity_report(
         y_axis_label="Duration (hours)",
     )
     # Per-job-name duration line graphs (successful jobs only)
+    job_dur_dir = graph_dir / "job_durations"
+    job_dur_dir.mkdir(parents=True, exist_ok=True)
     job_duration_svgs: dict[str, pathlib.Path] = {}
     jobs_by_name: dict[str, list[dict[str, Any]]] = {}
     for jd in sorted(_build_job_duration_sheet_rows(rows), key=lambda r: str(r["completed_at"])):
@@ -1447,7 +1450,7 @@ def save_pr_activity_report(
         safe_name = re.sub(r"[^A-Za-z0-9_-]+", "_", job_name).strip("_")
         if not safe_name:
             safe_name = f"job_{hashlib.sha256(job_name.encode('utf-8')).hexdigest()[:8]}"
-        svg_path = graph_dir / f"{prefix}_job_duration_{safe_name}.svg"
+        svg_path = job_dur_dir / f"{prefix}_job_duration_{safe_name}.svg"
         _save_job_duration_line_graph(svg_path, job_series, f"Job duration: {job_name}")
         job_duration_svgs[job_name] = svg_path
     # Final summary bar chart: average duration per job name

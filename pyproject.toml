@@ -9,7 +9,10 @@ description = "Minimal empty project scaffold"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "openpyxl",
+    "pandas",
+]
 
 [project.scripts]
 review-pr = "moa.commands.review_pr:main"

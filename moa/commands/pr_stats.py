@@ -394,7 +394,8 @@ def _save_bar_graph(path: pathlib.Path, values: dict[str, int], title: str) -> N
         )
         labels.append(
             f'<text x="{x + bar_width / 2}" y="{y - 6}" '
-            f'text-anchor="middle" class="label" fill="#111">{value}</text>'
+            'text-anchor="middle" class="label" fill="#111">'
+            f"{value}</text>"
         )
     dark_theme_css = """<style>
 @media (prefers-color-scheme: dark){

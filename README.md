@@ -43,6 +43,12 @@ Command line pull request statistics report:
 pr-stats xadupre my-own-accelerator --prefix pr_activity
 ```
 
+Command line weekly pull request summary table:
+
+```bash
+pr-weekly-table xadupre my-own-accelerator
+```
+
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 
 ## Development checks

@@ -31,6 +31,7 @@ reviewing, and pull-request activity reporting.
     :caption: Command Lines
 
     github_token
+    pr_weekly_table
     pr_stats
     review_local
     review_pr

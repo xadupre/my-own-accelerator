@@ -421,10 +421,7 @@ def _warn_if_old_run_has_no_jobs(run: dict[str, Any], pull_number: int) -> None:
     run_time = str(run.get("created_at") or run.get("run_started_at") or "")
     if not run_time:
         return
-    try:
-        run_dt = _parse_iso_datetime(run_time)
-    except ValueError:
-        return
+    run_dt = _parse_iso_datetime(run_time)
     if datetime.now(timezone.utc) - run_dt < timedelta(weeks=2):
         return
     run_id = int(run.get("id", 0))

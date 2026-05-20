@@ -69,6 +69,33 @@ def _build_project_token_cache(
     return project_tokens
 
 
+def _resolve_token_origin(
+    argv: list[str],
+    token: str | None,
+    env_token: str | None,
+    cache: dict[str, Any],
+    owner: str | None = None,
+    repo: str | None = None,
+) -> tuple[str, str]:
+    """Resolve token source and type for verbose CLI reporting."""
+    if not token:
+        return ("none", "none")
+    if "--token" in argv:
+        return ("--token", "explicit")
+    if env_token and token == env_token:
+        return ("GITHUB_TOKEN", "explicit")
+    if owner and repo:
+        project_tokens = cache.get("project_tokens")
+        if isinstance(project_tokens, dict):
+            project_token = project_tokens.get(_project_token_cache_key(owner, repo))
+            if isinstance(project_token, str) and project_token and token == project_token:
+                return (f"{CONFIG_FILE} ({owner}/{repo})", "fine-grained")
+    classic_token = cache.get("token")
+    if isinstance(classic_token, str) and classic_token and token == classic_token:
+        return (str(CONFIG_FILE), "classic")
+    return ("unknown", "explicit")
+
+
 def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:
     """Extract owner/repo positionals while skipping option values."""
     positionals: list[str] = []

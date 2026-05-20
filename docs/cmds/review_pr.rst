@@ -144,7 +144,10 @@ Optional Arguments
 
 ``-v``, ``--verbose``
     Print progress information to standard error while the command is
-    running.
+    running. Verbose output also shows which token source is used
+    (``--token``, ``GITHUB_TOKEN``, project-specific cache, classic cache,
+    or unauthenticated) and the token type (``explicit``, ``fine-grained``,
+    ``classic``, or ``none``).
 
 ``-h``, ``--help``
     Print a short help message and exit.

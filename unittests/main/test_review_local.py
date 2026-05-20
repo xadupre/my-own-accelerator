@@ -184,3 +184,26 @@ class TestReviewLocal(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("review-local: reading 1 file(s)...", err.getvalue())
         self.assertIn("review-local: done.", err.getvalue())
+
+    def test_main_verbose_flag_prints_cached_classic_token_origin(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                file1 = pathlib.Path(tmp) / "a.py"
+                file1.write_text("print('a')", encoding="utf-8")
+                with (
+                    patch("sys.stdout", out),
+                    patch("sys.stderr", err),
+                    patch(
+                        "moa.commands.review_local._load_cache",
+                        return_value={"token": "cached_tok"},
+                    ),
+                ):
+                    code = main(["-v", str(file1)])
+        finally:
+            os.environ.update(env_backup)
+        self.assertEqual(code, 0)
+        self.assertIn("review-local: token source=", err.getvalue())
+        self.assertIn("type=classic.", err.getvalue())

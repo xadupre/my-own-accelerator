@@ -7,9 +7,10 @@ import json
 import os
 import pathlib
 import sys
+from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
 from http.client import IncompleteRead
-from typing import Any
+from typing import Any, TypeVar
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
@@ -27,6 +28,18 @@ from .review_token import (
 DEFAULT_CACHE_DIR = "dump_pr_stats"
 
 _FAILING_STATUS_STATES = {"error", "failure"}
+_T = TypeVar("_T")
+
+
+def _retry_incomplete_read(function: Callable[[], _T], retries: int = 3) -> _T:
+    if retries < 1:
+        raise ValueError("retries must be >= 1")
+    for attempt in range(1, retries + 1):
+        try:
+            return function()
+        except IncompleteRead:
+            if attempt >= retries:
+                raise
 
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
@@ -37,26 +50,19 @@ def _fetch_json(url: str, token: str | None = None) -> Any:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(url, headers=headers)
-    last_error: IncompleteRead | None = None
-    for _ in range(3):
-        try:
-            with request.urlopen(req) as response:
-                return json.load(response)
-        except IncompleteRead as e:
-            last_error = e
-    assert last_error is not None, "Expected IncompleteRead after retry loop"
-    raise last_error
+
+    def _load() -> Any:
+        with request.urlopen(req) as response:
+            return json.load(response)
+
+    return _retry_incomplete_read(_load)
 
 
 def _fetch_paginated_with_retries(url: str, token: str | None = None) -> list[Any]:
-    last_error: IncompleteRead | None = None
-    for _ in range(3):
-        try:
-            return _fetch_paginated(url, token)
-        except IncompleteRead as e:
-            last_error = e
-    assert last_error is not None, "Expected IncompleteRead after retry loop"
-    raise last_error
+    def _fetch() -> list[Any]:
+        return _fetch_paginated(url, token)
+
+    return _retry_incomplete_read(_fetch)
 
 
 def _default_since() -> str:

@@ -20,6 +20,7 @@ review-pr = "moa.commands.review_pr:main"
 review-local = "moa.commands.review_local:main"
 # Full command line: python -m moa pr-stats <owner> <repo> [options]
 pr-stats = "moa.commands.pr_stats:main"
+pr-weekly-table = "moa.commands.pr_weekly_table:main"
 
 [project.optional-dependencies]
 dev = [

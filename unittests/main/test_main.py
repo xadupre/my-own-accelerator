@@ -56,6 +56,16 @@ class TestMain(ExtTestCase):
         self.assertEqual(ctx.exception.code, 0)
         mocked.assert_called_once_with(["owner", "repo"])
 
+    def test_package_main_routes_pr_weekly_table(self) -> None:
+        with (
+            patch("sys.argv", ["-m", "pr-weekly-table", "owner", "repo"]),
+            patch("moa.commands.pr_weekly_table.main", return_value=0) as mocked,
+            self.assertRaises(SystemExit) as ctx,
+        ):
+            runpy.run_module("moa", run_name="__main__")
+        self.assertEqual(ctx.exception.code, 0)
+        mocked.assert_called_once_with(["owner", "repo"])
+
     def _assert_package_main_help(self, flag: str) -> None:
         out = StringIO()
         with (
@@ -68,7 +78,9 @@ class TestMain(ExtTestCase):
         self.assertIn("review-pr", out.getvalue())
         self.assertIn("review-local", out.getvalue())
         self.assertIn("pr-stats", out.getvalue())
+        self.assertIn("pr-weekly-table", out.getvalue())
         self.assertIn("github-token", out.getvalue())
+        self.assertIn("github-token   : Cache a GitHub token", out.getvalue())
         self.assertIn("Cache a GitHub token for all projects", out.getvalue())
         self.assertIn("Review a GitHub pull request and print markdown.", out.getvalue())
         self.assertIn("Review local files and print markdown.", out.getvalue())

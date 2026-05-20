@@ -9,7 +9,7 @@ import sys
 from urllib.error import HTTPError, URLError
 
 from .review_pr import DEFAULT_MODEL, _call_copilot_review
-from .review_token import CONFIG_FILE, _load_cache, _save_cache
+from .review_token import CONFIG_FILE, _load_cache, _resolve_token_origin, _save_cache
 
 
 def build_local_files_review_markdown(contents: dict[str, str]) -> str:
@@ -149,6 +149,13 @@ def main(argv: list[str] | None = None) -> int:
     if args.save and args.token:
         _save_cache({"token": args.token})
     if args.verbose:
+        token_origin, token_type = _resolve_token_origin(
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), cache
+        )
+        print(
+            f"review-local: token source={token_origin}, type={token_type}.",
+            file=sys.stderr,
+        )
         print(f"review-local: reading {len(args.files)} file(s)...", file=sys.stderr)
     try:
         markdown = review_local_files(

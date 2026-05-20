@@ -19,6 +19,7 @@ from .review_token import (
     _load_cache,
     _resolve_cached_token,
     _resolve_positional_argv,
+    _resolve_token_origin,
     _save_cache,
 )
 
@@ -400,6 +401,13 @@ def main(argv: list[str] | None = None) -> int:
         _save_cache(to_save)
 
     if args.verbose:
+        token_origin, token_type = _resolve_token_origin(
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), cache, args.owner, args.repo
+        )
+        print(
+            f"review-pr: token source={token_origin}, type={token_type}.",
+            file=sys.stderr,
+        )
         print(
             f"review-pr: fetching {args.owner}/{args.repo}#{args.pull_request}...",
             file=sys.stderr,

@@ -33,7 +33,8 @@ the provided files and, if requested, a ``## Copilot Review`` section.
 It reuses the same token cache file as ``review-pr``
 (``~/.config/moa/review_pr.json``) and supports ``--save`` to persist
 the resolved token. Use ``-v`` or ``--verbose`` to print progress
-information to standard error while the command runs.
+information to standard error while the command runs, including which
+token source/type is used.
 
 ``review-local`` supports the same ``--copilot-review``, ``--model``, and
 ``--prompt`` flags as ``review-pr``.  Use ``--prompt`` one or more times

@@ -1,6 +1,7 @@
 import csv
 import hashlib
 import json
+import os
 import pathlib
 import tempfile
 import xml.etree.ElementTree as ET
@@ -1256,6 +1257,26 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("pr-stats: collecting pull request data for owner/repo...", err.getvalue())
         self.assertIn("pr-stats: done.", err.getvalue())
+
+    def test_main_verbose_flag_prints_env_token_origin(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        with (
+            patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch.dict(os.environ, {"GITHUB_TOKEN": "env_tok"}),
+        ):
+            code = main(["-v", "owner", "repo"])
+        self.assertEqual(code, 0)
+        self.assertIn("pr-stats: token source=GITHUB_TOKEN, type=explicit.", err.getvalue())
 
     def test_print_progress_outputs_bar(self) -> None:
         buf = StringIO()

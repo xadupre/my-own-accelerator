@@ -47,3 +47,57 @@ class TestGitHubToken(ExtTestCase):
         with self.assertRaises(SystemExit) as ctx:
             main(["--token", "project_tok", "--owner", "owner"])
         self.assertEqual(ctx.exception.code, 2)
+
+    def test_main_list_tokens(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            fake_config.write_text(
+                json.dumps(
+                    {
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+            ):
+                code = main(["--list"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out.getvalue().splitlines(), ["classic: classic_tok", "owner/repo: project_tok"]
+        )
+
+    def test_main_list_tokens_verbose(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            fake_config.write_text(
+                json.dumps(
+                    {
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+            ):
+                code = main(["--list", "--verbose"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(
+            out.getvalue().splitlines(),
+            [
+                f"classic ({fake_config}): classic_tok [type=classic]",
+                f"owner/repo ({fake_config}): project_tok [type=fine-grained]",
+            ],
+        )

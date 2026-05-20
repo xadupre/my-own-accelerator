@@ -33,6 +33,7 @@ from .pr_stats_graphs import (
     week_label_first_day,
 )
 from .review_pr import _fetch_json
+from .review_token import _resolve_token_origin
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
@@ -1295,6 +1296,13 @@ def main(argv: list[str] | None = None) -> int:
     prefix = args.prefix or _default_prefix(args.repo)
     since = args.since or _default_since()
     if args.verbose:
+        token_origin, token_type = _resolve_token_origin(
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), None
+        )
+        print(
+            f"pr-stats: token source={token_origin}, type={token_type}.",
+            file=sys.stderr,
+        )
         print(
             f"pr-stats: collecting pull request data for {args.owner}/{args.repo}...",
             file=sys.stderr,

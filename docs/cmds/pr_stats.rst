@@ -52,4 +52,5 @@ Generated files are written to the ``dump_pr_stats`` directory by default, with
 SVG graphs stored in a repo-specific ``graphs_<repo>`` subdirectory.
 By default, generated file names use the ``pr_activity_<repo>`` prefix.
 Use ``-v`` or ``--verbose`` to print progress information to standard
-error while the command is running.
+error while the command is running, including which token source/type is
+used.

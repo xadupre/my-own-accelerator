@@ -20,6 +20,7 @@ from moa.commands.review_pr import (
     main,
     review_pull_request,
 )
+from moa.commands.review_token import CONFIG_FILE
 from moa.ext_test_case import ExtTestCase
 
 
@@ -124,12 +125,44 @@ class TestReviewPR(ExtTestCase):
             ),
             patch("sys.stdout", out),
             patch("sys.stderr", err),
+            patch.dict(os.environ, {"GITHUB_TOKEN": ""}),
             patch("moa.commands.review_pr._load_cache", return_value={}),
         ):
             code = main(["-v", "owner", "repo", "12"])
         self.assertEqual(code, 0)
+        self.assertIn("review-pr: token source=none, type=none.", err.getvalue())
         self.assertIn("review-pr: fetching owner/repo#12...", err.getvalue())
         self.assertIn("review-pr: done.", err.getvalue())
+
+    def test_main_verbose_flag_prints_fine_grained_token_origin(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        env_token_backup = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ),
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                    },
+                ),
+            ):
+                code = main(["-v", "owner", "repo", "12"])
+        finally:
+            if env_token_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_token_backup
+        self.assertEqual(code, 0)
+        self.assertIn(
+            f"review-pr: token source={CONFIG_FILE} (owner/repo), type=fine-grained.",
+            err.getvalue(),
+        )
 
     def test_call_copilot_review_returns_content(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}

@@ -1315,7 +1315,7 @@ class TestPRStats(ExtTestCase):
             "csv": "/tmp/a.csv",
             "xlsx": "/tmp/a.xlsx",
             "status_svg": "/tmp/a_status.svg",
-            "comments_svg": "/tmp/a_cache.json",
+            "comments_svg": "/tmp/a_comments.svg",
             "cache": "/tmp/a_cache.json",
         }
         env_backup = os.environ.pop("GITHUB_TOKEN", None)

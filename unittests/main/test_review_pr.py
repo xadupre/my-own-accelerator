@@ -472,14 +472,14 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(result, ["--token", "tok", "alice", "myrepo", "42"])
 
     def test_extract_owner_repo_skips_option_values(self) -> None:
-        got = _extract_owner_repo(
+        result = _extract_owner_repo(
             ["--token", "tok", "--prompt", "check this", "owner", "repo", "42"]
         )
-        self.assertEqual(got, ("owner", "repo"))
+        self.assertEqual(result, ("owner", "repo"))
 
     def test_extract_owner_repo_returns_none_when_missing_positionals(self) -> None:
-        got = _extract_owner_repo(["--token", "tok"])
-        self.assertEqual(got, (None, None))
+        result = _extract_owner_repo(["--token", "tok"])
+        self.assertEqual(result, (None, None))
 
     def test_main_uses_cached_user_as_owner(self) -> None:
         out = StringIO()

@@ -232,6 +232,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn("build", avg_dur_per_job_svg)
         self.assertIn("Job name", avg_dur_per_job_svg)
         self.assertIn("Duration (minutes)", avg_dur_per_job_svg)
+        self.assertNotIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} ', avg_dur_per_job_svg)
         self.assertIn("Job duration: build", job_build_svg)
         self.assertIn("Duration (minutes)", job_build_svg)
         self.assertIn("Completion date", job_build_svg)
@@ -1280,9 +1281,14 @@ class TestPRStats(ExtTestCase):
                 svg = avg_job_svg.read_text(encoding="utf-8")
                 self.assertIn("Avg job duration per job name", svg)
                 self.assertIn("build", svg)
+                self.assertIn("Duration (minutes)", svg)
+                self.assertIn("Job name", svg)
+                self.assertNotIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} ', svg)
                 # HTML report should include the final graph section
                 html = pathlib.Path(result["graphs_html"]).read_text(encoding="utf-8")
                 self.assertIn("Avg job duration per job name", html)
+                self.assertIn("Duration (minutes)", html)
+                self.assertIn("Job name", html)
 
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()

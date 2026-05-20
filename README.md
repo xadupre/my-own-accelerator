@@ -30,6 +30,13 @@ Command line local files review:
 review-local README.md
 ```
 
+Command line token caching (classic for all projects, or project-specific):
+
+```bash
+github-token --token "$GITHUB_TOKEN" --classic
+github-token --token "$GITHUB_TOKEN" --owner xadupre --repo my-own-accelerator
+```
+
 Command line pull request statistics report:
 
 ```bash

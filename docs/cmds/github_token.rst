@@ -6,6 +6,18 @@ A GitHub **Personal Access Token** (PAT) is optional for basic usage of
 strongly recommended in others.  This page explains when you need one and
 how to create it.
 
+``github-token`` command
+------------------------
+
+Synopsis:
+
+.. runpython::
+
+    from moa.commands.github_token import _build_parser
+    parser = _build_parser()
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
+
 Why a token?
 ------------
 
@@ -89,6 +101,18 @@ Storing the token
 -----------------
 
 Never hard-code the token in scripts.  The recommended approaches are:
+
+``github-token`` command::
+
+    # Cache a classic token used as fallback for every repository.
+    github-token --token "ghp_xxxxxxxxxxxx" --classic
+
+    # Cache a repository-specific token (owner/repo).
+    github-token --token "github_pat_xxxxxxxxxxxx" --owner xadupre --repo my-own-accelerator
+
+The command stores values in ``~/.config/moa/review_pr.json`` with owner-only
+permissions (``0600``). ``review-pr`` first looks for a project token
+(``owner/repo``) and then falls back to the classic token.
 
 Environment variable (local development)::
 

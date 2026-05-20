@@ -1109,6 +1109,55 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(total, 60)
         self.assertEqual(len(jobs), 1)
 
+    def test_collect_pr_job_info_warns_when_old_run_has_no_jobs(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {
+                    "id": 101,
+                    "head_sha": "sha1",
+                    "pull_requests": [{"number": 7}],
+                    "created_at": "2026-01-01T00:00:00Z",
+                },
+            ]
+        }
+        jobs_run_101 = {"jobs": []}
+        err = StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_json", side_effect=[runs_payload, jobs_run_101]),
+            patch("sys.stderr", err),
+        ):
+            total, jobs = _collect_pr_job_info("o", "r", 7, "sha1")
+        self.assertEqual(total, 0)
+        self.assertEqual(jobs, [])
+        self.assertIn(
+            "workflow run #101 for PR #7 is older than 7 days but has no jobs",
+            err.getvalue(),
+        )
+
+    def test_collect_pr_job_info_batch_warns_when_old_run_has_no_jobs(self) -> None:
+        runs_payload = {
+            "workflow_runs": [
+                {
+                    "id": 101,
+                    "head_sha": "sha1",
+                    "pull_requests": [{"number": 22}],
+                    "created_at": "2026-01-01T00:00:00Z",
+                },
+            ]
+        }
+        err = StringIO()
+        with (
+            patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
+            patch("moa.commands.pr_stats._fetch_workflow_run_jobs", return_value=[]),
+            patch("sys.stderr", err),
+        ):
+            results = _collect_pr_job_info_batch("o", "r", {22: "sha1"}, token="abc")
+        self.assertEqual(results[22], (0, []))
+        self.assertIn(
+            "workflow run #101 for PR #22 is older than 7 days but has no jobs",
+            err.getvalue(),
+        )
+
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [
             {

@@ -12,7 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
@@ -416,6 +416,28 @@ def _fetch_workflow_runs_by_head_sha(
     return rows
 
 
+def _warn_if_old_run_has_no_jobs(run: dict[str, Any], pull_number: int) -> None:
+    """Warn when an old run unexpectedly has no jobs to compute durations."""
+    run_time = str(run.get("created_at") or run.get("run_started_at") or "")
+    if not run_time:
+        return
+    try:
+        run_dt = _parse_iso_datetime(run_time)
+    except ValueError:
+        return
+    if datetime.now(timezone.utc) - run_dt < timedelta(days=7):
+        return
+    run_id = int(run.get("id", 0))
+    if run_id <= 0:
+        return
+    print(
+        f"pr-stats: warning: workflow run #{run_id} for PR #{pull_number} "
+        "is older than 7 days but has no jobs; unable to compute job durations "
+        "(this is probably a bug).",
+        file=sys.stderr,
+    )
+
+
 def _collect_pr_job_info(
     owner: str,
     repo: str,
@@ -453,7 +475,11 @@ def _collect_pr_job_info(
         run_id = int(run.get("id", 0))
         if run_id <= 0:
             continue
-        for job in _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url):
+        jobs = _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url)
+        if not jobs:
+            _warn_if_old_run_has_no_jobs(run, pull_number)
+            continue
+        for job in jobs:
             started_at = str(job.get("started_at", ""))
             completed_at = str(job.get("completed_at", ""))
             if not started_at or not completed_at:
@@ -492,6 +518,7 @@ def _collect_pr_job_info_batch(
     if not by_sha:
         return {}
     run_ids_by_pr: dict[int, set[int]] = {}
+    run_by_id: dict[int, dict[str, Any]] = {}
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
     page = 1
     try:
@@ -521,6 +548,7 @@ def _collect_pr_job_info_batch(
                 run_id = int(run.get("id", 0))
                 if run_id <= 0:
                     continue
+                run_by_id[run_id] = run
                 run_pull_numbers = {
                     int(pr.get("number", 0))
                     for pr in run.get("pull_requests", [])
@@ -550,7 +578,12 @@ def _collect_pr_job_info_batch(
         total_seconds = 0
         successful_jobs: list[dict[str, Any]] = []
         for run_id in sorted(run_ids_by_pr[pull_number]):
-            for job in _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url):
+            run = run_by_id.get(run_id, {"id": run_id})
+            jobs = _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url)
+            if not jobs:
+                _warn_if_old_run_has_no_jobs(run, pull_number)
+                continue
+            for job in jobs:
                 started_at = str(job.get("started_at", ""))
                 completed_at = str(job.get("completed_at", ""))
                 if not started_at or not completed_at:

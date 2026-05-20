@@ -44,24 +44,19 @@ def _fetch_json(url: str, token: str | None = None) -> Any:
                 return json.load(response)
         except IncompleteRead as e:
             last_error = e
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("_fetch_json retry loop exhausted unexpectedly")
+    assert last_error is not None
+    raise last_error
 
 
 def _fetch_paginated_with_retries(url: str, token: str | None = None) -> list[Any]:
     last_error: IncompleteRead | None = None
     for _ in range(3):
         try:
-            values = _fetch_paginated(url, token)
-            if isinstance(values, list):
-                return values
-            return [values]
+            return _fetch_paginated(url, token)
         except IncompleteRead as e:
             last_error = e
-    if last_error is not None:
-        raise last_error
-    raise RuntimeError("_fetch_paginated_with_retries loop exhausted unexpectedly")
+    assert last_error is not None
+    raise last_error
 
 
 def _default_since() -> str:

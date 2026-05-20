@@ -10,6 +10,7 @@ from unittest.mock import patch
 from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
+    _extract_owner_repo,
     _load_cache,
     _log_copilot_request_and_answer,
     _resolve_positional_argv,
@@ -459,6 +460,16 @@ class TestReviewPR(ExtTestCase):
         # --token and its value must not be counted as positionals.
         result = _resolve_positional_argv(["--token", "tok", "myrepo", "42"], "alice")
         self.assertEqual(result, ["--token", "tok", "alice", "myrepo", "42"])
+
+    def test_extract_owner_repo_skips_option_values(self) -> None:
+        got = _extract_owner_repo(
+            ["--token", "tok", "--prompt", "check this", "owner", "repo", "42"]
+        )
+        self.assertEqual(got, ("owner", "repo"))
+
+    def test_extract_owner_repo_returns_none_when_missing_positionals(self) -> None:
+        got = _extract_owner_repo(["--token", "tok"])
+        self.assertEqual(got, (None, None))
 
     def test_main_uses_cached_user_as_owner(self) -> None:
         out = StringIO()

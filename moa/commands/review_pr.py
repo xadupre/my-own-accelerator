@@ -58,13 +58,31 @@ def _build_project_token_cache(
 ) -> dict[str, str]:
     """Return updated project token map preserving existing entries."""
     existing = cache.get("project_tokens")
-    project_tokens = (
-        {k: v for k, v in existing.items() if isinstance(k, str) and isinstance(v, str)}
-        if isinstance(existing, dict)
-        else {}
-    )
+    project_tokens = dict(existing) if isinstance(existing, dict) else {}
     project_tokens[_project_token_cache_key(owner, repo)] = token
     return project_tokens
+
+
+def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:
+    """Extract owner/repo positionals while skipping option values."""
+    value_flags = {"--token", "--api-url", "--model", "--user", "--prompt"}
+    positionals: list[str] = []
+    skip_next = False
+    for token in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in value_flags:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        positionals.append(token)
+        if len(positionals) >= 2:
+            break
+    if len(positionals) < 2:
+        return None, None
+    return positionals[0], positionals[1]
 
 
 def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
@@ -462,22 +480,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
-    _pre_repo = argparse.ArgumentParser(add_help=False)
-    _pre_repo.add_argument("--token")
-    _pre_repo.add_argument("--api-url")
-    _pre_repo.add_argument("--model")
-    _pre_repo.add_argument("--user")
-    _pre_repo.add_argument("--prompt", action="append")
-    _pre_repo.add_argument("--save", action="store_true")
-    _pre_repo.add_argument("--copilot-review", action="store_true")
-    _pre_repo.add_argument("-v", "--verbose", action="store_true")
-    _pre_repo.add_argument("owner", nargs="?")
-    _pre_repo.add_argument("repo", nargs="?")
-    _pre_repo.add_argument("pull_request", nargs="?")
-    _pre_repo_args, _ = _pre_repo.parse_known_args(argv)
-    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
-        cache, _pre_repo_args.owner, _pre_repo_args.repo
-    )
+    owner, repo = _extract_owner_repo(argv)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
 
     parser = _build_parser(
         token_default=token_default,

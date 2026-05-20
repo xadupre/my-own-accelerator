@@ -110,6 +110,12 @@ Never hard-code the token in scripts.  The recommended approaches are:
     # Cache a repository-specific token (owner/repo).
     github-token --token "github_pat_xxxxxxxxxxxx" --owner xadupre --repo my-own-accelerator
 
+    # List cached tokens.
+    github-token --list
+
+    # List cached tokens with token type hints (classic vs fine-grained).
+    github-token --list --verbose
+
 The command stores values in ``~/.config/moa/review_pr.json`` with owner-only
 permissions (``0600``). ``review-pr`` first looks for a project token
 (``owner/repo``) and then falls back to the classic token.

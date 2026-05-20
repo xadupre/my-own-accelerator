@@ -8,6 +8,7 @@ import os
 import pathlib
 import sys
 from datetime import datetime, timedelta, timezone
+from http.client import IncompleteRead
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
@@ -36,8 +37,31 @@ def _fetch_json(url: str, token: str | None = None) -> Any:
     if token:
         headers["Authorization"] = f"Bearer {token}"
     req = request.Request(url, headers=headers)
-    with request.urlopen(req) as response:
-        return json.load(response)
+    last_error: IncompleteRead | None = None
+    for _ in range(3):
+        try:
+            with request.urlopen(req) as response:
+                return json.load(response)
+        except IncompleteRead as e:
+            last_error = e
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("_fetch_json retry loop exhausted unexpectedly")
+
+
+def _fetch_paginated_with_retries(url: str, token: str | None = None) -> list[Any]:
+    last_error: IncompleteRead | None = None
+    for _ in range(3):
+        try:
+            values = _fetch_paginated(url, token)
+            if isinstance(values, list):
+                return values
+            return [values]
+        except IncompleteRead as e:
+            last_error = e
+    if last_error is not None:
+        raise last_error
+    raise RuntimeError("_fetch_paginated_with_retries loop exhausted unexpectedly")
 
 
 def _default_since() -> str:
@@ -76,7 +100,7 @@ def _collect_reviewers(
         for item in requested_reviewers
         if isinstance(item, dict) and item.get("login")
     }
-    reviews = _fetch_paginated(
+    reviews = _fetch_paginated_with_retries(
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_number}/reviews", token
     )
     for review in reviews:
@@ -245,7 +269,7 @@ def build_weekly_pr_summary_rows(
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
         "?state=all&sort=created&direction=desc"
     )
-    pulls = _fetch_paginated(pulls_url, token)
+    pulls = _fetch_paginated_with_retries(pulls_url, token)
     cache = cached_rows or {}
     required_contexts_cache: dict[str, list[str]] = {}
     rows: list[dict[str, Any]] = []
@@ -468,7 +492,7 @@ def main(argv: list[str] | None = None) -> int:
             copilot=args.copilot,
             model=args.model,
         )
-    except (HTTPError, URLError, OSError, ValueError) as e:
+    except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)
         return 1
     _save_cache(cache_path, rows)

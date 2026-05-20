@@ -40,7 +40,7 @@ def _retry_incomplete_read(function: Callable[[], _T], retries: int = 3) -> _T:
         except IncompleteRead:
             if attempt >= retries:
                 raise
-    raise RuntimeError("unreachable")
+    raise AssertionError("Retry loop should have raised or returned")
 
 
 def _fetch_json(url: str, token: str | None = None) -> Any:

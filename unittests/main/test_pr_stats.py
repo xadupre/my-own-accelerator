@@ -1252,6 +1252,7 @@ class TestPRStats(ExtTestCase):
             patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
             patch("sys.stdout", out),
             patch("sys.stderr", err),
+            patch("moa.commands.pr_stats._load_token_cache", return_value={}),
         ):
             code = main(["-v", "owner", "repo"])
         self.assertEqual(code, 0)
@@ -1272,11 +1273,103 @@ class TestPRStats(ExtTestCase):
             patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
             patch("sys.stdout", out),
             patch("sys.stderr", err),
+            patch("moa.commands.pr_stats._load_token_cache", return_value={}),
             patch.dict(os.environ, {"GITHUB_TOKEN": "env_tok"}),
         ):
             code = main(["-v", "owner", "repo"])
         self.assertEqual(code, 0)
         self.assertIn("pr-stats: token source=GITHUB_TOKEN, type=explicit.", err.getvalue())
+
+    def test_main_uses_classic_cached_token(self) -> None:
+        out = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        env_backup = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            with (
+                patch(
+                    "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.pr_stats._load_token_cache",
+                    return_value={"token": "classic_tok"},
+                ),
+            ):
+                code = main(["owner", "repo"])
+        finally:
+            if env_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_backup
+        self.assertEqual(code, 0)
+        mocked.assert_called_once()
+        self.assertEqual(mocked.call_args.kwargs["token"], "classic_tok")
+
+    def test_main_uses_project_cached_token(self) -> None:
+        out = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_cache.json",
+            "cache": "/tmp/a_cache.json",
+        }
+        env_backup = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            with (
+                patch(
+                    "moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.pr_stats._load_token_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                    },
+                ),
+            ):
+                code = main(["owner", "repo"])
+        finally:
+            if env_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_backup
+        self.assertEqual(code, 0)
+        mocked.assert_called_once()
+        _, kwargs = mocked.call_args
+        self.assertEqual(kwargs["token"], "project_tok")
+
+    def test_main_verbose_cached_token_origin(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        fake_paths = {
+            "csv": "/tmp/a.csv",
+            "xlsx": "/tmp/a.xlsx",
+            "status_svg": "/tmp/a_status.svg",
+            "comments_svg": "/tmp/a_comments.svg",
+            "cache": "/tmp/a_cache.json",
+        }
+        env_backup = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            with (
+                patch("moa.commands.pr_stats.save_pr_activity_report", return_value=fake_paths),
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch(
+                    "moa.commands.pr_stats._load_token_cache",
+                    return_value={"token": "classic_tok"},
+                ),
+            ):
+                code = main(["-v", "owner", "repo"])
+        finally:
+            if env_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_backup
+        self.assertEqual(code, 0)
+        self.assertIn("pr-stats: token source=", err.getvalue())
+        self.assertIn("classic", err.getvalue())
 
     def test_print_progress_outputs_bar(self) -> None:
         buf = StringIO()

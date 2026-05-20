@@ -33,7 +33,14 @@ from .pr_stats_graphs import (
     week_label_first_day,
 )
 from .review_pr import _fetch_json
-from .review_token import _resolve_token_origin
+from .review_token import (
+    _extract_owner_repo,
+    _resolve_cached_token,
+    _resolve_token_origin,
+)
+from .review_token import (
+    _load_cache as _load_token_cache,
+)
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
@@ -1236,9 +1243,8 @@ def save_pr_activity_report(
     }
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     """Create the command-line parser for the ``pr-stats`` command."""
-    token_default = os.environ.get("GITHUB_TOKEN") or None
     api_url_default = os.environ.get("GITHUB_API_URL") or "https://api.github.com"
     parser = argparse.ArgumentParser(
         description=(
@@ -1284,7 +1290,10 @@ def main(argv: list[str] | None = None) -> int:
     """CLI entry point for generating pull request activity reports."""
     if argv is None:
         argv = sys.argv[1:]
-    parser = _build_parser()
+    cache = _load_token_cache()
+    owner, repo = _extract_owner_repo(argv)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
+    parser = _build_parser(token_default=token_default)
     parser.add_argument(
         "-v",
         "--verbose",
@@ -1297,7 +1306,7 @@ def main(argv: list[str] | None = None) -> int:
     since = args.since or _default_since()
     if args.verbose:
         token_origin, token_type = _resolve_token_origin(
-            argv, args.token, os.environ.get("GITHUB_TOKEN"), None
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), cache, args.owner, args.repo
         )
         print(
             f"pr-stats: token source={token_origin}, type={token_type}.",

@@ -15,6 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
+github-token = "moa.commands.github_token:main"
 review-pr = "moa.commands.review_pr:main"
 review-local = "moa.commands.review_local:main"
 # Full command line: python -m moa pr-stats <owner> <repo> [options]

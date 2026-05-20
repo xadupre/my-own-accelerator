@@ -2,10 +2,12 @@ from io import StringIO
 from unittest.mock import patch
 
 from moa.commands.pr_weekly_table import (
+    _build_parser,
     build_weekly_pr_markdown_table,
     build_weekly_pr_summary_rows,
     main,
 )
+from moa.commands.review_token import CONFIG_FILE
 from moa.ext_test_case import ExtTestCase
 
 
@@ -168,3 +170,85 @@ class TestPRWeeklyTable(ExtTestCase):
             code = main(["owner", "repo", "--copilot"])
         self.assertEqual(code, 1)
         self.assertIn("required for --copilot", err.getvalue())
+
+    def test_main_verbose_flag_prints_progress(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with (
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+            patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            patch("moa.commands.pr_weekly_table._save_cache"),
+        ):
+            code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "--verbose"])
+        self.assertEqual(code, 0)
+        self.assertIn("pr-weekly-table: token source=none, type=none.", err.getvalue())
+        self.assertIn(
+            "pr-weekly-table: collecting pull request data for owner/repo...",
+            err.getvalue(),
+        )
+        self.assertIn("pr-weekly-table: done.", err.getvalue())
+
+    def test_main_verbose_flag_prints_cached_project_token_origin(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with (
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+            patch(
+                "moa.commands.pr_weekly_table._load_token_cache",
+                return_value={"project_tokens": {"owner/repo": "cached_tok"}},
+            ),
+            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            patch("moa.commands.pr_weekly_table._save_cache"),
+        ):
+            code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "-v"])
+        self.assertEqual(code, 0)
+        self.assertIn(
+            f"pr-weekly-table: token source={CONFIG_FILE} (owner/repo), " "type=fine-grained.",
+            err.getvalue(),
+        )
+
+    def test_build_parser_lists_verbose_and_model_examples(self) -> None:
+        help_text = _build_parser().format_help()
+        self.assertIn("-v, --verbose", help_text)
+        self.assertIn("Any model available on the GitHub", help_text)
+        self.assertIn("Models API is accepted", help_text)
+        self.assertIn("openai/gpt-4.1", help_text)

@@ -17,6 +17,7 @@ from .review_pr import DEFAULT_MODEL, _send_chat_request
 from .review_token import (
     _extract_owner_repo,
     _resolve_cached_token,
+    _resolve_token_origin,
 )
 from .review_token import (
     _load_cache as _load_token_cache,
@@ -399,7 +400,18 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser.add_argument(
         "--model",
         default=DEFAULT_MODEL,
-        help=f"AI model used for --copilot (default: {DEFAULT_MODEL}).",
+        help=(
+            f"AI model used for --copilot (default: {DEFAULT_MODEL}). "
+            "Any model available on the GitHub Models API is accepted "
+            "(for example: openai/gpt-4o-mini, openai/gpt-4.1, anthropic/claude-3.5-sonnet)."
+        ),
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Print progress information to stderr.",
     )
     return parser
 
@@ -414,6 +426,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
+    if args.verbose:
+        token_origin, token_type = _resolve_token_origin(
+            argv,
+            args.token,
+            os.environ.get("GITHUB_TOKEN"),
+            token_cache,
+            args.owner,
+            args.repo,
+        )
+        print(
+            f"pr-weekly-table: token source={token_origin}, type={token_type}.",
+            file=sys.stderr,
+        )
+        print(
+            f"pr-weekly-table: collecting pull request data for {args.owner}/{args.repo}...",
+            file=sys.stderr,
+        )
     if args.copilot and not args.token:
         print(
             "Unable to build weekly PR table (ValueError)\n"
@@ -443,6 +472,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)
         return 1
     _save_cache(cache_path, rows)
+    if args.verbose:
+        print("pr-weekly-table: done.", file=sys.stderr)
     print(build_weekly_pr_markdown_table(rows, copilot=args.copilot))
     return 0
 

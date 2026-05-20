@@ -18,6 +18,7 @@ MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
 LOGS_DIR = CONFIG_FILE.parent / "logs"
+VALUE_FLAGS = {"--token", "--api-url", "--model", "--user", "--prompt"}
 
 
 def _load_cache() -> dict[str, Any]:
@@ -65,14 +66,13 @@ def _build_project_token_cache(
 
 def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:
     """Extract owner/repo positionals while skipping option values."""
-    value_flags = {"--token", "--api-url", "--model", "--user", "--prompt"}
     positionals: list[str] = []
     skip_next = False
     for item in argv:
         if skip_next:
             skip_next = False
             continue
-        if item in value_flags:
+        if item in VALUE_FLAGS:
             skip_next = True
             continue
         if item.startswith("-"):
@@ -97,8 +97,6 @@ def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
     """
     if user is None:
         return argv
-    # Flags that consume the following token as their value.
-    VALUE_FLAGS = {"--token", "--api-url", "--model", "--user"}
     positional_indices: list[int] = []
     skip_next = False
     for i, token in enumerate(argv):
@@ -380,8 +378,8 @@ def _build_parser(
         metavar="TOKEN",
         help=(
             "GitHub personal access token. "
-            "Resolution order: flag > GITHUB_TOKEN env var > project cached value "
-            f"(owner/repo in {CONFIG_FILE}) > cached value ({CONFIG_FILE}). "
+            "Resolution order: flag → GITHUB_TOKEN env var → project cached value "
+            f"(owner/repo in {CONFIG_FILE}) → cached value ({CONFIG_FILE}). "
             "See the docs/cmds/github_token page for how to obtain one."
         ),
     )

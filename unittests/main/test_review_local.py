@@ -11,6 +11,7 @@ from moa.commands.review_local import (
     main,
     review_local_files,
 )
+from moa.commands.review_token import CONFIG_FILE
 from moa.ext_test_case import ExtTestCase
 
 
@@ -188,7 +189,7 @@ class TestReviewLocal(ExtTestCase):
     def test_main_verbose_flag_prints_cached_classic_token_origin(self) -> None:
         out = StringIO()
         err = StringIO()
-        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        env_token_backup = os.environ.pop("GITHUB_TOKEN", None)
         try:
             with tempfile.TemporaryDirectory() as tmp:
                 file1 = pathlib.Path(tmp) / "a.py"
@@ -203,7 +204,10 @@ class TestReviewLocal(ExtTestCase):
                 ):
                     code = main(["-v", str(file1)])
         finally:
-            os.environ.update(env_backup)
+            if env_token_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_token_backup
         self.assertEqual(code, 0)
-        self.assertIn("review-local: token source=", err.getvalue())
-        self.assertIn("type=classic.", err.getvalue())
+        self.assertIn(
+            f"review-local: token source={CONFIG_FILE}, type=classic.",
+            err.getvalue(),
+        )

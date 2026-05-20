@@ -1297,7 +1297,7 @@ def main(argv: list[str] | None = None) -> int:
     since = args.since or _default_since()
     if args.verbose:
         token_origin, token_type = _resolve_token_origin(
-            argv, args.token, os.environ.get("GITHUB_TOKEN"), {}
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), None
         )
         print(
             f"pr-stats: token source={token_origin}, type={token_type}.",

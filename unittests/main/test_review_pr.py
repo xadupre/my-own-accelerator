@@ -20,6 +20,7 @@ from moa.commands.review_pr import (
     main,
     review_pull_request,
 )
+from moa.commands.review_token import CONFIG_FILE
 from moa.ext_test_case import ExtTestCase
 
 
@@ -136,7 +137,7 @@ class TestReviewPR(ExtTestCase):
     def test_main_verbose_flag_prints_fine_grained_token_origin(self) -> None:
         out = StringIO()
         err = StringIO()
-        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        env_token_backup = os.environ.pop("GITHUB_TOKEN", None)
         try:
             with (
                 patch(
@@ -155,9 +156,13 @@ class TestReviewPR(ExtTestCase):
             ):
                 code = main(["-v", "owner", "repo", "12"])
         finally:
-            os.environ.update(env_backup)
+            if env_token_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_token_backup
         self.assertEqual(code, 0)
-        self.assertIn("(owner/repo), type=fine-grained.", err.getvalue())
+        self.assertIn(
+            f"review-pr: token source={CONFIG_FILE} (owner/repo), type=fine-grained.",
+            err.getvalue(),
+        )
 
     def test_call_copilot_review_returns_content(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}

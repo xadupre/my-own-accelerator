@@ -73,17 +73,25 @@ def _resolve_token_origin(
     argv: list[str],
     token: str | None,
     env_token: str | None,
-    cache: dict[str, Any],
+    cache: dict[str, Any] | None,
     owner: str | None = None,
     repo: str | None = None,
 ) -> tuple[str, str]:
-    """Resolve token source and type for verbose CLI reporting."""
+    """Resolve token source/type for verbose CLI reporting.
+
+    :return: ``(source, token_type)`` where ``source`` is one of
+        ``"--token"``, ``"GITHUB_TOKEN"``, ``"<config path> (owner/repo)"``,
+        ``"<config path>"``, ``"none"``, or ``"unknown"``; and ``token_type``
+        is one of ``"explicit"``, ``"fine-grained"``, ``"classic"``, or
+        ``"none"``.
+    """
     if not token:
         return ("none", "none")
     if "--token" in argv:
         return ("--token", "explicit")
     if env_token and token == env_token:
         return ("GITHUB_TOKEN", "explicit")
+    cache = cache or {}
     if owner and repo:
         project_tokens = cache.get("project_tokens")
         if isinstance(project_tokens, dict):

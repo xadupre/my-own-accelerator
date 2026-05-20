@@ -104,13 +104,13 @@ def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
         return argv
     positional_indices: list[int] = []
     skip_next = False
-    for i, token in enumerate(argv):
+    for i, item in enumerate(argv):
         if skip_next:
             skip_next = False
             continue
-        if token in VALUE_FLAGS:
+        if item in VALUE_FLAGS:
             skip_next = True
-        elif token.startswith("-"):
+        elif item.startswith("-"):
             pass
         else:
             positional_indices.append(i)

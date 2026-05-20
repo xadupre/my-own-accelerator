@@ -39,7 +39,9 @@ def _project_token_cache_key(owner: str, repo: str) -> str:
     return f"{owner}/{repo}"
 
 
-def _resolve_cached_token(cache: dict[str, Any], owner: str | None, repo: str | None) -> str | None:
+def _resolve_cached_token(
+    cache: dict[str, Any], owner: str | None, repo: str | None
+) -> str | None:
     """Resolve cached token with per-project preference and legacy fallback."""
     if owner and repo:
         project_tokens = cache.get("project_tokens")
@@ -448,7 +450,9 @@ def main(argv: list[str] | None = None) -> int:
     api_url_default = os.environ.get("GITHUB_API_URL") or (
         api_url_cache if isinstance(api_url_cache, str) else "https://api.github.com"
     )
-    user_default = os.environ.get("GITHUB_USER") or (user_cache if isinstance(user_cache, str) else None)
+    user_default = os.environ.get("GITHUB_USER") or (
+        user_cache if isinstance(user_cache, str) else None
+    )
 
     # Pre-parse to discover the effective --user value before injecting owner.
     _pre = argparse.ArgumentParser(add_help=False)

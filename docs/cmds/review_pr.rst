@@ -57,7 +57,8 @@ Optional Arguments
 ``--token TOKEN``
     GitHub personal access token used to authenticate API requests.
     Resolution order: explicit flag value → ``GITHUB_TOKEN`` environment
-    variable (automatically set in GitHub Actions workflows) → value cached
+    variable (automatically set in GitHub Actions workflows) → project-specific
+    value cached with ``--save`` (``owner/repo`` key) → classic cached value
     with ``--save`` → unauthenticated.  For private repositories or to avoid
     rate limiting, a token with at least ``repo:read`` scope is required.
 

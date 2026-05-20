@@ -12,74 +12,21 @@ from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from .review_token import (
+    CONFIG_FILE,
+    _build_project_token_cache,
+    _extract_owner_repo,
+    _load_cache,
+    _resolve_cached_token,
+    _resolve_positional_argv,
+    _save_cache,
+)
+
 PAGE_SIZE = 100
 
 MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
-CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
 LOGS_DIR = CONFIG_FILE.parent / "logs"
-
-
-def _load_cache() -> dict[str, str]:
-    """Load cached settings (token, api_url, user) from the config file.
-
-    :return: Dictionary with cached values, or an empty dict if the file
-        does not exist or cannot be parsed.
-    """
-    try:
-        with CONFIG_FILE.open() as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return {}
-
-
-def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
-    """Inject *user* as the first positional (owner) when only two positionals are given.
-
-    This lets callers omit ``owner`` when their GitHub username is already cached
-    (e.g. ``review-pr my-repo 42`` instead of ``review-pr myname my-repo 42``).
-
-    :param argv: Argument list as would be passed to ``argparse``.
-    :param user: GitHub username to inject as ``owner`` when it is absent.
-    :return: Possibly modified argument list.
-    """
-    if user is None:
-        return argv
-    # Flags that consume the following token as their value.
-    VALUE_FLAGS = {"--token", "--api-url", "--model", "--user"}
-    positional_indices: list[int] = []
-    skip_next = False
-    for i, token in enumerate(argv):
-        if skip_next:
-            skip_next = False
-            continue
-        if token in VALUE_FLAGS:
-            skip_next = True
-        elif token.startswith("-"):
-            pass  # boolean flag, consumes no extra token
-        else:
-            positional_indices.append(i)
-    if len(positional_indices) == 2:
-        insert_at = positional_indices[0]
-        return list(argv[:insert_at]) + [user] + list(argv[insert_at:])
-    return argv
-
-
-def _save_cache(data: dict[str, str]) -> None:
-    """Persist settings to the config file with owner-only read permissions.
-
-    Existing keys not present in *data* are preserved.
-
-    :param data: Mapping of keys to save
-        (e.g. ``{"token": "...", "api_url": "...", "user": "..."}``)
-    """
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    existing = _load_cache()
-    existing.update({k: v for k, v in data.items() if v is not None})
-    with CONFIG_FILE.open("w") as f:
-        json.dump(existing, f, indent=2)
-    CONFIG_FILE.chmod(0o600)
 
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
@@ -329,8 +276,8 @@ def _build_parser(
         metavar="TOKEN",
         help=(
             "GitHub personal access token. "
-            "Resolution order: flag > GITHUB_TOKEN env var > cached value "
-            f"({CONFIG_FILE}). "
+            "Resolution order: flag → GITHUB_TOKEN env var → project cached value "
+            f"(owner/repo in {CONFIG_FILE}) → cached value ({CONFIG_FILE}). "
             "See the docs/cmds/github_token page for how to obtain one."
         ),
     )
@@ -410,13 +357,16 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    # Priority: CLI flag > env var > config file cache > built-in default
+    # Priority: CLI flag > env var > project cache > classic cache > built-in default
     cache = _load_cache()
-    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
-    api_url_default = (
-        os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
+    api_url_cache = cache.get("api_url")
+    user_cache = cache.get("user")
+    api_url_default = os.environ.get("GITHUB_API_URL") or (
+        api_url_cache if isinstance(api_url_cache, str) else "https://api.github.com"
     )
-    user_default = os.environ.get("GITHUB_USER") or cache.get("user") or None
+    user_default = os.environ.get("GITHUB_USER") or (
+        user_cache if isinstance(user_cache, str) else None
+    )
 
     # Pre-parse to discover the effective --user value before injecting owner.
     _pre = argparse.ArgumentParser(add_help=False)
@@ -426,6 +376,8 @@ def main(argv: list[str] | None = None) -> int:
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
+    owner, repo = _extract_owner_repo(argv)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
 
     parser = _build_parser(
         token_default=token_default,
@@ -435,9 +387,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.save:
-        to_save: dict[str, str] = {}
+        to_save: dict[str, Any] = {}
         if args.token:
             to_save["token"] = args.token
+            to_save["project_tokens"] = _build_project_token_cache(
+                cache, args.owner, args.repo, args.token
+            )
         if args.api_url:
             to_save["api_url"] = args.api_url
         if args.user:

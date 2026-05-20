@@ -134,7 +134,7 @@ class TestReviewLocal(ExtTestCase):
                 with (
                     patch("sys.stdout", out),
                     patch("moa.commands.review_local.CONFIG_FILE", fake_config),
-                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                    patch("moa.commands.review_token.CONFIG_FILE", fake_config),
                 ):
                     code = main(["--token", "saved_tok", "--save", str(file1)])
                 saved = json.loads(fake_config.read_text())

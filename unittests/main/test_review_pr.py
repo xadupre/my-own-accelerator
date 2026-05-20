@@ -10,6 +10,7 @@ from unittest.mock import patch
 from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
+    _extract_owner_repo,
     _load_cache,
     _log_copilot_request_and_answer,
     _resolve_positional_argv,
@@ -258,13 +259,13 @@ class TestReviewPR(ExtTestCase):
         self.assertIn("# review with AI", out.getvalue())
 
     def test_load_cache_missing_file(self) -> None:
-        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+        with patch("moa.commands.review_token.CONFIG_FILE") as mock_path:
             mock_path.open.side_effect = FileNotFoundError
             result = _load_cache()
         self.assertEqual(result, {})
 
     def test_load_cache_invalid_json(self) -> None:
-        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+        with patch("moa.commands.review_token.CONFIG_FILE") as mock_path:
             mock_path.open.return_value.__enter__ = lambda s: io.StringIO("not-json")
             mock_path.open.return_value.__exit__ = lambda s, *a: False
             with patch(
@@ -276,7 +277,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_writes_and_is_readable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache({"token": "mytoken", "api_url": "https://api.github.com"})
                 loaded = _load_cache()
 
@@ -286,7 +287,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_merges_existing_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache({"token": "tok1", "api_url": "https://a.example.com"})
                 # Update only the token; api_url should be preserved
                 _save_cache({"token": "tok2"})
@@ -328,6 +329,90 @@ class TestReviewPR(ExtTestCase):
             extra_prompts=None,
         )
 
+    def test_main_prefers_project_cached_token_when_no_env(self) -> None:
+        out = StringIO()
+        env_keys = ("GITHUB_TOKEN", "GITHUB_API_URL")
+        env_backup = {k: os.environ.get(k) for k in env_keys}
+        for k in env_keys:
+            os.environ.pop(k, None)
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                        "api_url": "https://cached.example.com",
+                    },
+                ),
+            ):
+                code = main(["owner", "repo", "5"])
+        finally:
+            for k, v in env_backup.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=5,
+            token="project_tok",
+            api_url="https://cached.example.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+            extra_prompts=None,
+        )
+
+    def test_main_uses_classic_token_when_project_cached_token_missing(self) -> None:
+        out = StringIO()
+        env_keys = ("GITHUB_TOKEN", "GITHUB_API_URL")
+        env_backup = {k: os.environ.get(k) for k in env_keys}
+        for k in env_keys:
+            os.environ.pop(k, None)
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"other/repo": "project_tok"},
+                        "api_url": "https://cached.example.com",
+                    },
+                ),
+            ):
+                code = main(["owner", "repo", "5"])
+        finally:
+            for k, v in env_backup.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=5,
+            token="classic_tok",
+            api_url="https://cached.example.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+            extra_prompts=None,
+        )
+
     def test_main_save_flag_persists_values(self) -> None:
         out = StringIO()
         env_backup = {
@@ -342,7 +427,7 @@ class TestReviewPR(ExtTestCase):
                         return_value="# review",
                     ),
                     patch("sys.stdout", out),
-                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                    patch("moa.commands.review_token.CONFIG_FILE", fake_config),
                 ):
                     code = main(
                         [
@@ -363,6 +448,7 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(saved["token"], "saved_tok")
         self.assertEqual(saved["api_url"], "https://ghe.example.com/api/v3")
+        self.assertEqual(saved["project_tokens"]["owner/repo"], "saved_tok")
 
     # ------------------------------------------------------------------
     # User caching
@@ -384,6 +470,16 @@ class TestReviewPR(ExtTestCase):
         # --token and its value must not be counted as positionals.
         result = _resolve_positional_argv(["--token", "tok", "myrepo", "42"], "alice")
         self.assertEqual(result, ["--token", "tok", "alice", "myrepo", "42"])
+
+    def test_extract_owner_repo_skips_flag_values(self) -> None:
+        result = _extract_owner_repo(
+            ["--token", "tok", "--prompt", "check this", "owner", "repo", "42"]
+        )
+        self.assertEqual(result, ("owner", "repo"))
+
+    def test_extract_owner_repo_returns_none_when_missing_positionals(self) -> None:
+        result = _extract_owner_repo(["--token", "tok"])
+        self.assertEqual(result, (None, None))
 
     def test_main_uses_cached_user_as_owner(self) -> None:
         out = StringIO()
@@ -437,7 +533,7 @@ class TestReviewPR(ExtTestCase):
                         return_value="# review",
                     ),
                     patch("sys.stdout", out),
-                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                    patch("moa.commands.review_token.CONFIG_FILE", fake_config),
                 ):
                     code = main(
                         [
@@ -459,7 +555,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_includes_user(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache(
                     {"token": "tok", "api_url": "https://api.github.com", "user": "alice"}
                 )

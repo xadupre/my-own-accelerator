@@ -6,6 +6,18 @@ A GitHub **Personal Access Token** (PAT) is optional for basic usage of
 strongly recommended in others.  This page explains when you need one and
 how to create it.
 
+``github-token`` command
+------------------------
+
+Synopsis:
+
+.. runpython::
+
+    from moa.commands.github_token import _build_parser
+    parser = _build_parser()
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
+
 Why a token?
 ------------
 

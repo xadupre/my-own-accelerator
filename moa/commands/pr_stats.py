@@ -1208,8 +1208,9 @@ def save_pr_activity_report(
             for row in _build_avg_duration_per_job_rows(rows)
         },
         "Avg job duration per job name",
-        x_axis_label="Job name",
-        y_axis_label="Duration (minutes)",
+        x_axis_label="Duration (minutes)",
+        y_axis_label="Job name",
+        horizontal=True,
     )
     report_graphs: list[tuple[str, pathlib.Path]] = [
         ("Pull requests by status", status_svg_path),

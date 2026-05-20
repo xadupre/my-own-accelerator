@@ -16,10 +16,10 @@ def _build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Commands:\n"
-            "  - github-token: Cache a GitHub token for all projects or one repository.\n"
-            "  - review-pr: Review a GitHub pull request and print markdown.\n"
-            "  - review-local: Review local files and print markdown.\n"
-            "  - pr-stats: Build pull request activity reports (CSV, Excel, graphs).\n"
+            "  - github-token   : Cache a GitHub token for all projects or one repository.\n"
+            "  - review-pr      : Review a GitHub pull request and print markdown.\n"
+            "  - review-local   : Review local files and print markdown.\n"
+            "  - pr-stats       : Build pull request activity reports (CSV, Excel, graphs).\n"
             "  - pr-weekly-table: Build a weekly PR summary markdown table."
         ),
     )

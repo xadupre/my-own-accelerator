@@ -80,6 +80,7 @@ class TestMain(ExtTestCase):
         self.assertIn("pr-stats", out.getvalue())
         self.assertIn("pr-weekly-table", out.getvalue())
         self.assertIn("github-token", out.getvalue())
+        self.assertIn("github-token   : Cache a GitHub token", out.getvalue())
         self.assertIn("Cache a GitHub token for all projects", out.getvalue())
         self.assertIn("Review a GitHub pull request and print markdown.", out.getvalue())
         self.assertIn("Review local files and print markdown.", out.getvalue())

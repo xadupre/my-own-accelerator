@@ -331,9 +331,10 @@ class TestReviewPR(ExtTestCase):
 
     def test_main_prefers_project_cached_token_when_no_env(self) -> None:
         out = StringIO()
-        env_backup = {
-            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
-        }
+        env_keys = ("GITHUB_TOKEN", "GITHUB_API_URL")
+        env_backup = {k: os.environ.get(k) for k in env_keys}
+        for k in env_keys:
+            os.environ.pop(k, None)
         try:
             with (
                 patch(
@@ -352,7 +353,11 @@ class TestReviewPR(ExtTestCase):
             ):
                 code = main(["owner", "repo", "5"])
         finally:
-            os.environ.update(env_backup)
+            for k, v in env_backup.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
         self.assertEqual(code, 0)
         mocked.assert_called_once_with(
@@ -368,9 +373,10 @@ class TestReviewPR(ExtTestCase):
 
     def test_main_uses_classic_token_when_project_cached_token_missing(self) -> None:
         out = StringIO()
-        env_backup = {
-            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
-        }
+        env_keys = ("GITHUB_TOKEN", "GITHUB_API_URL")
+        env_backup = {k: os.environ.get(k) for k in env_keys}
+        for k in env_keys:
+            os.environ.pop(k, None)
         try:
             with (
                 patch(
@@ -389,7 +395,11 @@ class TestReviewPR(ExtTestCase):
             ):
                 code = main(["owner", "repo", "5"])
         finally:
-            os.environ.update(env_backup)
+            for k, v in env_backup.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
 
         self.assertEqual(code, 0)
         mocked.assert_called_once_with(

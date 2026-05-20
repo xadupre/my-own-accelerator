@@ -68,16 +68,16 @@ def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:
     value_flags = {"--token", "--api-url", "--model", "--user", "--prompt"}
     positionals: list[str] = []
     skip_next = False
-    for token in argv:
+    for item in argv:
         if skip_next:
             skip_next = False
             continue
-        if token in value_flags:
+        if item in value_flags:
             skip_next = True
             continue
-        if token.startswith("-"):
+        if item.startswith("-"):
             continue
-        positionals.append(token)
+        positionals.append(item)
         if len(positionals) >= 2:
             break
     if len(positionals) < 2:

@@ -629,6 +629,52 @@ class TestPRStats(ExtTestCase):
         mocked_single.assert_not_called()
         self.assertEqual([row["number"] for row in rows], [1, 2])
 
+    def test_build_pr_activity_rows_falls_back_when_batch_job_stats_missing_pr(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "PR 1",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+            },
+            {
+                "number": 2,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "PR 2",
+                "created_at": "2026-01-03T00:00:00Z",
+                "merged_at": "2026-01-04T00:00:00Z",
+                "closed_at": "2026-01-04T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+            },
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats_batch", return_value={}),
+            patch("moa.commands.pr_stats._collect_pr_job_info_batch", return_value={1: (60, [])}),
+            patch(
+                "moa.commands.pr_stats._collect_pr_job_info", return_value=(120, [])
+            ) as mocked_single,
+        ):
+            rows = build_pr_activity_rows("o", "r")
+        mocked_single.assert_called_once_with(
+            owner="o",
+            repo="r",
+            pull_number=2,
+            head_sha="def",
+            token=None,
+            api_url="https://api.github.com",
+        )
+        by_number = {row["number"]: row for row in rows}
+        self.assertEqual(by_number[1]["total_job_duration_hours"], round(60 / 3600, 2))
+        self.assertEqual(by_number[2]["total_job_duration_hours"], round(120 / 3600, 2))
+
     def test_build_pr_activity_rows_warns_and_keeps_partial_data_on_http_error(self) -> None:
         pulls = [
             {
@@ -960,7 +1006,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(results[22][1][0]["job_name"], "build")
         self.assertEqual(results[23][0], 60)
         self.assertEqual(results[23][1], [])
-        self.assertEqual(results[24], (0, []))
+        self.assertNotIn(24, results)
 
     def test_collect_pr_job_info_batch_verbose(self) -> None:
         runs_payload = {

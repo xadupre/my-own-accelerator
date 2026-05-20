@@ -658,7 +658,9 @@ class TestPRStats(ExtTestCase):
             patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
             patch("moa.commands.pr_stats._collect_pr_comment_stats_batch", return_value={}),
             patch("moa.commands.pr_stats._collect_pr_job_info_batch", return_value={1: (60, [])}),
-            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(120, [])) as mocked_single,
+            patch(
+                "moa.commands.pr_stats._collect_pr_job_info", return_value=(120, [])
+            ) as mocked_single,
         ):
             rows = build_pr_activity_rows("o", "r")
         mocked_single.assert_called_once_with(

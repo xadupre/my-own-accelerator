@@ -425,14 +425,14 @@ def _warn_if_old_run_has_no_jobs(run: dict[str, Any], pull_number: int) -> None:
         run_dt = _parse_iso_datetime(run_time)
     except ValueError:
         return
-    if datetime.now(timezone.utc) - run_dt < timedelta(days=7):
+    if datetime.now(timezone.utc) - run_dt < timedelta(weeks=2):
         return
     run_id = int(run.get("id", 0))
     if run_id <= 0:
         return
     print(
         f"pr-stats: warning: workflow run #{run_id} for PR #{pull_number} "
-        "is older than 7 days but has no jobs; unable to compute job durations "
+        "is older than 2 weeks but has no jobs; unable to compute job durations "
         "(this is probably a bug).",
         file=sys.stderr,
     )

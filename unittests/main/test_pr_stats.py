@@ -1130,7 +1130,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(total, 0)
         self.assertEqual(jobs, [])
         self.assertIn(
-            "workflow run #101 for PR #7 is older than 7 days but has no jobs",
+            "workflow run #101 for PR #7 is older than 2 weeks but has no jobs",
             err.getvalue(),
         )
 
@@ -1154,7 +1154,7 @@ class TestPRStats(ExtTestCase):
             results = _collect_pr_job_info_batch("o", "r", {22: "sha1"}, token="abc")
         self.assertEqual(results[22], (0, []))
         self.assertIn(
-            "workflow run #101 for PR #22 is older than 7 days but has no jobs",
+            "workflow run #101 for PR #22 is older than 2 weeks but has no jobs",
             err.getvalue(),
         )
 

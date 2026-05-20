@@ -20,7 +20,7 @@ CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
 LOGS_DIR = CONFIG_FILE.parent / "logs"
 
 
-def _load_cache() -> dict[str, str]:
+def _load_cache() -> dict[str, Any]:
     """Load cached settings (token, api_url, user) from the config file.
 
     :return: Dictionary with cached values, or an empty dict if the file
@@ -32,6 +32,37 @@ def _load_cache() -> dict[str, str]:
         return data if isinstance(data, dict) else {}
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return {}
+
+
+def _project_token_cache_key(owner: str, repo: str) -> str:
+    """Build cache key for a repository-specific token."""
+    return f"{owner}/{repo}"
+
+
+def _resolve_cached_token(cache: dict[str, Any], owner: str | None, repo: str | None) -> str | None:
+    """Resolve cached token with per-project preference and legacy fallback."""
+    if owner and repo:
+        project_tokens = cache.get("project_tokens")
+        if isinstance(project_tokens, dict):
+            token = project_tokens.get(_project_token_cache_key(owner, repo))
+            if isinstance(token, str) and token:
+                return token
+    token = cache.get("token")
+    return token if isinstance(token, str) and token else None
+
+
+def _build_project_token_cache(
+    cache: dict[str, Any], owner: str, repo: str, token: str
+) -> dict[str, str]:
+    """Return updated project token map preserving existing entries."""
+    existing = cache.get("project_tokens")
+    project_tokens = (
+        {k: v for k, v in existing.items() if isinstance(k, str) and isinstance(v, str)}
+        if isinstance(existing, dict)
+        else {}
+    )
+    project_tokens[_project_token_cache_key(owner, repo)] = token
+    return project_tokens
 
 
 def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
@@ -66,7 +97,7 @@ def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
     return argv
 
 
-def _save_cache(data: dict[str, str]) -> None:
+def _save_cache(data: dict[str, Any]) -> None:
     """Persist settings to the config file with owner-only read permissions.
 
     Existing keys not present in *data* are preserved.
@@ -329,8 +360,8 @@ def _build_parser(
         metavar="TOKEN",
         help=(
             "GitHub personal access token. "
-            "Resolution order: flag > GITHUB_TOKEN env var > cached value "
-            f"({CONFIG_FILE}). "
+            "Resolution order: flag > GITHUB_TOKEN env var > project cached value "
+            f"(owner/repo in {CONFIG_FILE}) > cached value ({CONFIG_FILE}). "
             "See the docs/cmds/github_token page for how to obtain one."
         ),
     )
@@ -410,13 +441,14 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
 
-    # Priority: CLI flag > env var > config file cache > built-in default
+    # Priority: CLI flag > env var > project cache > classic cache > built-in default
     cache = _load_cache()
-    token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
-    api_url_default = (
-        os.environ.get("GITHUB_API_URL") or cache.get("api_url") or "https://api.github.com"
+    api_url_cache = cache.get("api_url")
+    user_cache = cache.get("user")
+    api_url_default = os.environ.get("GITHUB_API_URL") or (
+        api_url_cache if isinstance(api_url_cache, str) else "https://api.github.com"
     )
-    user_default = os.environ.get("GITHUB_USER") or cache.get("user") or None
+    user_default = os.environ.get("GITHUB_USER") or (user_cache if isinstance(user_cache, str) else None)
 
     # Pre-parse to discover the effective --user value before injecting owner.
     _pre = argparse.ArgumentParser(add_help=False)
@@ -426,6 +458,22 @@ def main(argv: list[str] | None = None) -> int:
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
+    _pre_repo = argparse.ArgumentParser(add_help=False)
+    _pre_repo.add_argument("--token")
+    _pre_repo.add_argument("--api-url")
+    _pre_repo.add_argument("--model")
+    _pre_repo.add_argument("--user")
+    _pre_repo.add_argument("--prompt", action="append")
+    _pre_repo.add_argument("--save", action="store_true")
+    _pre_repo.add_argument("--copilot-review", action="store_true")
+    _pre_repo.add_argument("-v", "--verbose", action="store_true")
+    _pre_repo.add_argument("owner", nargs="?")
+    _pre_repo.add_argument("repo", nargs="?")
+    _pre_repo.add_argument("pull_request", nargs="?")
+    _pre_repo_args, _ = _pre_repo.parse_known_args(argv)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
+        cache, _pre_repo_args.owner, _pre_repo_args.repo
+    )
 
     parser = _build_parser(
         token_default=token_default,
@@ -435,9 +483,12 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.save:
-        to_save: dict[str, str] = {}
+        to_save: dict[str, Any] = {}
         if args.token:
             to_save["token"] = args.token
+            to_save["project_tokens"] = _build_project_token_cache(
+                cache, args.owner, args.repo, args.token
+            )
         if args.api_url:
             to_save["api_url"] = args.api_url
         if args.user:

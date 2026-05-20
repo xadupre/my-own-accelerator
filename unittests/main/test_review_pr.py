@@ -328,6 +328,80 @@ class TestReviewPR(ExtTestCase):
             extra_prompts=None,
         )
 
+    def test_main_prefers_project_cached_token_when_no_env(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                        "api_url": "https://cached.example.com",
+                    },
+                ),
+            ):
+                code = main(["owner", "repo", "5"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=5,
+            token="project_tok",
+            api_url="https://cached.example.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+            extra_prompts=None,
+        )
+
+    def test_main_uses_classic_token_when_project_cached_token_missing(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch(
+                    "moa.commands.review_pr._load_cache",
+                    return_value={
+                        "token": "classic_tok",
+                        "project_tokens": {"other/repo": "project_tok"},
+                        "api_url": "https://cached.example.com",
+                    },
+                ),
+            ):
+                code = main(["owner", "repo", "5"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=5,
+            token="classic_tok",
+            api_url="https://cached.example.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+            extra_prompts=None,
+        )
+
     def test_main_save_flag_persists_values(self) -> None:
         out = StringIO()
         env_backup = {
@@ -363,6 +437,7 @@ class TestReviewPR(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertEqual(saved["token"], "saved_tok")
         self.assertEqual(saved["api_url"], "https://ghe.example.com/api/v3")
+        self.assertEqual(saved["project_tokens"]["owner/repo"], "saved_tok")
 
     # ------------------------------------------------------------------
     # User caching

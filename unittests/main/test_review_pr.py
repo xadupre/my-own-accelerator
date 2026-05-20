@@ -471,7 +471,7 @@ class TestReviewPR(ExtTestCase):
         result = _resolve_positional_argv(["--token", "tok", "myrepo", "42"], "alice")
         self.assertEqual(result, ["--token", "tok", "alice", "myrepo", "42"])
 
-    def test_extract_owner_repo_skips_option_values(self) -> None:
+    def test_extract_owner_repo_skips_flag_values(self) -> None:
         result = _extract_owner_repo(
             ["--token", "tok", "--prompt", "check this", "owner", "repo", "42"]
         )

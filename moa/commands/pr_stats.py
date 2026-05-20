@@ -491,7 +491,7 @@ def _collect_pr_job_info_batch(
             by_sha.setdefault(head_sha, []).append(pull_number)
     if not by_sha:
         return {}
-    run_ids_by_pr: dict[int, set[int]] = {number: set() for number in pull_head_shas}
+    run_ids_by_pr: dict[int, set[int]] = {}
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
     page = 1
     try:

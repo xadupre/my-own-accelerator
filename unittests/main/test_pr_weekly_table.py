@@ -242,7 +242,7 @@ class TestPRWeeklyTable(ExtTestCase):
             code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "-v"])
         self.assertEqual(code, 0)
         self.assertIn(
-            f"pr-weekly-table: token source={CONFIG_FILE} (owner/repo), " "type=fine-grained.",
+            f"pr-weekly-table: token source={CONFIG_FILE} (owner/repo), type=fine-grained.",
             err.getvalue(),
         )
 

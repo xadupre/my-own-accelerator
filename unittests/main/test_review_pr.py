@@ -259,13 +259,13 @@ class TestReviewPR(ExtTestCase):
         self.assertIn("# review with AI", out.getvalue())
 
     def test_load_cache_missing_file(self) -> None:
-        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+        with patch("moa.commands.review_token.CONFIG_FILE") as mock_path:
             mock_path.open.side_effect = FileNotFoundError
             result = _load_cache()
         self.assertEqual(result, {})
 
     def test_load_cache_invalid_json(self) -> None:
-        with patch("moa.commands.review_pr.CONFIG_FILE") as mock_path:
+        with patch("moa.commands.review_token.CONFIG_FILE") as mock_path:
             mock_path.open.return_value.__enter__ = lambda s: io.StringIO("not-json")
             mock_path.open.return_value.__exit__ = lambda s, *a: False
             with patch(
@@ -277,7 +277,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_writes_and_is_readable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache({"token": "mytoken", "api_url": "https://api.github.com"})
                 loaded = _load_cache()
 
@@ -287,7 +287,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_merges_existing_keys(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache({"token": "tok1", "api_url": "https://a.example.com"})
                 # Update only the token; api_url should be preserved
                 _save_cache({"token": "tok2"})
@@ -427,7 +427,7 @@ class TestReviewPR(ExtTestCase):
                         return_value="# review",
                     ),
                     patch("sys.stdout", out),
-                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                    patch("moa.commands.review_token.CONFIG_FILE", fake_config),
                 ):
                     code = main(
                         [
@@ -533,7 +533,7 @@ class TestReviewPR(ExtTestCase):
                         return_value="# review",
                     ),
                     patch("sys.stdout", out),
-                    patch("moa.commands.review_pr.CONFIG_FILE", fake_config),
+                    patch("moa.commands.review_token.CONFIG_FILE", fake_config),
                 ):
                     code = main(
                         [
@@ -555,7 +555,7 @@ class TestReviewPR(ExtTestCase):
     def test_save_cache_includes_user(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             fake_config = pathlib.Path(tmp) / "review_pr.json"
-            with patch("moa.commands.review_pr.CONFIG_FILE", fake_config):
+            with patch("moa.commands.review_token.CONFIG_FILE", fake_config):
                 _save_cache(
                     {"token": "tok", "api_url": "https://api.github.com", "user": "alice"}
                 )

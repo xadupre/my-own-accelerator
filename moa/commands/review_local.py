@@ -8,7 +8,8 @@ import pathlib
 import sys
 from urllib.error import HTTPError, URLError
 
-from .review_pr import CONFIG_FILE, DEFAULT_MODEL, _call_copilot_review, _load_cache, _save_cache
+from .review_pr import DEFAULT_MODEL, _call_copilot_review
+from .review_token import CONFIG_FILE, _load_cache, _save_cache
 
 
 def build_local_files_review_markdown(contents: dict[str, str]) -> str:

@@ -44,7 +44,7 @@ def _fetch_json(url: str, token: str | None = None) -> Any:
                 return json.load(response)
         except IncompleteRead as e:
             last_error = e
-    assert last_error is not None
+    assert last_error is not None, "Expected IncompleteRead after retry loop"
     raise last_error
 
 
@@ -55,7 +55,7 @@ def _fetch_paginated_with_retries(url: str, token: str | None = None) -> list[An
             return _fetch_paginated(url, token)
         except IncompleteRead as e:
             last_error = e
-    assert last_error is not None
+    assert last_error is not None, "Expected IncompleteRead after retry loop"
     raise last_error
 
 

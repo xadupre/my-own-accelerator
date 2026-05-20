@@ -1313,7 +1313,7 @@ def main(argv: list[str] | None = None) -> int:
         )
     except (HTTPError, URLError, OSError, ValueError) as e:
         print(
-            f"Unable to build pull request activity report ({type(e).__name__}).",
+            f"Unable to build pull request activity report ({type(e).__name__})\n{e}",
             file=sys.stderr,
         )
         return 1

@@ -11,7 +11,11 @@ VALUE_FLAGS = {"--token", "--api-url", "--model", "--user", "--prompt"}
 
 
 def _load_cache() -> dict[str, Any]:
-    """Load cached settings (token, api_url, user) from the config file."""
+    """Load cached settings (token, api_url, user) from the config file.
+
+    :return: Dictionary with cached values, or an empty dict if the file
+        does not exist or cannot be parsed.
+    """
     try:
         with CONFIG_FILE.open() as f:
             data = json.load(f)
@@ -21,7 +25,13 @@ def _load_cache() -> dict[str, Any]:
 
 
 def _save_cache(data: dict[str, Any]) -> None:
-    """Persist settings to the config file with owner-only read permissions."""
+    """Persist settings to the config file with owner-only read permissions.
+
+    Existing keys not present in *data* are preserved.
+
+    :param data: Mapping of keys to save
+        (e.g. ``{"token": "...", "api_url": "...", "user": "..."}``)
+    """
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
     existing = _load_cache()
     existing.update({k: v for k, v in data.items() if v is not None})
@@ -81,7 +91,15 @@ def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:
 
 
 def _resolve_positional_argv(argv: list[str], user: str | None) -> list[str]:
-    """Inject user as first positional owner when only repo and pull_request are given."""
+    """Inject *user* as the first positional (owner) when only two positionals are given.
+
+    This lets callers omit ``owner`` when their GitHub username is already cached
+    (e.g. ``review-pr my-repo 42`` instead of ``review-pr myname my-repo 42``).
+
+    :param argv: Argument list as would be passed to ``argparse``.
+    :param user: GitHub username to inject as ``owner`` when it is absent.
+    :return: Possibly modified argument list.
+    """
     if user is None:
         return argv
     positional_indices: list[int] = []

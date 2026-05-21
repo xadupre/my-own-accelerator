@@ -14,8 +14,8 @@ from typing import Any, TypeVar
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from .copilot_models import DEFAULT_MODEL, _send_chat_request
 from .pr_stats import _fetch_paginated
-from .review_pr import DEFAULT_MODEL, _send_chat_request
 from .review_token import (
     _extract_owner_repo,
     _resolve_cached_token,

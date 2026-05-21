@@ -49,9 +49,11 @@ class TestReviewLocal(ExtTestCase):
             file1 = pathlib.Path(tmp) / "a.py"
             file1.write_text("print('a')", encoding="utf-8")
             with (
-                patch("moa.commands.review_pr.request.urlopen") as mock_urlopen,
-                patch("moa.commands.review_pr._log_copilot_request_and_answer") as mocked_log,
-                patch("moa.commands.review_pr.json.load", return_value=fake_response),
+                patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen,
+                patch(
+                    "moa.commands.copilot_models._log_copilot_request_and_answer"
+                ) as mocked_log,
+                patch("moa.commands.copilot_models.json.load", return_value=fake_response),
             ):
                 mock_urlopen.return_value.__enter__ = lambda s: s
                 mock_urlopen.return_value.__exit__ = lambda s, *a: False

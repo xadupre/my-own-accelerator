@@ -7,15 +7,14 @@ from datetime import datetime
 from io import StringIO
 from unittest.mock import patch
 
+from moa.commands.copilot_models import _log_copilot_request_and_answer, _send_chat_request
 from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
     _extract_owner_repo,
     _load_cache,
-    _log_copilot_request_and_answer,
     _resolve_positional_argv,
     _save_cache,
-    _send_chat_request,
     build_pull_request_review_markdown,
     main,
     review_pull_request,
@@ -165,29 +164,21 @@ class TestReviewPR(ExtTestCase):
         )
 
     def test_call_copilot_review_returns_content(self) -> None:
-        fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
-        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            mock_urlopen.return_value.read = lambda: json.dumps(fake_response).encode()
-            mock_urlopen.return_value.__iter__ = lambda s: iter([])
-            # Patch json.load to return the fake response
-            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
-                result = _call_copilot_review("## PR Summary", "mytoken")
-
+        with patch("moa.commands.review_pr._send_chat_request", return_value="Looks good to me!"):
+            result = _call_copilot_review("## PR Summary", "mytoken")
         self.assertEqual(result, "Looks good to me!")
 
     def test_call_copilot_review_logs_request_and_answer(self) -> None:
-        fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
         with (
-            patch("moa.commands.review_pr.request.urlopen") as mock_urlopen,
-            patch("moa.commands.review_pr._log_copilot_request_and_answer") as mocked_log,
+            patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen,
+            patch("moa.commands.copilot_models._log_copilot_request_and_answer") as mocked_log,
         ):
             mock_urlopen.return_value.__enter__ = lambda s: s
             mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            mock_urlopen.return_value.read = lambda: json.dumps(fake_response).encode()
-            mock_urlopen.return_value.__iter__ = lambda s: iter([])
-            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+            with patch(
+                "moa.commands.copilot_models.json.load",
+                return_value={"choices": [{"message": {"content": "Looks good to me!"}}]},
+            ):
                 _call_copilot_review("## PR Summary", "mytoken")
         mocked_log.assert_called_once()
         self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-pr")
@@ -603,19 +594,19 @@ class TestReviewPR(ExtTestCase):
     def test_send_chat_request_returns_content(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Hello!"}}]}
         messages = [{"role": "user", "content": "Hi"}]
-        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__ = lambda s: s
             mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+            with patch("moa.commands.copilot_models.json.load", return_value=fake_response):
                 result = _send_chat_request(messages, "mytoken")
         self.assertEqual(result, "Hello!")
 
     def test_call_copilot_review_no_extra_prompts_single_call(self) -> None:
         fake_response = {"choices": [{"message": {"content": "Initial review."}}]}
-        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__ = lambda s: s
             mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.review_pr.json.load", return_value=fake_response):
+            with patch("moa.commands.copilot_models.json.load", return_value=fake_response):
                 result = _call_copilot_review("## PR", "tok")
         self.assertEqual(result, "Initial review.")
         # Only one HTTP call should be made when no extra prompts are given.
@@ -633,10 +624,10 @@ class TestReviewPR(ExtTestCase):
             call_count["n"] += 1
             return resp
 
-        with patch("moa.commands.review_pr.request.urlopen") as mock_urlopen:
+        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
             mock_urlopen.return_value.__enter__ = lambda s: s
             mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.review_pr.json.load", side_effect=fake_json_load):
+            with patch("moa.commands.copilot_models.json.load", side_effect=fake_json_load):
                 result = _call_copilot_review(
                     "## PR", "tok", extra_prompts=["Focus on security."]
                 )

@@ -27,6 +27,7 @@ from .review_token import (
 from .since_utils import parse_relative_since
 
 DEFAULT_CACHE_DIR = "dump_pr_stats"
+COPILOT_SUMMARY_UNAVAILABLE_PREFIX = "Copilot summary unavailable ("
 
 _FAILING_STATUS_STATES = {"error", "failure"}
 _T = TypeVar("_T")
@@ -109,7 +110,7 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
         row = dict(v)
         summary = str(row.get("copilot_summary", "")).strip()
         help_needed = str(row.get("help_needed", "")).strip().lower()
-        if summary.startswith("Copilot summary unavailable (") or help_needed not in {
+        if summary.startswith(COPILOT_SUMMARY_UNAVAILABLE_PREFIX) or help_needed not in {
             "",
             "yes",
             "no",
@@ -301,7 +302,16 @@ def _format_copilot_error_details(error: Exception) -> str:
 
 def _build_copilot_warning(row: dict[str, Any], error: Exception) -> str:
     number = str(row.get("number", "")).strip()
-    target = f"PR #{number}" if number else "a PR"
+    title = str(row.get("title", "")).strip()
+    link = str(row.get("link", "")).strip()
+    if number:
+        target = f"PR #{number}"
+    elif title:
+        target = f"PR {title!r}"
+    elif link:
+        target = link
+    else:
+        target = "a PR"
     return (
         "pr-weekly-table: warning: unable to generate Copilot summary for "
         f"{target}: {_format_copilot_error_details(error)}."

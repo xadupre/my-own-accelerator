@@ -111,7 +111,8 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=DEFAULT_MODEL,
         help=(
             "AI model used for --copilot-review. "
-            "When omitted, Copilot chooses the model automatically. "
+            "When omitted, Copilot chooses the model automatically "
+            "and falls back to openai/gpt-4.1 if needed. "
             "Any model available on the GitHub Models API is accepted."
         ),
     )

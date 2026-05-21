@@ -21,10 +21,59 @@ from .review_token import CONFIG_FILE
 
 MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL: str | None = None
+FALLBACK_MODEL = "openai/gpt-4.1"
+NO_MODEL_AVAILABLE_MESSAGE_PREFIX = "No model available."
 LOGS_DIR = CONFIG_FILE.parent / "logs"
 
 
+class CopilotSessionError(RuntimeError):
+    """Structured Copilot session error surfaced by the SDK event stream."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: str,
+        status_code: int | None = None,
+        url: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.error_type = error_type
+        self.status_code = status_code
+        self.url = url
+
+
 async def _send_copilot_prompts(
+    prompts: list[str],
+    token: str,
+    model: str | None = DEFAULT_MODEL,
+    models_url: str = MODELS_API_URL,
+    command_name: str = "review-pr",
+    system_prompt: str | None = None,
+) -> list[str]:
+    try:
+        return await _send_copilot_prompts_once(
+            prompts,
+            token,
+            model=model,
+            models_url=models_url,
+            command_name=command_name,
+            system_prompt=system_prompt,
+        )
+    except CopilotSessionError as exc:
+        if model is not None or not _is_no_model_available_error(exc):
+            raise
+        return await _send_copilot_prompts_once(
+            prompts,
+            token,
+            model=FALLBACK_MODEL,
+            models_url=models_url,
+            command_name=command_name,
+            system_prompt=system_prompt,
+        )
+
+
+async def _send_copilot_prompts_once(
     prompts: list[str],
     token: str,
     model: str | None = DEFAULT_MODEL,
@@ -84,6 +133,19 @@ async def _send_copilot_prompts(
     return responses
 
 
+def _is_no_model_available_error(error: CopilotSessionError) -> bool:
+    # The SDK exposes status/error type metadata, but not a dedicated stable
+    # machine-readable code for the "no default model available" condition.
+    # Keep the check constrained to the structured CopilotSessionError and the
+    # expected 400 response, then match the current SDK message prefix
+    # ("No model available. ...") until the SDK exposes a stable code.
+    if error.status_code is None:
+        return False
+    if error.status_code != 400:
+        return False
+    return str(error).startswith(NO_MODEL_AVAILABLE_MESSAGE_PREFIX)
+
+
 async def _send_session_prompt(session: CopilotSession, prompt: str) -> str:
     response_content = ""
     session_error: Exception | None = None
@@ -95,7 +157,12 @@ async def _send_session_prompt(session: CopilotSession, prompt: str) -> str:
             case AssistantMessageData() as assistant_message:
                 response_content = assistant_message.content
             case SessionErrorData() as error:
-                session_error = RuntimeError(error.message)
+                session_error = CopilotSessionError(
+                    error.message,
+                    error_type=error.error_type,
+                    status_code=error.status_code,
+                    url=error.url,
+                )
                 done.set()
             case SessionIdleData():
                 done.set()
@@ -125,7 +192,8 @@ def _send_chat_request(
     :param messages: List of message dicts with ``role`` and ``content`` keys.
     :param token: GitHub personal access token with models access.
     :param model: Optional model identifier accepted by the configured provider.
-        When omitted or ``None``, Copilot chooses the default model automatically.
+        When omitted or ``None``, Copilot chooses the default model automatically
+        and falls back to ``openai/gpt-4.1`` if no default model is available.
     :param models_url: Base URL of the OpenAI-compatible provider.
     :return: Content string from the first choice in the API response.
     :raises ValueError: If the API returns no choices or empty content.

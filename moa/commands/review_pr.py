@@ -150,7 +150,9 @@ def _call_copilot_review(
 
     :param pr_markdown: Markdown text describing the pull request.
     :param token: GitHub personal access token with models access.
-    :param model: Model identifier accepted by the GitHub Models API.
+    :param model: Optional model identifier accepted by the GitHub Models API.
+        When omitted, Copilot chooses the model automatically and falls back
+        to ``openai/gpt-4.1`` if no default model is available.
     :param models_url: Base URL of the GitHub Models API.
     :param extra_prompts: Optional list of follow-up prompts to continue the
         conversation after the initial review.
@@ -262,7 +264,8 @@ def _build_parser(
         default=DEFAULT_MODEL,
         help=(
             "AI model used for --copilot-review. "
-            "When omitted, Copilot chooses the model automatically. "
+            "When omitted, Copilot chooses the model automatically "
+            "and falls back to openai/gpt-4.1 if needed. "
             "Any model available on the GitHub Models API is accepted."
         ),
     )

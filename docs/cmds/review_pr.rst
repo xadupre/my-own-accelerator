@@ -138,7 +138,8 @@ Optional Arguments
     AI model to use when ``--copilot-review`` is set.  Accepts any
     model identifier available on the
     `GitHub Models API <https://docs.github.com/en/github-models>`_.
-    When omitted, Copilot chooses the model automatically::
+    When omitted, Copilot chooses the model automatically and falls
+    back to ``openai/gpt-4.1`` if no default model is available::
 
         review-pr --copilot-review --model openai/gpt-4o xadupre my-own-accelerator 1
 

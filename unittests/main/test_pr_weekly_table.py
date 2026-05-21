@@ -360,6 +360,8 @@ class TestPRWeeklyTable(ExtTestCase):
         self.assertIn("relative values like '-1 day'", help_text)
         self.assertIn("--output-file OUTPUT_FILE", help_text)
         self.assertIn("When omitted, Copilot", help_text)
+        self.assertIn("falls back to", help_text)
+        self.assertIn("openai/gpt-4.1 if needed", help_text)
         self.assertIn("Any model available", help_text)
         self.assertIn("Models API is accepted", help_text)
         self.assertIn("openai/gpt-4.1", help_text)

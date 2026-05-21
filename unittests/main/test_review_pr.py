@@ -9,6 +9,9 @@ from io import StringIO
 from unittest.mock import AsyncMock, patch
 
 from moa.commands.copilot_models import (
+    FALLBACK_MODEL,
+    NO_MODEL_AVAILABLE_MESSAGE_PREFIX,
+    CopilotSessionError,
     _log_copilot_request_and_answer,
     _send_chat_request,
     _send_copilot_prompts,
@@ -637,6 +640,41 @@ class TestReviewPR(ExtTestCase):
 
         self.assertEqual(result, ["Hello!"])
         self.assertNotIn("model", mocked_client.return_value.create_session.await_args.kwargs)
+
+    def test_send_copilot_prompts_retries_with_fallback_model(self) -> None:
+        with (
+            patch(
+                "moa.commands.copilot_models._send_session_prompt",
+                new=AsyncMock(return_value="Hello!"),
+            ),
+            patch("moa.commands.copilot_models.CopilotClient") as mocked_client,
+        ):
+            mocked_client.return_value.__aenter__ = AsyncMock(
+                return_value=mocked_client.return_value
+            )
+            mocked_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            mocked_session = mocked_client.return_value.create_session.return_value
+            mocked_client.return_value.create_session = AsyncMock(
+                side_effect=[
+                    CopilotSessionError(
+                        f"{NO_MODEL_AVAILABLE_MESSAGE_PREFIX} "
+                        "Check policy enablement under GitHub Settings > Copilot",
+                        error_type="session",
+                        status_code=400,
+                    ),
+                    mocked_session,
+                ]
+            )
+            mocked_session.__aenter__ = AsyncMock(return_value=mocked_session)
+            mocked_session.__aexit__ = AsyncMock(return_value=False)
+
+            result = run(_send_copilot_prompts(["Hi"], "mytoken", model=None))
+
+        self.assertEqual(result, ["Hello!"])
+        self.assertEqual(mocked_client.return_value.create_session.call_count, 2)
+        first_call, second_call = mocked_client.return_value.create_session.await_args_list
+        self.assertNotIn("model", first_call.kwargs)
+        self.assertEqual(second_call.kwargs["model"], FALLBACK_MODEL)
 
     def test_call_copilot_review_no_extra_prompts_single_call(self) -> None:
         with patch(

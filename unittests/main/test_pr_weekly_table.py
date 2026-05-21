@@ -136,6 +136,7 @@ class TestPRWeeklyTable(ExtTestCase):
         table = build_weekly_pr_markdown_table(
             [
                 {
+                    "number": 1,
                     "title": "PR",
                     "author": "alice",
                     "created_at": "2026-05-19",
@@ -153,6 +154,26 @@ class TestPRWeeklyTable(ExtTestCase):
         self.assertIn("Copilot summary", table)
         self.assertIn("Help needed", table)
         self.assertIn("Looks good", table)
+        self.assertIn("| # |", table)
+        self.assertIn("[#1](https://github.com/o/r/pull/1)", table)
+
+    def test_build_markdown_table_falls_back_to_raw_link_without_number(self) -> None:
+        table = build_weekly_pr_markdown_table(
+            [
+                {
+                    "title": "PR",
+                    "author": "alice",
+                    "created_at": "2026-05-19",
+                    "updated_at": "2026-05-20",
+                    "link": "https://github.com/o/r/pull/1",
+                    "needs_ci_approval": "no",
+                    "ci_status": "green",
+                    "reviewers": "bob",
+                }
+            ]
+        )
+        self.assertIn("https://github.com/o/r/pull/1", table)
+        self.assertNotIn("[#", table)
 
     def test_build_weekly_rows_with_copilot_adds_summary_and_help(self) -> None:
         pulls = [
@@ -345,7 +366,9 @@ class TestPRWeeklyTable(ExtTestCase):
             self.assertIn(f"pr-weekly-table: output file={expected_output}", err.getvalue())
             self.assertTrue(expected_output.exists())
             self.assertTrue(expected_cache.exists())
-            self.assertIn("| Title | Author |", expected_output.read_text(encoding="utf-8"))
+            output_text = expected_output.read_text(encoding="utf-8")
+            self.assertIn("| Title | Author |", output_text)
+            self.assertIn("[#1](https://github.com/o/r/pull/1)", output_text)
             cache_payload = json.loads(expected_cache.read_text(encoding="utf-8"))
             self.assertIn("1", cache_payload["rows"])
 

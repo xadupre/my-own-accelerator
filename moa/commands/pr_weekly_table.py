@@ -375,13 +375,21 @@ def _escape_markdown(value: Any) -> str:
     return str(value).replace("|", r"\|").replace("\n", " ")
 
 
+def _format_pr_link(row: dict[str, Any]) -> str:
+    link = str(row.get("link", "")).strip()
+    number = row.get("number")
+    if link and number not in {None, ""}:
+        return f"[#{_escape_markdown(number)}]({link})"
+    return _escape_markdown(link)
+
+
 def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = False) -> str:
     headers = [
         "Title",
         "Author",
         "Created",
         "Last update",
-        "Link",
+        "#",
         "Needs CI approval",
         "CI status",
         "Reviewers",
@@ -398,7 +406,7 @@ def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = F
             _escape_markdown(row.get("author", "")),
             _escape_markdown(row.get("created_at", "")),
             _escape_markdown(row.get("updated_at", "")),
-            _escape_markdown(row.get("link", "")),
+            _format_pr_link(row),
             _escape_markdown(row.get("needs_ci_approval", "")),
             _escape_markdown(row.get("ci_status", "")),
             _escape_markdown(row.get("reviewers", "")),

@@ -31,6 +31,14 @@ from .review_token import (
 PAGE_SIZE = 100
 
 
+def _missing_copilot_token_message(owner: str, repo: str) -> str:
+    return (
+        "A repository token is required for --copilot-review. "
+        "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
+        f"{owner}/{repo} with github-token --owner/--repo."
+    )
+
+
 def _fetch_json(url: str, token: str | None = None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -125,11 +133,7 @@ def review_pull_request(
     markdown = build_pull_request_review_markdown(pr, files)
     if copilot_review:
         if not token:
-            raise ValueError(
-                "A repository token is required for --copilot-review. "
-                "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
-                f"{owner}/{repo} with github-token --owner/--repo."
-            )
+            raise ValueError(_missing_copilot_token_message(owner, repo))
         ai_text = _call_copilot_review(
             markdown,
             token,
@@ -345,9 +349,7 @@ def main(argv: list[str] | None = None) -> int:
             (
                 "Unable to review pull request "
                 f"{args.owner}/{args.repo}#{args.pull_request} (ValueError)\n"
-                "A repository token is required for --copilot-review. "
-                "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
-                f"{args.owner}/{args.repo} with github-token --owner/--repo."
+                f"{_missing_copilot_token_message(args.owner, args.repo)}"
             ),
             file=sys.stderr,
         )

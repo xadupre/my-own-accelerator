@@ -12,9 +12,10 @@ from copilot import CopilotClient
 from copilot.generated.session_events import (
     AssistantMessageData,
     SessionErrorData,
+    SessionEvent,
     SessionIdleData,
 )
-from copilot.session import PermissionHandler
+from copilot.session import CopilotSession, PermissionHandler
 
 from .review_token import CONFIG_FILE
 
@@ -49,14 +50,17 @@ async def _send_copilot_prompts(
         session_kwargs["system_message"] = {"mode": "replace", "content": system_prompt}
 
     conversation_messages: list[dict[str, str]] = []
-    if system_prompt:
-        conversation_messages.append({"role": "system", "content": system_prompt})
 
     responses: list[str] = []
     async with CopilotClient() as client:
-        async with await client.create_session(**session_kwargs) as session:
+        session = await client.create_session(**session_kwargs)
+        async with session:
             for prompt in prompts:
-                request_messages = [*conversation_messages, {"role": "user", "content": prompt}]
+                request_messages: list[dict[str, str]] = []
+                if system_prompt:
+                    request_messages.append({"role": "system", "content": system_prompt})
+                request_messages.extend(conversation_messages)
+                request_messages.append({"role": "user", "content": prompt})
                 content = await _send_session_prompt(session, prompt)
                 try:
                     _log_copilot_request_and_answer(
@@ -76,12 +80,12 @@ async def _send_copilot_prompts(
     return responses
 
 
-async def _send_session_prompt(session: Any, prompt: str) -> str:
+async def _send_session_prompt(session: CopilotSession, prompt: str) -> str:
     response_content = ""
     session_error: Exception | None = None
     done = asyncio.Event()
 
-    def on_event(event: Any) -> None:
+    def on_event(event: SessionEvent) -> None:
         nonlocal response_content, session_error
         match event.data:
             case AssistantMessageData() as assistant_message:

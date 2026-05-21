@@ -182,7 +182,7 @@ def _call_copilot_review(
         return initial_review
 
     parts = [initial_review]
-    for prompt, reply in zip(extra_prompts, responses[1:], strict=False):
+    for prompt, reply in zip(extra_prompts, responses[1:], strict=True):
         parts.append(f"**Prompt:** {prompt}\n\n{reply}")
     return "\n\n---\n\n".join(parts)
 

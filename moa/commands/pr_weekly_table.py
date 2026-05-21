@@ -378,8 +378,9 @@ def _escape_markdown(value: Any) -> str:
 def _format_pr_link(row: dict[str, Any]) -> str:
     link = str(row.get("link", "")).strip()
     number = row.get("number")
-    if link and number not in {None, ""}:
-        return f"[#{_escape_markdown(number)}]({link})"
+    number_text = "" if number is None else str(number).strip()
+    if link and number_text:
+        return f"[#{_escape_markdown(number_text)}]({link})"
     return _escape_markdown(link)
 
 

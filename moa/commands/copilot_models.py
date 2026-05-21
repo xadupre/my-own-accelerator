@@ -1,18 +1,108 @@
-"""Shared GitHub Models API helpers."""
+"""Shared GitHub Copilot request helpers."""
 
 from __future__ import annotations
 
+import asyncio
 import datetime
 import json
 import pathlib
 from typing import Any
-from urllib import request
+
+from copilot import CopilotClient
+from copilot.generated.session_events import (
+    AssistantMessageData,
+    SessionErrorData,
+    SessionIdleData,
+)
+from copilot.session import PermissionHandler
 
 from .review_token import CONFIG_FILE
 
 MODELS_API_URL = "https://models.inference.ai.azure.com"
 DEFAULT_MODEL = "openai/gpt-4o-mini"
 LOGS_DIR = CONFIG_FILE.parent / "logs"
+
+
+async def _send_copilot_prompts(
+    prompts: list[str],
+    token: str,
+    model: str = DEFAULT_MODEL,
+    models_url: str = MODELS_API_URL,
+    command_name: str = "review-pr",
+    system_prompt: str | None = None,
+) -> list[str]:
+    provider: dict[str, Any] = {
+        "type": "openai",
+        "wire_api": "completions",
+        "base_url": models_url.rstrip("/"),
+        "bearer_token": token,
+        "headers": {"User-Agent": "moa/review-pr"},
+    }
+    session_kwargs: dict[str, Any] = {
+        "on_permission_request": PermissionHandler.approve_all,
+        "model": model,
+        "provider": provider,
+        "available_tools": [],
+        "infinite_sessions": {"enabled": False},
+    }
+    if system_prompt:
+        session_kwargs["system_message"] = {"mode": "replace", "content": system_prompt}
+
+    conversation_messages: list[dict[str, str]] = []
+    if system_prompt:
+        conversation_messages.append({"role": "system", "content": system_prompt})
+
+    responses: list[str] = []
+    async with CopilotClient() as client:
+        async with await client.create_session(**session_kwargs) as session:
+            for prompt in prompts:
+                request_messages = [*conversation_messages, {"role": "user", "content": prompt}]
+                content = await _send_session_prompt(session, prompt)
+                try:
+                    _log_copilot_request_and_answer(
+                        {"model": model, "messages": request_messages},
+                        {"choices": [{"message": {"content": content}}]},
+                        command_name=command_name,
+                    )
+                except OSError:
+                    pass
+                conversation_messages.extend(
+                    (
+                        {"role": "user", "content": prompt},
+                        {"role": "assistant", "content": content},
+                    )
+                )
+                responses.append(content)
+    return responses
+
+
+async def _send_session_prompt(session: Any, prompt: str) -> str:
+    response_content = ""
+    session_error: Exception | None = None
+    done = asyncio.Event()
+
+    def on_event(event: Any) -> None:
+        nonlocal response_content, session_error
+        match event.data:
+            case AssistantMessageData() as assistant_message:
+                response_content = assistant_message.content
+            case SessionErrorData() as error:
+                session_error = RuntimeError(error.message)
+                done.set()
+            case SessionIdleData():
+                done.set()
+
+    unsubscribe = session.on(on_event)
+    try:
+        await session.send(prompt)
+        await done.wait()
+    finally:
+        unsubscribe()
+    if session_error is not None:
+        raise session_error
+    if not response_content:
+        raise ValueError("Empty content in AI model response.")
+    return response_content
 
 
 def _send_chat_request(
@@ -22,40 +112,34 @@ def _send_chat_request(
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
 ) -> str:
-    """Send a chat completion request to the GitHub Models API.
+    """Send a chat completion request via the GitHub Copilot SDK.
 
     :param messages: List of message dicts with ``role`` and ``content`` keys.
     :param token: GitHub personal access token with models access.
-    :param model: Model identifier accepted by the GitHub Models API.
-    :param models_url: Base URL of the GitHub Models API.
+    :param model: Model identifier accepted by the configured provider.
+    :param models_url: Base URL of the OpenAI-compatible provider.
     :return: Content string from the first choice in the API response.
     :raises ValueError: If the API returns no choices or empty content.
-    :raises urllib.error.HTTPError: If the HTTP request fails.
+    :raises RuntimeError: If the Copilot session reports an error.
     """
-    url = f"{models_url.rstrip('/')}/chat/completions"
-    payload: dict[str, Any] = {"model": model, "messages": messages}
-    data = json.dumps(payload).encode()
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "moa/review-pr",
-    }
-    req = request.Request(url, data=data, headers=headers, method="POST")
-    with request.urlopen(req) as response:
-        result = json.load(response)
-    choices = result.get("choices", [])
-    if not choices:
-        raise ValueError("No response choices returned by the AI model.")
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if not content:
-        raise ValueError("Empty content in AI model response.")
-    try:
-        _log_copilot_request_and_answer(payload, result, command_name=command_name)
-    except OSError:
-        pass
-    return content
+    system_prompt = "\n\n".join(
+        message["content"]
+        for message in messages
+        if message.get("role") == "system" and message.get("content")
+    )
+    prompts = [message["content"] for message in messages if message.get("role") == "user"]
+    if not prompts:
+        raise ValueError("At least one user message is required for a Copilot request.")
+    return asyncio.run(
+        _send_copilot_prompts(
+            prompts,
+            token,
+            model=model,
+            models_url=models_url,
+            command_name=command_name,
+            system_prompt=system_prompt or None,
+        )
+    )[-1]
 
 
 def _log_copilot_request_and_answer(

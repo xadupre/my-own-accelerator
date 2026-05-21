@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -13,7 +14,7 @@ from urllib.error import HTTPError, URLError
 from .copilot_models import (
     DEFAULT_MODEL,
     MODELS_API_URL,
-    _send_chat_request,
+    _send_copilot_prompts,
 )
 from .review_token import (
     CONFIG_FILE,
@@ -162,24 +163,27 @@ def _call_copilot_review(
         "Review the following pull request summary and provide constructive feedback. "
         "Highlight potential issues, suggest improvements, and note relevant best practices."
     )
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": pr_markdown},
-    ]
-    initial_review = _send_chat_request(
-        messages, token, model, models_url, command_name=command_name
+    prompts = [pr_markdown]
+    if extra_prompts:
+        prompts.extend(extra_prompts)
+    responses = asyncio.run(
+        _send_copilot_prompts(
+            prompts,
+            token,
+            model=model,
+            models_url=models_url,
+            command_name=command_name,
+            system_prompt=system_prompt,
+        )
     )
+    initial_review = responses[0]
 
     if not extra_prompts:
         return initial_review
 
     parts = [initial_review]
-    messages.append({"role": "assistant", "content": initial_review})
-    for prompt in extra_prompts:
-        messages.append({"role": "user", "content": prompt})
-        reply = _send_chat_request(messages, token, model, models_url, command_name=command_name)
+    for prompt, reply in zip(extra_prompts, responses[1:], strict=False):
         parts.append(f"**Prompt:** {prompt}\n\n{reply}")
-        messages.append({"role": "assistant", "content": reply})
     return "\n\n---\n\n".join(parts)
 
 

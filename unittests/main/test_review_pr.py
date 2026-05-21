@@ -5,7 +5,7 @@ import pathlib
 import tempfile
 from datetime import datetime
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from moa.commands.copilot_models import _log_copilot_request_and_answer, _send_chat_request
 from moa.commands.review_pr import (
@@ -164,22 +164,31 @@ class TestReviewPR(ExtTestCase):
         )
 
     def test_call_copilot_review_returns_content(self) -> None:
-        with patch("moa.commands.review_pr._send_chat_request", return_value="Looks good to me!"):
+        with patch(
+            "moa.commands.review_pr._send_copilot_prompts",
+            new=AsyncMock(return_value=["Looks good to me!"]),
+        ):
             result = _call_copilot_review("## PR Summary", "mytoken")
         self.assertEqual(result, "Looks good to me!")
 
     def test_call_copilot_review_logs_request_and_answer(self) -> None:
         with (
-            patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen,
+            patch(
+                "moa.commands.copilot_models._send_session_prompt",
+                new=AsyncMock(return_value="Looks good to me!"),
+            ),
             patch("moa.commands.copilot_models._log_copilot_request_and_answer") as mocked_log,
+            patch("moa.commands.copilot_models.CopilotClient") as mocked_client,
         ):
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch(
-                "moa.commands.copilot_models.json.load",
-                return_value={"choices": [{"message": {"content": "Looks good to me!"}}]},
-            ):
-                _call_copilot_review("## PR Summary", "mytoken")
+            mocked_client.return_value.__aenter__ = AsyncMock(
+                return_value=mocked_client.return_value
+            )
+            mocked_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            mocked_session = mocked_client.return_value.create_session.return_value
+            mocked_client.return_value.create_session = AsyncMock(return_value=mocked_session)
+            mocked_session.__aenter__ = AsyncMock(return_value=mocked_session)
+            mocked_session.__aexit__ = AsyncMock(return_value=False)
+            _call_copilot_review("## PR Summary", "mytoken")
         mocked_log.assert_called_once()
         self.assertEqual(mocked_log.call_args.kwargs["command_name"], "review-pr")
 
@@ -592,50 +601,34 @@ class TestReviewPR(ExtTestCase):
     # ------------------------------------------------------------------
 
     def test_send_chat_request_returns_content(self) -> None:
-        fake_response = {"choices": [{"message": {"content": "Hello!"}}]}
         messages = [{"role": "user", "content": "Hi"}]
-        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.copilot_models.json.load", return_value=fake_response):
-                result = _send_chat_request(messages, "mytoken")
+        with patch(
+            "moa.commands.copilot_models._send_copilot_prompts",
+            new=AsyncMock(return_value=["Hello!"]),
+        ) as mocked_send:
+            result = _send_chat_request(messages, "mytoken")
         self.assertEqual(result, "Hello!")
+        self.assertEqual(mocked_send.call_args.args[:2], (["Hi"], "mytoken"))
 
     def test_call_copilot_review_no_extra_prompts_single_call(self) -> None:
-        fake_response = {"choices": [{"message": {"content": "Initial review."}}]}
-        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.copilot_models.json.load", return_value=fake_response):
-                result = _call_copilot_review("## PR", "tok")
+        with patch(
+            "moa.commands.review_pr._send_copilot_prompts",
+            new=AsyncMock(return_value=["Initial review."]),
+        ) as mocked_send:
+            result = _call_copilot_review("## PR", "tok")
         self.assertEqual(result, "Initial review.")
-        # Only one HTTP call should be made when no extra prompts are given.
-        self.assertEqual(mock_urlopen.call_count, 1)
+        self.assertEqual(mocked_send.call_args.args[:2], (["## PR"], "tok"))
 
     def test_call_copilot_review_with_extra_prompts_multi_turn(self) -> None:
-        responses = [
-            {"choices": [{"message": {"content": "Initial review."}}]},
-            {"choices": [{"message": {"content": "Follow-up answer."}}]},
-        ]
-        call_count = {"n": 0}
-
-        def fake_json_load(_response: object) -> dict:
-            resp = responses[call_count["n"]]
-            call_count["n"] += 1
-            return resp
-
-        with patch("moa.commands.copilot_models.request.urlopen") as mock_urlopen:
-            mock_urlopen.return_value.__enter__ = lambda s: s
-            mock_urlopen.return_value.__exit__ = lambda s, *a: False
-            with patch("moa.commands.copilot_models.json.load", side_effect=fake_json_load):
-                result = _call_copilot_review(
-                    "## PR", "tok", extra_prompts=["Focus on security."]
-                )
-        # Two HTTP calls: one initial, one follow-up.
-        self.assertEqual(mock_urlopen.call_count, 2)
+        with patch(
+            "moa.commands.review_pr._send_copilot_prompts",
+            new=AsyncMock(return_value=["Initial review.", "Follow-up answer."]),
+        ) as mocked_send:
+            result = _call_copilot_review("## PR", "tok", extra_prompts=["Focus on security."])
         self.assertIn("Initial review.", result)
         self.assertIn("Follow-up answer.", result)
         self.assertIn("Focus on security.", result)
+        self.assertEqual(mocked_send.call_args.args[:2], (["## PR", "Focus on security."], "tok"))
 
     def test_main_prompt_flag_passed_to_review(self) -> None:
         out = StringIO()

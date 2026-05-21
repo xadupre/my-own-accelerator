@@ -126,8 +126,9 @@ def review_pull_request(
     if copilot_review:
         if not token:
             raise ValueError(
-                "A GitHub token (--token or GITHUB_TOKEN env var) "
-                "is required for --copilot-review."
+                "A repository token is required for --copilot-review. "
+                "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
+                f"{owner}/{repo} with github-token --owner/--repo."
             )
         ai_text = _call_copilot_review(
             markdown,
@@ -321,13 +322,17 @@ def main(argv: list[str] | None = None) -> int:
     # Pre-parse to discover the effective --user value before injecting owner.
     _pre = argparse.ArgumentParser(add_help=False)
     _pre.add_argument("--user", default=user_default)
+    _pre.add_argument("--copilot-review", action="store_true", default=False)
     _pre_args, _ = _pre.parse_known_args(argv)
     effective_user = _pre_args.user
+    copilot_review_requested = _pre_args.copilot_review
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
     owner, repo = _extract_owner_repo(argv)
-    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
+        cache, owner, repo, include_classic=not copilot_review_requested
+    )
 
     parser = _build_parser(
         token_default=token_default,

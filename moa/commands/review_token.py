@@ -46,15 +46,17 @@ def _project_token_cache_key(owner: str, repo: str) -> str:
 
 
 def _resolve_cached_token(
-    cache: dict[str, Any], owner: str | None, repo: str | None
+    cache: dict[str, Any], owner: str | None, repo: str | None, include_classic: bool = True
 ) -> str | None:
-    """Resolve cached token with per-project preference and legacy fallback."""
+    """Resolve cached token with per-project preference and optional classic fallback."""
     if owner and repo:
         project_tokens = cache.get("project_tokens")
         if isinstance(project_tokens, dict):
             token = project_tokens.get(_project_token_cache_key(owner, repo))
             if isinstance(token, str) and token:
                 return token
+    if not include_classic:
+        return None
     token = cache.get("token")
     return token if isinstance(token, str) and token else None
 

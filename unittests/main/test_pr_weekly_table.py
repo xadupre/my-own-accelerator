@@ -275,6 +275,22 @@ class TestPRWeeklyTable(ExtTestCase):
         self.assertEqual(code, 1)
         self.assertIn("required for --copilot", err.getvalue())
 
+    def test_main_copilot_requires_project_token_not_classic_cached_token(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        with (
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+            patch(
+                "moa.commands.pr_weekly_table._load_token_cache",
+                return_value={"token": "classic_tok"},
+            ),
+        ):
+            code = main(["owner", "repo", "--copilot"])
+        self.assertEqual(code, 1)
+        self.assertIn("required for --copilot", err.getvalue())
+
     def test_main_verbose_flag_prints_progress(self) -> None:
         out = StringIO()
         err = StringIO()

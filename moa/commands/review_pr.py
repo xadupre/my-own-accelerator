@@ -31,6 +31,14 @@ from .review_token import (
 PAGE_SIZE = 100
 
 
+def _missing_copilot_token_message(owner: str, repo: str) -> str:
+    return (
+        "A repository token is required for --copilot-review. "
+        "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
+        f"{owner}/{repo} with github-token --owner/--repo."
+    )
+
+
 def _fetch_json(url: str, token: str | None = None) -> Any:
     headers = {
         "Accept": "application/vnd.github+json",
@@ -125,10 +133,7 @@ def review_pull_request(
     markdown = build_pull_request_review_markdown(pr, files)
     if copilot_review:
         if not token:
-            raise ValueError(
-                "A GitHub token (--token or GITHUB_TOKEN env var) "
-                "is required for --copilot-review."
-            )
+            raise ValueError(_missing_copilot_token_message(owner, repo))
         ai_text = _call_copilot_review(
             markdown,
             token,
@@ -323,11 +328,14 @@ def main(argv: list[str] | None = None) -> int:
     _pre.add_argument("--user", default=user_default)
     _pre_args, _ = _pre.parse_known_args(argv)
     effective_user = _pre_args.user
+    copilot_review_requested = "--copilot-review" in argv
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
     owner, repo = _extract_owner_repo(argv)
-    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
+        cache, owner, repo, include_classic=not copilot_review_requested
+    )
 
     parser = _build_parser(
         token_default=token_default,
@@ -335,6 +343,17 @@ def main(argv: list[str] | None = None) -> int:
         user_default=user_default,
     )
     args = parser.parse_args(argv)
+
+    if args.copilot_review and not args.token:
+        print(
+            (
+                "Unable to review pull request "
+                f"{args.owner}/{args.repo}#{args.pull_request} (ValueError)\n"
+                f"{_missing_copilot_token_message(args.owner, args.repo)}"
+            ),
+            file=sys.stderr,
+        )
+        return 1
 
     if args.save:
         to_save: dict[str, Any] = {}

@@ -568,7 +568,7 @@ def main(argv: list[str] | None = None) -> int:
     token_cache = _load_token_cache()
     owner, repo = _extract_owner_repo(argv)
     token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
-        token_cache, owner, repo
+        token_cache, owner, repo, include_classic="--copilot" not in argv
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
@@ -614,7 +614,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.copilot and not args.token:
         print(
             "Unable to build weekly PR table (ValueError)\n"
-            "A GitHub token (--token or GITHUB_TOKEN env var) is required for --copilot.",
+            "A repository token is required for --copilot. "
+            "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
+            f"{args.owner}/{args.repo} with github-token --owner/--repo.",
             file=sys.stderr,
         )
         return 1

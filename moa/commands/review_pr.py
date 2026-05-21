@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import sys
+from collections.abc import Callable
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
@@ -114,6 +115,7 @@ def review_pull_request(
     copilot_review: bool = False,
     model: str | None = DEFAULT_MODEL,
     extra_prompts: list[str] | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_request}"
     pr = _fetch_json(base, token)
@@ -127,7 +129,13 @@ def review_pull_request(
                 "A GitHub token (--token or GITHUB_TOKEN env var) "
                 "is required for --copilot-review."
             )
-        ai_text = _call_copilot_review(markdown, token, model, extra_prompts=extra_prompts)
+        ai_text = _call_copilot_review(
+            markdown,
+            token,
+            model,
+            extra_prompts=extra_prompts,
+            on_model_used=on_model_used,
+        )
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
 
@@ -139,6 +147,7 @@ def _call_copilot_review(
     models_url: str = MODELS_API_URL,
     extra_prompts: list[str] | None = None,
     command_name: str = "review-pr",
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     """Send the PR summary to the GitHub Models API for an AI-powered review.
 
@@ -176,6 +185,7 @@ def _call_copilot_review(
             models_url=models_url,
             command_name=command_name,
             system_prompt=system_prompt,
+            on_model_used=on_model_used,
         )
     )
     initial_review = responses[0]
@@ -351,17 +361,28 @@ def main(argv: list[str] | None = None) -> int:
             f"review-pr: fetching {args.owner}/{args.repo}#{args.pull_request}...",
             file=sys.stderr,
         )
+    reported_copilot_models: set[str] = set()
+
+    def report_copilot_model(model_name: str) -> None:
+        if not args.verbose or model_name in reported_copilot_models:
+            return
+        reported_copilot_models.add(model_name)
+        print(f"review-pr: copilot model={model_name}.", file=sys.stderr)
+
+    review_kwargs: dict[str, Any] = {
+        "owner": args.owner,
+        "repo": args.repo,
+        "pull_request": args.pull_request,
+        "token": args.token,
+        "api_url": args.api_url,
+        "copilot_review": args.copilot_review,
+        "model": args.model,
+        "extra_prompts": args.extra_prompts,
+    }
+    if args.copilot_review:
+        review_kwargs["on_model_used"] = report_copilot_model
     try:
-        markdown = review_pull_request(
-            owner=args.owner,
-            repo=args.repo,
-            pull_request=args.pull_request,
-            token=args.token,
-            api_url=args.api_url,
-            copilot_review=args.copilot_review,
-            model=args.model,
-            extra_prompts=args.extra_prompts,
-        )
+        markdown = review_pull_request(**review_kwargs)
     except (HTTPError, URLError, ValueError) as e:
         print(
             (

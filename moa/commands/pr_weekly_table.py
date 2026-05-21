@@ -255,6 +255,7 @@ def _call_copilot_summary(
     row: dict[str, Any],
     token: str,
     model: str | None = DEFAULT_MODEL,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> tuple[str, str]:
     messages = [
         {
@@ -278,7 +279,13 @@ def _call_copilot_summary(
             ),
         },
     ]
-    raw = _send_chat_request(messages, token, model=model, command_name="pr-weekly-table")
+    raw = _send_chat_request(
+        messages,
+        token,
+        model=model,
+        command_name="pr-weekly-table",
+        on_model_used=on_model_used,
+    )
     summary = raw.strip()
     help_needed = "unknown"
     try:
@@ -334,6 +341,7 @@ def build_weekly_pr_summary_rows(
     copilot: bool = False,
     model: str | None = DEFAULT_MODEL,
     warnings: list[str] | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_since_datetime(since)
     pulls_url = (
@@ -414,7 +422,12 @@ def build_weekly_pr_summary_rows(
         }
         if copilot:
             try:
-                summary, help_needed = _call_copilot_summary(row, token=token or "", model=model)
+                summary, help_needed = _call_copilot_summary(
+                    row,
+                    token=token or "",
+                    model=model,
+                    on_model_used=on_model_used,
+                )
             except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
                 if warnings is not None:
                     warnings.append(_build_copilot_warning(row, e))
@@ -586,6 +599,14 @@ def main(argv: list[str] | None = None) -> int:
             f"pr-weekly-table: collecting pull request data for {args.owner}/{args.repo}...",
             file=sys.stderr,
         )
+    reported_copilot_models: set[str] = set()
+
+    def report_copilot_model(model_name: str) -> None:
+        if not args.verbose or model_name in reported_copilot_models:
+            return
+        reported_copilot_models.add(model_name)
+        print(f"pr-weekly-table: copilot model={model_name}.", file=sys.stderr)
+
     if args.copilot and not args.token:
         print(
             "Unable to build weekly PR table (ValueError)\n"
@@ -608,6 +629,7 @@ def main(argv: list[str] | None = None) -> int:
             copilot=args.copilot,
             model=args.model,
             warnings=warnings,
+            on_model_used=report_copilot_model if args.copilot else None,
         )
     except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)

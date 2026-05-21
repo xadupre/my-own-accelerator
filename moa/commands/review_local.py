@@ -6,6 +6,7 @@ import argparse
 import os
 import pathlib
 import sys
+from collections.abc import Callable
 from urllib.error import HTTPError, URLError
 
 from .review_pr import DEFAULT_MODEL, _call_copilot_review
@@ -42,6 +43,7 @@ def review_local_files(
     token: str | None = None,
     model: str | None = DEFAULT_MODEL,
     extra_prompts: list[str] | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     """Reviews local files by building a markdown report and optional AI feedback."""
     if not files:
@@ -60,7 +62,12 @@ def review_local_files(
                 "is required for --copilot-review."
             )
         ai_text = _call_copilot_review(
-            markdown, token, model, extra_prompts=extra_prompts, command_name="review-local"
+            markdown,
+            token,
+            model,
+            extra_prompts=extra_prompts,
+            command_name="review-local",
+            on_model_used=on_model_used,
         )
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
@@ -159,6 +166,14 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(f"review-local: reading {len(args.files)} file(s)...", file=sys.stderr)
+    reported_copilot_models: set[str] = set()
+
+    def report_copilot_model(model_name: str) -> None:
+        if not args.verbose or model_name in reported_copilot_models:
+            return
+        reported_copilot_models.add(model_name)
+        print(f"review-local: copilot model={model_name}.", file=sys.stderr)
+
     try:
         markdown = review_local_files(
             files=args.files,
@@ -166,6 +181,7 @@ def main(argv: list[str] | None = None) -> int:
             token=args.token,
             model=args.model,
             extra_prompts=args.extra_prompts,
+            on_model_used=report_copilot_model if args.copilot_review else None,
         )
     except (HTTPError, URLError, OSError, UnicodeDecodeError, ValueError) as e:
         print(f"Unable to review local files ({type(e).__name__}).", file=sys.stderr)

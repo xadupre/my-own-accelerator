@@ -315,6 +315,61 @@ class TestPRWeeklyTable(ExtTestCase):
         )
         self.assertIn("pr-weekly-table: done.", err.getvalue())
 
+    def test_main_verbose_flag_prints_copilot_model(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+
+        def fake_call_copilot_summary(*args: object, **kwargs: object) -> tuple[str, str]:
+            on_model_used = kwargs.get("on_model_used")
+            self.assertTrue(callable(on_model_used))
+            on_model_used("openai/gpt-4.1")
+            return ("Summary", "no")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+                patch("moa.commands.pr_weekly_table.DEFAULT_CACHE_DIR", tmp),
+                patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+                patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+                patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+                patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+                patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+                patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+                patch(
+                    "moa.commands.pr_weekly_table._call_copilot_summary",
+                    side_effect=fake_call_copilot_summary,
+                ),
+            ):
+                code = main(
+                    [
+                        "owner",
+                        "repo",
+                        "--since",
+                        "2026-05-10T00:00:00Z",
+                        "--copilot",
+                        "--token",
+                        "tok",
+                        "--verbose",
+                    ]
+                )
+        self.assertEqual(code, 0)
+        self.assertIn("pr-weekly-table: copilot model=openai/gpt-4.1.", err.getvalue())
+
     def test_main_verbose_flag_prints_cached_project_token_origin(self) -> None:
         out = StringIO()
         err = StringIO()

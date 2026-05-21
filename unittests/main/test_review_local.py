@@ -194,6 +194,31 @@ class TestReviewLocal(ExtTestCase):
         self.assertIn("review-local: reading 1 file(s)...", err.getvalue())
         self.assertIn("review-local: done.", err.getvalue())
 
+    def test_main_verbose_flag_prints_copilot_model(self) -> None:
+        out = StringIO()
+        err = StringIO()
+
+        def fake_review_local_files(*args: object, **kwargs: object) -> str:
+            on_model_used = kwargs.get("on_model_used")
+            self.assertTrue(callable(on_model_used))
+            on_model_used("openai/gpt-4.1")
+            return "# review"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch(
+                    "moa.commands.review_local.review_local_files",
+                    side_effect=fake_review_local_files,
+                ),
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+            ):
+                code = main(["-v", "--copilot-review", "--token", "tok", str(file1)])
+        self.assertEqual(code, 0)
+        self.assertIn("review-local: copilot model=openai/gpt-4.1.", err.getvalue())
+
     def test_main_verbose_flag_prints_cached_classic_token_origin(self) -> None:
         out = StringIO()
         err = StringIO()

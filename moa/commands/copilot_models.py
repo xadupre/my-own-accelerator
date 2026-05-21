@@ -6,14 +6,18 @@ import asyncio
 import datetime
 import json
 import pathlib
+from collections.abc import Callable
 from typing import Any
 
 from copilot import CopilotClient
 from copilot.generated.session_events import (
     AssistantMessageData,
+    AssistantUsageData,
     SessionErrorData,
     SessionEvent,
     SessionIdleData,
+    SessionModelChangeData,
+    SessionStartData,
 )
 from copilot.session import CopilotSession, PermissionHandler
 
@@ -50,6 +54,7 @@ async def _send_copilot_prompts(
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
     system_prompt: str | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> list[str]:
     try:
         return await _send_copilot_prompts_once(
@@ -59,6 +64,7 @@ async def _send_copilot_prompts(
             models_url=models_url,
             command_name=command_name,
             system_prompt=system_prompt,
+            on_model_used=on_model_used,
         )
     except CopilotSessionError as exc:
         if model is not None or not _is_no_model_available_error(exc):
@@ -70,6 +76,7 @@ async def _send_copilot_prompts(
             models_url=models_url,
             command_name=command_name,
             system_prompt=system_prompt,
+            on_model_used=on_model_used,
         )
 
 
@@ -80,6 +87,7 @@ async def _send_copilot_prompts_once(
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
     system_prompt: str | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> list[str]:
     provider: dict[str, Any] = {
         "type": "openai",
@@ -104,33 +112,58 @@ async def _send_copilot_prompts_once(
     responses: list[str] = []
     async with CopilotClient() as client:
         session = await client.create_session(**session_kwargs)
+        seen_models: set[str] = set()
+
+        def on_session_event(event: SessionEvent) -> None:
+            model_name = _extract_model_name_from_event(event)
+            if not model_name or model_name in seen_models:
+                return
+            seen_models.add(model_name)
+            if on_model_used:
+                on_model_used(model_name)
+
+        unsubscribe = session.on(on_session_event)
         async with session:
-            for prompt in prompts:
-                request_messages: list[dict[str, str]] = []
-                if system_prompt:
-                    request_messages.append({"role": "system", "content": system_prompt})
-                request_messages.extend(conversation_messages)
-                request_messages.append({"role": "user", "content": prompt})
-                payload: dict[str, Any] = {"messages": request_messages}
-                if model:
-                    payload["model"] = model
-                content = await _send_session_prompt(session, prompt)
-                try:
-                    _log_copilot_request_and_answer(
-                        payload,
-                        {"choices": [{"message": {"content": content}}]},
-                        command_name=command_name,
+            try:
+                for prompt in prompts:
+                    request_messages: list[dict[str, str]] = []
+                    if system_prompt:
+                        request_messages.append({"role": "system", "content": system_prompt})
+                    request_messages.extend(conversation_messages)
+                    request_messages.append({"role": "user", "content": prompt})
+                    payload: dict[str, Any] = {"messages": request_messages}
+                    if model:
+                        payload["model"] = model
+                    content = await _send_session_prompt(session, prompt)
+                    try:
+                        _log_copilot_request_and_answer(
+                            payload,
+                            {"choices": [{"message": {"content": content}}]},
+                            command_name=command_name,
+                        )
+                    except OSError:
+                        pass
+                    conversation_messages.extend(
+                        (
+                            {"role": "user", "content": prompt},
+                            {"role": "assistant", "content": content},
+                        )
                     )
-                except OSError:
-                    pass
-                conversation_messages.extend(
-                    (
-                        {"role": "user", "content": prompt},
-                        {"role": "assistant", "content": content},
-                    )
-                )
-                responses.append(content)
+                    responses.append(content)
+            finally:
+                unsubscribe()
     return responses
+
+
+def _extract_model_name_from_event(event: SessionEvent) -> str | None:
+    match event.data:
+        case SessionStartData() as data:
+            return data.selected_model
+        case SessionModelChangeData() as data:
+            return data.new_model
+        case AssistantUsageData() as data:
+            return data.model
+    return None
 
 
 def _is_no_model_available_error(error: CopilotSessionError) -> bool:
@@ -186,6 +219,7 @@ def _send_chat_request(
     model: str | None = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     """Send a chat completion request via the GitHub Copilot SDK.
 
@@ -215,6 +249,7 @@ def _send_chat_request(
             models_url=models_url,
             command_name=command_name,
             system_prompt=system_prompt or None,
+            on_model_used=on_model_used,
         )
     )[-1]
 

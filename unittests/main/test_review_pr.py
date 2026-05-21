@@ -141,6 +141,30 @@ class TestReviewPR(ExtTestCase):
         self.assertIn("review-pr: fetching owner/repo#12...", err.getvalue())
         self.assertIn("review-pr: done.", err.getvalue())
 
+    def test_main_verbose_flag_prints_copilot_model(self) -> None:
+        out = StringIO()
+        err = StringIO()
+
+        def fake_review_pull_request(*args: object, **kwargs: object) -> str:
+            on_model_used = kwargs.get("on_model_used")
+            self.assertIsNotNone(on_model_used)
+            on_model_used("openai/gpt-4.1")
+            return "# review"
+
+        with (
+            patch(
+                "moa.commands.review_pr.review_pull_request",
+                side_effect=fake_review_pull_request,
+            ),
+            patch("sys.stdout", out),
+            patch("sys.stderr", err),
+            patch.dict(os.environ, {"GITHUB_TOKEN": ""}),
+            patch("moa.commands.review_pr._load_cache", return_value={}),
+        ):
+            code = main(["-v", "--copilot-review", "--token", "tok", "owner", "repo", "12"])
+        self.assertEqual(code, 0)
+        self.assertIn("review-pr: copilot model=openai/gpt-4.1.", err.getvalue())
+
     def test_main_verbose_flag_prints_fine_grained_token_origin(self) -> None:
         out = StringIO()
         err = StringIO()

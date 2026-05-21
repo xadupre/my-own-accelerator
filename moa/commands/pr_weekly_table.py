@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import sys
 from collections.abc import Callable
 from datetime import datetime, timedelta, timezone
@@ -71,6 +72,30 @@ def _fetch_paginated_with_retries(url: str, token: str | None = None) -> list[An
 def _default_since() -> str:
     """Return an ISO date string for one week ago (YYYY-MM-DD)."""
     return (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
+
+
+def _parse_since_datetime(value: str | None, now: datetime | None = None) -> datetime:
+    since_value = (value or _default_since()).strip()
+    match = re.fullmatch(
+        r"(?P<amount>[+-]?\d+)\s+(?P<unit>day|days|hour|hours|minute|minutes|week|weeks)",
+        since_value,
+        flags=re.IGNORECASE,
+    )
+    if match:
+        amount = int(match.group("amount"))
+        unit = match.group("unit").lower()
+        kwargs = {"days": amount}
+        if unit.startswith("hour"):
+            kwargs = {"hours": amount}
+        elif unit.startswith("minute"):
+            kwargs = {"minutes": amount}
+        elif unit.startswith("week"):
+            kwargs = {"weeks": amount}
+        return (now or datetime.now(timezone.utc)) + timedelta(**kwargs)
+    parsed = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
@@ -267,8 +292,7 @@ def build_weekly_pr_summary_rows(
     copilot: bool = False,
     model: str = DEFAULT_MODEL,
 ) -> list[dict[str, Any]]:
-    since_value = since or _default_since()
-    since_dt = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
+    since_dt = _parse_since_datetime(since)
     pulls_url = (
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
         "?state=all&sort=created&direction=desc"
@@ -284,6 +308,8 @@ def build_weekly_pr_summary_rows(
         if not created_at:
             continue
         created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if created_dt.tzinfo is None:
+            created_dt = created_dt.replace(tzinfo=timezone.utc)
         if created_dt < since_dt:
             continue
         number = int(pr.get("number", 0))
@@ -412,7 +438,10 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser.add_argument(
         "--since",
         default=None,
-        help="Only include PRs created on/after this date (YYYY-MM-DD or ISO datetime).",
+        help=(
+            "Only include PRs created on/after this date "
+            "(YYYY-MM-DD, ISO datetime, or relative values like '-1 day')."
+        ),
     )
     parser.add_argument(
         "--cache-file",

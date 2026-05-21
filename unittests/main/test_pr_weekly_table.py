@@ -1,9 +1,11 @@
+from datetime import datetime, timezone
 from http.client import IncompleteRead
 from io import StringIO
 from unittest.mock import patch
 
 from moa.commands.pr_weekly_table import (
     _build_parser,
+    _parse_since_datetime,
     build_weekly_pr_markdown_table,
     build_weekly_pr_summary_rows,
     main,
@@ -56,6 +58,31 @@ class TestPRWeeklyTable(ExtTestCase):
         approval.assert_not_called()
         ci.assert_not_called()
         reviewers.assert_not_called()
+
+    def test_build_weekly_rows_accepts_plain_date_since(self) -> None:
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with (
+            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+        ):
+            rows = build_weekly_pr_summary_rows("o", "r", since="2026-05-10")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["title"], "PR")
 
     def test_build_weekly_rows_refreshes_changed_pr(self) -> None:
         pulls = [
@@ -250,9 +277,17 @@ class TestPRWeeklyTable(ExtTestCase):
     def test_build_parser_lists_verbose_and_model_examples(self) -> None:
         help_text = _build_parser().format_help()
         self.assertIn("-v, --verbose", help_text)
+        self.assertIn("relative values like '-1 day'", help_text)
         self.assertIn("Any model available on the GitHub", help_text)
         self.assertIn("Models API is accepted", help_text)
         self.assertIn("openai/gpt-4.1", help_text)
+
+    def test_parse_since_datetime_supports_relative_days(self) -> None:
+        now = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
+        self.assertEqual(
+            _parse_since_datetime("-1 day", now=now),
+            datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+        )
 
     def test_build_weekly_rows_retries_paginated_incomplete_read(self) -> None:
         pulls = [

@@ -112,43 +112,65 @@ def main(argv: list[str] | None = None) -> int:
         argv = sys.argv[1:]
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    # --show-permissions always requires --token.
+    if args.show_permissions and not args.token:
+        parser.error("--token is required with --show-permissions.")
+
+    # --list cannot be combined with token-saving options.
+    # Providing --token alongside --list is only valid when --show-permissions
+    # is also given (the token is used for the permissions query, not saved).
+    if args.list:
+        if args.owner or args.repo or args.classic:
+            parser.error("--list cannot be combined with token-saving options.")
+        if args.token and not args.show_permissions:
+            parser.error("--list cannot be combined with token-saving options.")
+
+    # A token is required except when only listing.
+    if not args.list and not args.token:
+        parser.error("--token is required unless --list is specified.")
+
+    # Token-saving: runs when not listing and the caller explicitly asked to
+    # save (via --owner/--repo/--classic) or did not request --show-permissions
+    # (i.e. the default "just save this token" usage).
+    if not args.list and args.token:
+        has_save_flags = bool(args.owner or args.repo or args.classic)
+        should_save = has_save_flags or not args.show_permissions
+        if should_save:
+            if (args.owner is None) != (args.repo is None):
+                parser.error("--owner and --repo must be provided together.")
+            if args.classic and args.owner:
+                parser.error("--classic cannot be combined with --owner/--repo.")
+            if args.owner and args.repo:
+                cache = _load_cache()
+                _save_cache(
+                    {
+                        "project_tokens": _build_project_token_cache(
+                            cache, args.owner, args.repo, args.token
+                        )
+                    }
+                )
+                print(f"github-token: saved token for {args.owner}/{args.repo} in {CONFIG_FILE}.")
+            else:
+                _save_cache({"token": args.token})
+                print(f"github-token: saved classic token in {CONFIG_FILE}.")
+            if not args.show_permissions:
+                return 0
+
+    # List cached tokens (may also be combined with --show-permissions).
+    if args.list:
+        _list_tokens(args.verbose)
+        if not args.show_permissions:
+            return 0
+
+    # Show permissions for the provided token.
     if args.show_permissions:
-        if args.list or args.owner or args.repo or args.classic:
-            parser.error(
-                "--show-permissions cannot be combined with --list or token-saving options."
-            )
-        if not args.token:
-            parser.error("--token is required with --show-permissions.")
         try:
             return _show_token_permissions(args.token)
         except (HTTPError, URLError, OSError) as e:
             print(f"github-token: failed to query token permissions: {e}", file=sys.stderr)
             return 1
-    if args.list:
-        if args.token or args.owner or args.repo or args.classic:
-            parser.error("--list cannot be combined with token-saving options.")
-        return _list_tokens(args.verbose)
-    if not args.token:
-        parser.error("--token is required unless --list is specified.")
-    if (args.owner is None) != (args.repo is None):
-        parser.error("--owner and --repo must be provided together.")
-    if args.classic and args.owner:
-        parser.error("--classic cannot be combined with --owner/--repo.")
 
-    if args.owner and args.repo:
-        cache = _load_cache()
-        _save_cache(
-            {
-                "project_tokens": _build_project_token_cache(
-                    cache, args.owner, args.repo, args.token
-                )
-            }
-        )
-        print(f"github-token: saved token for {args.owner}/{args.repo} in {CONFIG_FILE}.")
-        return 0
-
-    _save_cache({"token": args.token})
-    print(f"github-token: saved classic token in {CONFIG_FILE}.")
     return 0
 
 

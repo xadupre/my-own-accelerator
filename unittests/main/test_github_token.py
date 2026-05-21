@@ -121,10 +121,77 @@ class TestGitHubToken(ExtTestCase):
             main(["--show-permissions"])
         self.assertEqual(ctx.exception.code, 2)
 
-    def test_main_show_permissions_cannot_be_combined_with_list(self) -> None:
-        with self.assertRaises(SystemExit) as ctx:
-            main(["--list", "--token", "classic_tok", "--show-permissions"])
-        self.assertEqual(ctx.exception.code, 2)
+    def test_main_show_permissions_combined_with_list(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            fake_config.write_text(json.dumps({"token": "classic_tok"}), encoding="utf-8")
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._show_token_permissions",
+                    return_value=0,
+                ) as mocked,
+            ):
+                code = main(["--list", "--token", "classic_tok", "--show-permissions"])
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with("classic_tok")
+        self.assertIn("classic_tok", out.getvalue())
+
+    def test_main_show_permissions_combined_with_classic_save(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._show_token_permissions",
+                    return_value=0,
+                ) as mocked,
+            ):
+                code = main(["--token", "classic_tok", "--classic", "--show-permissions"])
+            saved = json.loads(fake_config.read_text())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["token"], "classic_tok")
+        self.assertIn("saved classic token", out.getvalue())
+        mocked.assert_called_once_with("classic_tok")
+
+    def test_main_show_permissions_combined_with_project_save(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._show_token_permissions",
+                    return_value=0,
+                ) as mocked,
+            ):
+                code = main(
+                    [
+                        "--token",
+                        "project_tok",
+                        "--owner",
+                        "owner",
+                        "--repo",
+                        "repo",
+                        "--show-permissions",
+                    ]
+                )
+            saved = json.loads(fake_config.read_text())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["project_tokens"]["owner/repo"], "project_tok")
+        self.assertIn("saved token for owner/repo", out.getvalue())
+        mocked.assert_called_once_with("project_tok")
 
     def test_sanitize_permission_header(self) -> None:
         got = _sanitize_permission_header("contents=read;pull_requests=read\n\x00token")

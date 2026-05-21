@@ -9,6 +9,7 @@ from urllib.error import HTTPError
 
 from moa.commands.pr_weekly_table import (
     _build_parser,
+    _load_cache,
     _parse_since_datetime,
     build_weekly_pr_markdown_table,
     build_weekly_pr_summary_rows,
@@ -242,15 +243,24 @@ class TestPRWeeklyTable(ExtTestCase):
                 ),
             ),
         ):
+            warnings = []
             rows = build_weekly_pr_summary_rows(
                 "o",
                 "r",
                 token="tok",
                 since="2026-05-10T00:00:00Z",
                 copilot=True,
+                warnings=warnings,
             )
-        self.assertEqual(rows[0]["copilot_summary"], "Copilot summary unavailable (HTTPError)")
-        self.assertEqual(rows[0]["help_needed"], "unknown")
+        self.assertNotIn("copilot_summary", rows[0])
+        self.assertNotIn("help_needed", rows[0])
+        self.assertEqual(
+            warnings,
+            [
+                "pr-weekly-table: warning: unable to generate Copilot summary "
+                "for PR #2: HTTP 400: Bad Request."
+            ],
+        )
 
     def test_main_copilot_requires_token(self) -> None:
         out = StringIO()
@@ -468,9 +478,40 @@ class TestPRWeeklyTable(ExtTestCase):
             self.assertEqual(code, 0)
             self.assertEqual(out.getvalue().strip(), str(expected_output))
             self.assertIn(
-                "Copilot summary unavailable (HTTPError)",
-                expected_output.read_text(encoding="utf-8"),
+                "pr-weekly-table: warning: unable to generate Copilot summary",
+                err.getvalue(),
             )
+            self.assertIn("HTTP 400: Bad Request.", err.getvalue())
+            output_text = expected_output.read_text(encoding="utf-8")
+            self.assertNotIn("Copilot summary unavailable", output_text)
+            cache_payload = json.loads(
+                (pathlib.Path(tmp) / "pr_weekly_repo_cache.json").read_text(encoding="utf-8")
+            )
+            self.assertNotIn("copilot_summary", cache_payload["rows"]["1"])
+            self.assertNotIn("help_needed", cache_payload["rows"]["1"])
+
+    def test_load_cache_removes_failed_copilot_fallback_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = pathlib.Path(tmp) / "cache.json"
+            cache_path.write_text(
+                json.dumps(
+                    {
+                        "rows": {
+                            "1": {
+                                "number": 1,
+                                "title": "PR",
+                                "copilot_summary": "Copilot summary unavailable (HTTPError)",
+                                "help_needed": "unknown",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+            rows = _load_cache(cache_path)
+        self.assertIn("1", rows)
+        self.assertNotIn("copilot_summary", rows["1"])
+        self.assertNotIn("help_needed", rows["1"])
 
     def test_build_weekly_rows_retries_paginated_incomplete_read(self) -> None:
         pulls = [

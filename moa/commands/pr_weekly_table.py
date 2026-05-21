@@ -102,7 +102,22 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
     rows = payload.get("rows", {})
     if not isinstance(rows, dict):
         return {}
-    return {k: v for k, v in rows.items() if isinstance(k, str) and isinstance(v, dict)}
+    cleaned_rows: dict[str, dict[str, Any]] = {}
+    for k, v in rows.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        row = dict(v)
+        summary = str(row.get("copilot_summary", "")).strip()
+        help_needed = str(row.get("help_needed", "")).strip().lower()
+        if summary.startswith("Copilot summary unavailable (") or help_needed not in {
+            "",
+            "yes",
+            "no",
+        }:
+            row.pop("copilot_summary", None)
+            row.pop("help_needed", None)
+        cleaned_rows[k] = row
+    return cleaned_rows
 
 
 def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
@@ -276,15 +291,21 @@ def _call_copilot_summary(
     return summary, help_needed
 
 
-def _call_copilot_summary_with_fallback(
-    row: dict[str, Any],
-    token: str,
-    model: str = DEFAULT_MODEL,
-) -> tuple[str, str]:
-    try:
-        return _call_copilot_summary(row, token=token, model=model)
-    except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
-        return (f"Copilot summary unavailable ({type(e).__name__})", "unknown")
+def _format_copilot_error_details(error: Exception) -> str:
+    if isinstance(error, HTTPError):
+        return f"HTTP {error.code}: {error.reason}"
+    if isinstance(error, URLError):
+        return f"URL error: {error.reason}"
+    return str(error) or type(error).__name__
+
+
+def _build_copilot_warning(row: dict[str, Any], error: Exception) -> str:
+    number = str(row.get("number", "")).strip()
+    target = f"PR #{number}" if number else "a PR"
+    return (
+        "pr-weekly-table: warning: unable to generate Copilot summary for "
+        f"{target}: {_format_copilot_error_details(error)}."
+    )
 
 
 def build_weekly_pr_summary_rows(
@@ -296,6 +317,7 @@ def build_weekly_pr_summary_rows(
     cached_rows: dict[str, dict[str, Any]] | None = None,
     copilot: bool = False,
     model: str = DEFAULT_MODEL,
+    warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_since_datetime(since)
     pulls_url = (
@@ -375,11 +397,14 @@ def build_weekly_pr_summary_rows(
             ),
         }
         if copilot:
-            summary, help_needed = _call_copilot_summary_with_fallback(
-                row, token=token or "", model=model
-            )
-            row["copilot_summary"] = summary
-            row["help_needed"] = help_needed
+            try:
+                summary, help_needed = _call_copilot_summary(row, token=token or "", model=model)
+            except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
+                if warnings is not None:
+                    warnings.append(_build_copilot_warning(row, e))
+            else:
+                row["copilot_summary"] = summary
+                row["help_needed"] = help_needed
         rows.append(row)
     return rows
 
@@ -553,6 +578,7 @@ def main(argv: list[str] | None = None) -> int:
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     cached_rows = _load_cache(cache_path)
+    warnings: list[str] = []
     try:
         rows = build_weekly_pr_summary_rows(
             owner=args.owner,
@@ -563,11 +589,14 @@ def main(argv: list[str] | None = None) -> int:
             cached_rows=cached_rows,
             copilot=args.copilot,
             model=args.model,
+            warnings=warnings,
         )
     except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)
         return 1
     _save_cache(cache_path, rows)
+    for warning in warnings:
+        print(warning, file=sys.stderr)
     output_path.write_text(
         build_weekly_pr_markdown_table(rows, copilot=args.copilot),
         encoding="utf-8",

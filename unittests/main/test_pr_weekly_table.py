@@ -289,6 +289,10 @@ class TestPRWeeklyTable(ExtTestCase):
             datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
         )
 
+    def test_parse_since_datetime_raises_clear_error_on_invalid_value(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid --since value"):
+            _parse_since_datetime("yesterday-ish")
+
     def test_build_weekly_rows_retries_paginated_incomplete_read(self) -> None:
         pulls = [
             {

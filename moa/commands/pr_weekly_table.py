@@ -28,6 +28,7 @@ from .since_utils import parse_relative_since
 
 DEFAULT_CACHE_DIR = "dump_pr_stats"
 COPILOT_SUMMARY_UNAVAILABLE_PREFIX = "Copilot summary unavailable ("
+VALID_HELP_NEEDED_VALUES = {"", "yes", "no"}
 
 _FAILING_STATUS_STATES = {"error", "failure"}
 _T = TypeVar("_T")
@@ -110,11 +111,10 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
         row = dict(v)
         summary = str(row.get("copilot_summary", "")).strip()
         help_needed = str(row.get("help_needed", "")).strip().lower()
-        if summary.startswith(COPILOT_SUMMARY_UNAVAILABLE_PREFIX) or help_needed not in {
-            "",
-            "yes",
-            "no",
-        }:
+        if (
+            summary.startswith(COPILOT_SUMMARY_UNAVAILABLE_PREFIX)
+            or help_needed not in VALID_HELP_NEEDED_VALUES
+        ):
             row.pop("copilot_summary", None)
             row.pop("help_needed", None)
         cleaned_rows[k] = row
@@ -297,7 +297,11 @@ def _format_copilot_error_details(error: Exception) -> str:
         return f"HTTP {error.code}: {error.reason}"
     if isinstance(error, URLError):
         return f"URL error: {error.reason}"
-    return str(error) or type(error).__name__
+    try:
+        message = str(error)
+    except Exception:
+        message = ""
+    return message or type(error).__name__
 
 
 def _build_copilot_warning(row: dict[str, Any], error: Exception) -> str:

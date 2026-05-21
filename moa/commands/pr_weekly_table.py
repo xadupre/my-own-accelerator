@@ -83,7 +83,7 @@ def _parse_since_datetime(value: str | None, now: datetime | None = None) -> dat
     )
     if match:
         amount = int(match.group("amount"))
-        unit = match.group("unit").lower()
+        unit = match.group("unit").lower().rstrip("s")
         unit_kwargs = {
             "day": {"days": amount},
             "hour": {"hours": amount},

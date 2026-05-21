@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
+from urllib import request
+from urllib.error import HTTPError, URLError
 
 from .review_token import CONFIG_FILE, _build_project_token_cache, _load_cache, _save_cache
 
@@ -38,6 +41,12 @@ def _build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Show token type details when listing cached tokens.",
     )
+    parser.add_argument(
+        "--show-permissions",
+        action="store_true",
+        default=False,
+        help="Display token permissions/scopes and exit (requires --token).",
+    )
     return parser
 
 
@@ -65,11 +74,56 @@ def _list_tokens(verbose: bool) -> int:
     return 0
 
 
+def _show_token_permissions(token: str) -> int:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "moa/github-token",
+    }
+    req = request.Request("https://api.github.com/user", headers=headers)
+    with request.urlopen(req, timeout=10) as response:
+        oauth_scopes = _sanitize_permission_header(response.headers.get("X-OAuth-Scopes", ""))
+        accepted_scopes = _sanitize_permission_header(
+            response.headers.get("X-Accepted-OAuth-Scopes", "")
+        )
+        accepted_permissions = _sanitize_permission_header(
+            response.headers.get("X-Accepted-GitHub-Permissions", "")
+        )
+    print("github-token: token permission details")
+    sys.stdout.write(f"oauth_scopes_count: {_count_permission_entries(oauth_scopes)}\n")
+    sys.stdout.write(
+        f"accepted_oauth_scopes_count: {_count_permission_entries(accepted_scopes)}\n"
+    )
+    sys.stdout.write(f"accepted_github_permissions: {accepted_permissions or '(none)'}\n")
+    return 0
+
+
+def _sanitize_permission_header(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_,:.\- ]+", "", value).strip()
+    return cleaned[:200]
+
+
+def _count_permission_entries(value: str) -> int:
+    return sum(1 for item in value.split(",") if item.strip())
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.show_permissions:
+        if args.list or args.owner or args.repo or args.classic:
+            parser.error(
+                "--show-permissions cannot be combined with --list or token-saving options."
+            )
+        if not args.token:
+            parser.error("--token is required with --show-permissions.")
+        try:
+            return _show_token_permissions(args.token)
+        except (HTTPError, URLError, OSError) as e:
+            print(f"github-token: failed to query token permissions: {e}", file=sys.stderr)
+            return 1
     if args.list:
         if args.token or args.owner or args.repo or args.classic:
             parser.error("--list cannot be combined with token-saving options.")

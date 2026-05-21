@@ -480,6 +480,7 @@ class TestReviewPR(ExtTestCase):
 
     def test_main_copilot_review_does_not_fallback_to_classic_cached_token(self) -> None:
         out = StringIO()
+        err = StringIO()
         env_keys = ("GITHUB_TOKEN", "GITHUB_API_URL")
         env_backup = {k: os.environ.get(k) for k in env_keys}
         for k in env_keys:
@@ -491,6 +492,7 @@ class TestReviewPR(ExtTestCase):
                     return_value="# review",
                 ) as mocked,
                 patch("sys.stdout", out),
+                patch("sys.stderr", err),
                 patch(
                     "moa.commands.review_pr._load_cache",
                     return_value={
@@ -507,9 +509,9 @@ class TestReviewPR(ExtTestCase):
                 else:
                     os.environ[k] = v
 
-        self.assertEqual(code, 0)
-        self.assertTrue(mocked.call_args.kwargs["copilot_review"])
-        self.assertIsNone(mocked.call_args.kwargs["token"])
+        self.assertEqual(code, 1)
+        mocked.assert_not_called()
+        self.assertIn("required for --copilot-review", err.getvalue())
 
     def test_main_save_flag_persists_values(self) -> None:
         out = StringIO()

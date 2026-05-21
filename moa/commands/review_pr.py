@@ -322,10 +322,9 @@ def main(argv: list[str] | None = None) -> int:
     # Pre-parse to discover the effective --user value before injecting owner.
     _pre = argparse.ArgumentParser(add_help=False)
     _pre.add_argument("--user", default=user_default)
-    _pre.add_argument("--copilot-review", action="store_true", default=False)
     _pre_args, _ = _pre.parse_known_args(argv)
     effective_user = _pre_args.user
-    copilot_review_requested = _pre_args.copilot_review
+    copilot_review_requested = "--copilot-review" in argv
 
     # Allow omitting owner when the GitHub username is cached / in env.
     argv = _resolve_positional_argv(argv, effective_user)
@@ -340,6 +339,19 @@ def main(argv: list[str] | None = None) -> int:
         user_default=user_default,
     )
     args = parser.parse_args(argv)
+
+    if args.copilot_review and not args.token:
+        print(
+            (
+                "Unable to review pull request "
+                f"{args.owner}/{args.repo}#{args.pull_request} (ValueError)\n"
+                "A repository token is required for --copilot-review. "
+                "Provide --token/GITHUB_TOKEN or cache a fine-grained token for "
+                f"{args.owner}/{args.repo} with github-token --owner/--repo."
+            ),
+            file=sys.stderr,
+        )
+        return 1
 
     if args.save:
         to_save: dict[str, Any] = {}

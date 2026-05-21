@@ -566,12 +566,9 @@ def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     token_cache = _load_token_cache()
-    _pre = argparse.ArgumentParser(add_help=False)
-    _pre.add_argument("--copilot", action="store_true", default=False)
-    _pre_args, _ = _pre.parse_known_args(argv)
     owner, repo = _extract_owner_repo(argv)
     token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(
-        token_cache, owner, repo, include_classic=not _pre_args.copilot
+        token_cache, owner, repo, include_classic="--copilot" not in argv
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)

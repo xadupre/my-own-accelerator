@@ -101,3 +101,27 @@ class TestGitHubToken(ExtTestCase):
                 f"owner/repo ({fake_config}): project_tok [type=fine-grained]",
             ],
         )
+
+    def test_main_show_permissions(self) -> None:
+        out = StringIO()
+        with (
+            patch("sys.stdout", out),
+            patch(
+                "moa.commands.github_token._show_token_permissions",
+                return_value=0,
+            ) as mocked,
+        ):
+            code = main(["--token", "classic_tok", "--show-permissions"])
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with("classic_tok")
+
+    def test_main_show_permissions_requires_token(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--show-permissions"])
+        self.assertEqual(ctx.exception.code, 2)
+
+    def test_main_show_permissions_cannot_be_combined_with_list(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--list", "--token", "classic_tok", "--show-permissions"])
+        self.assertEqual(ctx.exception.code, 2)

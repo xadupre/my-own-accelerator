@@ -41,6 +41,7 @@ from .review_token import (
 from .review_token import (
     _load_cache as _load_token_cache,
 )
+from .since_utils import parse_relative_since
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
@@ -139,26 +140,9 @@ def _default_since() -> str:
 def _parse_since_datetime(value: str, now: datetime | None = None) -> datetime:
     """Parse a ``--since`` value as ISO date/datetime or a relative expression."""
     since_value = value.strip()
-    match = re.fullmatch(
-        (
-            r"(?P<amount>[+-]?\d+)\s*"
-            r"(?P<unit>d(?:ays?)?|h(?:ours?)?|m(?:in(?:ute)?s?)?|w(?:eeks?)?)"
-        ),
-        since_value,
-        flags=re.IGNORECASE,
-    )
-    if match:
-        amount = int(match.group("amount"))
-        unit = match.group("unit").lower()
-        if unit.startswith("d"):
-            delta = {"days": amount}
-        elif unit.startswith("h"):
-            delta = {"hours": amount}
-        elif unit.startswith("m"):
-            delta = {"minutes": amount}
-        else:
-            delta = {"weeks": amount}
-        return (now or datetime.now(timezone.utc)) + timedelta(**delta)
+    relative_dt = parse_relative_since(since_value, now=now)
+    if relative_dt is not None:
+        return relative_dt
     try:
         return _parse_iso_datetime(since_value)
     except ValueError as e:

@@ -220,6 +220,7 @@ def _send_chat_request(
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
     on_model_used: Callable[[str], None] | None = None,
+    verbose: int = 0,
 ) -> str:
     """Send a chat completion request via the GitHub Copilot SDK.
 
@@ -233,12 +234,16 @@ def _send_chat_request(
     :raises ValueError: If the API returns no choices or empty content.
     :raises RuntimeError: If the Copilot session reports an error.
     """
+    assert token, "Token is mandatory."
+
     system_prompt = "\n\n".join(
         message["content"]
         for message in messages
         if message.get("role") == "system" and message.get("content")
     )
     prompts = [message["content"] for message in messages if message.get("role") == "user"]
+    if verbose:
+        print(f"{command_name} with model={model!r}, prompts={', '.join(prompts)}")
     if not prompts:
         raise ValueError("At least one user message is required for a Copilot request.")
     return asyncio.run(

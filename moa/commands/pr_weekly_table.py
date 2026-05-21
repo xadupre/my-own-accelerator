@@ -256,6 +256,7 @@ def _call_copilot_summary(
     token: str,
     model: str | None = DEFAULT_MODEL,
     on_model_used: Callable[[str], None] | None = None,
+    verbose: int = 0,
 ) -> tuple[str, str]:
     messages = [
         {
@@ -285,6 +286,7 @@ def _call_copilot_summary(
         model=model,
         command_name="pr-weekly-table",
         on_model_used=on_model_used,
+        verbose=verbose,
     )
     summary = raw.strip()
     help_needed = "unknown"
@@ -342,6 +344,7 @@ def build_weekly_pr_summary_rows(
     model: str | None = DEFAULT_MODEL,
     warnings: list[str] | None = None,
     on_model_used: Callable[[str], None] | None = None,
+    verbose: int = 0,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_since_datetime(since)
     pulls_url = (
@@ -427,6 +430,7 @@ def build_weekly_pr_summary_rows(
                     token=token or "",
                     model=model,
                     on_model_used=on_model_used,
+                    verbose=verbose,
                 )
             except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
                 if warnings is not None:
@@ -630,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
             model=args.model,
             warnings=warnings,
             on_model_used=report_copilot_model if args.copilot else None,
+            verbose=args.verbose,
         )
     except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)

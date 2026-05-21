@@ -297,10 +297,7 @@ def _format_copilot_error_details(error: Exception) -> str:
         return f"HTTP {error.code}: {error.reason}"
     if isinstance(error, URLError):
         return f"URL error: {error.reason}"
-    try:
-        message = str(error)
-    except Exception:
-        message = ""
+    message = str(error)
     return message or type(error).__name__
 
 

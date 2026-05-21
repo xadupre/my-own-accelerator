@@ -84,8 +84,6 @@ def _parse_since_datetime(value: str | None, now: datetime | None = None) -> dat
     if match:
         amount = int(match.group("amount"))
         unit = match.group("unit").lower()
-        if unit.endswith("s"):
-            unit = unit[:-1]
         unit_kwargs = {
             "day": {"days": amount},
             "hour": {"hours": amount},
@@ -99,7 +97,7 @@ def _parse_since_datetime(value: str | None, now: datetime | None = None) -> dat
         raise ValueError(
             "Invalid --since value "
             f"{since_value!r}; expected YYYY-MM-DD, ISO datetime, "
-            "or relative values like '-1 day'."
+            "or relative values like '-1 day', '+2 weeks', or '3 hours'."
         ) from e
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)

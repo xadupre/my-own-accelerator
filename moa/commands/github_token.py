@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from urllib import request
 from urllib.error import HTTPError, URLError
@@ -80,15 +81,30 @@ def _show_token_permissions(token: str) -> int:
         "User-Agent": "moa/github-token",
     }
     req = request.Request("https://api.github.com/user", headers=headers)
-    with request.urlopen(req) as response:
-        oauth_scopes = response.headers.get("X-OAuth-Scopes", "")
-        accepted_scopes = response.headers.get("X-Accepted-OAuth-Scopes", "")
-        accepted_permissions = response.headers.get("X-Accepted-GitHub-Permissions", "")
+    with request.urlopen(req, timeout=10) as response:
+        oauth_scopes = _sanitize_permission_header(response.headers.get("X-OAuth-Scopes", ""))
+        accepted_scopes = _sanitize_permission_header(
+            response.headers.get("X-Accepted-OAuth-Scopes", "")
+        )
+        accepted_permissions = _sanitize_permission_header(
+            response.headers.get("X-Accepted-GitHub-Permissions", "")
+        )
     print("github-token: token permission details")
-    print(f"oauth_scopes: {oauth_scopes or '(none)'}")
-    print(f"accepted_oauth_scopes: {accepted_scopes or '(none)'}")
-    print(f"accepted_github_permissions: {accepted_permissions or '(none)'}")
+    sys.stdout.write(f"oauth_scopes_count: {_count_permission_entries(oauth_scopes)}\n")
+    sys.stdout.write(
+        f"accepted_oauth_scopes_count: {_count_permission_entries(accepted_scopes)}\n"
+    )
+    sys.stdout.write(f"accepted_github_permissions: {accepted_permissions or '(none)'}\n")
     return 0
+
+
+def _sanitize_permission_header(value: str) -> str:
+    cleaned = re.sub(r"[^a-zA-Z0-9_,:.\- ]+", "", value).strip()
+    return cleaned[:200]
+
+
+def _count_permission_entries(value: str) -> int:
+    return sum(1 for item in value.split(",") if item.strip())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -105,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
             parser.error("--token is required with --show-permissions.")
         try:
             return _show_token_permissions(args.token)
-        except (HTTPError, URLError, OSError, ValueError) as e:
+        except (HTTPError, URLError, OSError) as e:
             print(f"github-token: failed to query token permissions: {e}", file=sys.stderr)
             return 1
     if args.list:

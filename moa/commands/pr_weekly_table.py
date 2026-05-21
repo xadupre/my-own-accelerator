@@ -109,10 +109,13 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
         if not isinstance(k, str) or not isinstance(v, dict):
             continue
         row = dict(v)
-        summary = str(row.get("copilot_summary", "")).strip()
-        help_needed = str(row.get("help_needed", "")).strip().lower()
-        if (
+        raw_summary = row.get("copilot_summary", "")
+        raw_help_needed = row.get("help_needed", "")
+        summary = raw_summary.strip() if isinstance(raw_summary, str) else ""
+        help_needed = raw_help_needed.strip().lower() if isinstance(raw_help_needed, str) else ""
+        if (raw_summary != "" and not isinstance(raw_summary, str)) or (
             summary.startswith(COPILOT_SUMMARY_UNAVAILABLE_PREFIX)
+            or not isinstance(raw_help_needed, str)
             or help_needed not in VALID_HELP_NEEDED_VALUES
         ):
             row.pop("copilot_summary", None)
@@ -298,7 +301,9 @@ def _format_copilot_error_details(error: Exception) -> str:
     if isinstance(error, URLError):
         return f"URL error: {error.reason}"
     message = str(error)
-    return message or type(error).__name__
+    if not message:
+        return type(error).__name__
+    return message
 
 
 def _build_copilot_warning(row: dict[str, Any], error: Exception) -> str:

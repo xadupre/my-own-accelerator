@@ -71,6 +71,19 @@ def _build_project_token_cache(
     return project_tokens
 
 
+def _classify_token_by_prefix(token: str) -> str | None:
+    """Classify a GitHub token by its documented prefix.
+
+    :return: ``"classic"`` for ``ghp_*`` tokens, ``"fine-grained"`` for
+        ``github_pat_*`` tokens, or ``None`` if the prefix is unknown.
+    """
+    if token.startswith("github_pat_"):
+        return "fine-grained"
+    if token.startswith("ghp_"):
+        return "classic"
+    return None
+
+
 def _resolve_token_origin(
     argv: list[str],
     token: str | None,
@@ -85,14 +98,17 @@ def _resolve_token_origin(
         ``"--token"``, ``"GITHUB_TOKEN"``, ``"<config path> (owner/repo)"``,
         ``"<config path>"``, ``"none"``, or ``"unknown"``; and ``token_type``
         is one of ``"explicit"``, ``"fine-grained"``, ``"classic"``, or
-        ``"none"``.
+        ``"none"``. For tokens supplied via ``--token`` or
+        ``GITHUB_TOKEN``, the type is inferred from the token prefix
+        (``ghp_*`` → ``classic``, ``github_pat_*`` → ``fine-grained``)
+        and falls back to ``"explicit"`` when the prefix is unknown.
     """
     if not token:
         return ("none", "none")
     if "--token" in argv:
-        return ("--token", "explicit")
+        return ("--token", _classify_token_by_prefix(token) or "explicit")
     if env_token and token == env_token:
-        return ("GITHUB_TOKEN", "explicit")
+        return ("GITHUB_TOKEN", _classify_token_by_prefix(token) or "explicit")
     cache = cache or {}
     if owner and repo:
         project_tokens = cache.get("project_tokens")
@@ -103,7 +119,7 @@ def _resolve_token_origin(
     classic_token = cache.get("token")
     if isinstance(classic_token, str) and classic_token and token == classic_token:
         return (str(CONFIG_FILE), "classic")
-    return ("unknown", "explicit")
+    return ("unknown", _classify_token_by_prefix(token) or "explicit")
 
 
 def _extract_owner_repo(argv: list[str]) -> tuple[str | None, str | None]:

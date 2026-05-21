@@ -15,7 +15,7 @@ _RELATIVE_SINCE_RE = re.compile(
 
 
 def parse_relative_since(value: str, now: datetime | None = None) -> datetime | None:
-    """Parse relative offsets like ``-3d`` or ``-4 d`` and return UTC datetimes."""
+    """Parse relative offsets like ``-3d``, ``-4 d``, or ``+2 weeks`` as UTC."""
     match = _RELATIVE_SINCE_RE.fullmatch(value.strip())
     if not match:
         return None

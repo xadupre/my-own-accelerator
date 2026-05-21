@@ -1,3 +1,6 @@
+import json
+import pathlib
+import tempfile
 from datetime import datetime, timezone
 from http.client import IncompleteRead
 from io import StringIO
@@ -215,21 +218,24 @@ class TestPRWeeklyTable(ExtTestCase):
                 "requested_reviewers": [],
             }
         ]
-        with (
-            patch("sys.stdout", out),
-            patch("sys.stderr", err),
-            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
-            patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
-            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
-            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
-            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
-            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
-            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
-            patch("moa.commands.pr_weekly_table._save_cache"),
-        ):
-            code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "--verbose"])
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+                patch("moa.commands.pr_weekly_table.DEFAULT_CACHE_DIR", tmp),
+                patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+                patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+                patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+                patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+                patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+                patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            ):
+                code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "--verbose"])
         self.assertEqual(code, 0)
         self.assertIn("pr-weekly-table: token source=none, type=none.", err.getvalue())
+        self.assertIn("pr-weekly-table: cache file=", err.getvalue())
+        self.assertIn("pr-weekly-table: output file=", err.getvalue())
         self.assertIn(
             "pr-weekly-table: collecting pull request data for owner/repo...",
             err.getvalue(),
@@ -252,22 +258,23 @@ class TestPRWeeklyTable(ExtTestCase):
                 "requested_reviewers": [],
             }
         ]
-        with (
-            patch("sys.stdout", out),
-            patch("sys.stderr", err),
-            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
-            patch(
-                "moa.commands.pr_weekly_table._load_token_cache",
-                return_value={"project_tokens": {"owner/repo": "cached_tok"}},
-            ),
-            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
-            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
-            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
-            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
-            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
-            patch("moa.commands.pr_weekly_table._save_cache"),
-        ):
-            code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "-v"])
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+                patch("moa.commands.pr_weekly_table.DEFAULT_CACHE_DIR", tmp),
+                patch(
+                    "moa.commands.pr_weekly_table._load_token_cache",
+                    return_value={"project_tokens": {"owner/repo": "cached_tok"}},
+                ),
+                patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+                patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+                patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+                patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+                patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            ):
+                code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "-v"])
         self.assertEqual(code, 0)
         self.assertIn(
             f"pr-weekly-table: token source={CONFIG_FILE} (owner/repo), type=fine-grained.",
@@ -278,20 +285,69 @@ class TestPRWeeklyTable(ExtTestCase):
         help_text = _build_parser().format_help()
         self.assertIn("-v, --verbose", help_text)
         self.assertIn("relative values like '-1 day'", help_text)
+        self.assertIn("--output-file OUTPUT_FILE", help_text)
         self.assertIn("Any model available on the GitHub", help_text)
         self.assertIn("Models API is accepted", help_text)
         self.assertIn("openai/gpt-4.1", help_text)
 
-    def test_parse_since_datetime_supports_relative_days(self) -> None:
+    def test_parse_since_datetime_supports_requested_relative_day_forms(self) -> None:
         now = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
-        self.assertEqual(
-            _parse_since_datetime("-1 day", now=now),
-            datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
-        )
+        cases = {
+            "-1 day": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+            "-2 days": datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+            "-3d": datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc),
+            "-4 d": datetime(2026, 5, 17, 12, 0, tzinfo=timezone.utc),
+            "-11 day": datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc),
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(_parse_since_datetime(value, now=now), expected)
 
     def test_parse_since_datetime_raises_clear_error_on_invalid_value(self) -> None:
         with self.assertRaisesRegex(ValueError, "Invalid --since value"):
             _parse_since_datetime("yesterday-ish")
+
+    def test_main_writes_default_output_file(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            expected_output = pathlib.Path(tmp) / "pr_weekly_repo.md"
+            expected_cache = pathlib.Path(tmp) / "pr_weekly_repo_cache.json"
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+                patch("moa.commands.pr_weekly_table.DEFAULT_CACHE_DIR", tmp),
+                patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+                patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+                patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+                patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+                patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+                patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            ):
+                code = main(["owner", "repo", "--since", "2026-05-10T00:00:00Z", "--verbose"])
+            self.assertEqual(code, 0)
+            self.assertEqual(out.getvalue().strip(), str(expected_output))
+            self.assertIn(f"pr-weekly-table: cache file={expected_cache}", err.getvalue())
+            self.assertIn(f"pr-weekly-table: output file={expected_output}", err.getvalue())
+            self.assertTrue(expected_output.exists())
+            self.assertTrue(expected_cache.exists())
+            self.assertIn("| Title | Author |", expected_output.read_text(encoding="utf-8"))
+            cache_payload = json.loads(expected_cache.read_text(encoding="utf-8"))
+            self.assertIn("1", cache_payload["rows"])
 
     def test_build_weekly_rows_retries_paginated_incomplete_read(self) -> None:
         pulls = [

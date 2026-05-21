@@ -49,6 +49,10 @@ Command line weekly pull request summary table:
 pr-weekly-table xadupre my-own-accelerator
 ```
 
+This command writes the Markdown table to
+`dump_pr_stats/pr_weekly_<repo>.md` and caches fetched rows in
+`dump_pr_stats/pr_weekly_<repo>_cache.json` by default.
+
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 
 ## Development checks

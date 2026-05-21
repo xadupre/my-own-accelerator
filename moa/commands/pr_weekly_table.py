@@ -77,27 +77,32 @@ def _default_since() -> str:
 def _parse_since_datetime(value: str | None, now: datetime | None = None) -> datetime:
     since_value = (value or _default_since()).strip()
     match = re.fullmatch(
-        r"(?P<amount>[+-]?\d+)\s+(?P<unit>day|hour|minute|week)s?",
+        (
+            r"(?P<amount>[+-]?\d+)\s*"
+            r"(?P<unit>d(?:ays?)?|h(?:ours?)?|m(?:in(?:ute)?s?)?|w(?:eeks?)?)"
+        ),
         since_value,
         flags=re.IGNORECASE,
     )
     if match:
         amount = int(match.group("amount"))
         unit = match.group("unit").lower()
-        unit_kwargs = {
-            "day": {"days": amount},
-            "hour": {"hours": amount},
-            "minute": {"minutes": amount},
-            "week": {"weeks": amount},
-        }
-        return (now or datetime.now(timezone.utc)) + timedelta(**unit_kwargs[unit])
+        if unit.startswith("d"):
+            delta = {"days": amount}
+        elif unit.startswith("h"):
+            delta = {"hours": amount}
+        elif unit.startswith("m"):
+            delta = {"minutes": amount}
+        else:
+            delta = {"weeks": amount}
+        return (now or datetime.now(timezone.utc)) + timedelta(**delta)
     try:
         parsed = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
     except ValueError as e:
         raise ValueError(
             "Invalid --since value "
             f"{since_value!r}; expected YYYY-MM-DD, ISO datetime, "
-            "or relative values like '-1 day', '+2 weeks', or '3 hours'."
+            "or relative values like '-1 day', '-3d', '+2 weeks', or '3 hours'."
         ) from e
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
@@ -426,6 +431,14 @@ def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = F
     return "\n".join(lines)
 
 
+def _default_cache_path(repo: str) -> pathlib.Path:
+    return pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{repo}_cache.json"
+
+
+def _default_output_path(repo: str) -> pathlib.Path:
+    return pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{repo}.md"
+
+
 def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pr-weekly-table",
@@ -446,13 +459,18 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=None,
         help=(
             "Only include PRs created on/after this date "
-            "(YYYY-MM-DD, ISO datetime, or relative values like '-1 day')."
+            "(YYYY-MM-DD, ISO datetime, or relative values like '-1 day' or '-3d')."
         ),
     )
     parser.add_argument(
         "--cache-file",
         default=None,
         help="Optional cache file path (default: dump_pr_stats/pr_weekly_<repo>_cache.json).",
+    )
+    parser.add_argument(
+        "--output-file",
+        default=None,
+        help="Optional Markdown output path (default: dump_pr_stats/pr_weekly_<repo>.md).",
     )
     parser.add_argument(
         "--copilot",
@@ -489,6 +507,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
+    cache_path = (
+        pathlib.Path(args.cache_file) if args.cache_file else _default_cache_path(args.repo)
+    )
+    output_path = (
+        pathlib.Path(args.output_file) if args.output_file else _default_output_path(args.repo)
+    )
     if args.verbose:
         token_origin, token_type = _resolve_token_origin(
             argv,
@@ -503,6 +527,14 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
+            f"pr-weekly-table: cache file={cache_path}",
+            file=sys.stderr,
+        )
+        print(
+            f"pr-weekly-table: output file={output_path}",
+            file=sys.stderr,
+        )
+        print(
             f"pr-weekly-table: collecting pull request data for {args.owner}/{args.repo}...",
             file=sys.stderr,
         )
@@ -513,12 +545,8 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    cache_path = (
-        pathlib.Path(args.cache_file)
-        if args.cache_file
-        else pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{args.repo}_cache.json"
-    )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     cached_rows = _load_cache(cache_path)
     try:
         rows = build_weekly_pr_summary_rows(
@@ -535,9 +563,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)
         return 1
     _save_cache(cache_path, rows)
+    output_path.write_text(
+        build_weekly_pr_markdown_table(rows, copilot=args.copilot),
+        encoding="utf-8",
+    )
     if args.verbose:
         print("pr-weekly-table: done.", file=sys.stderr)
-    print(build_weekly_pr_markdown_table(rows, copilot=args.copilot))
+    print(output_path)
     return 0
 
 

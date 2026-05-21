@@ -874,12 +874,18 @@ class TestPRStats(ExtTestCase):
         self.assertGreaterEqual(diff_days, 180)
         self.assertLessEqual(diff_days, 185)
 
-    def test_parse_since_datetime_supports_relative_days(self) -> None:
-        with patch("moa.commands.pr_stats.datetime") as mock_datetime:
-            mock_datetime.now.return_value = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
-            mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
-            result = _parse_since_datetime("-1 day")
-        self.assertEqual(result, datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc))
+    def test_parse_since_datetime_supports_requested_relative_day_forms(self) -> None:
+        now = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
+        cases = {
+            "-1 day": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+            "-2 days": datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+            "-3d": datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc),
+            "-4 d": datetime(2026, 5, 17, 12, 0, tzinfo=timezone.utc),
+            "-11 day": datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc),
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(_parse_since_datetime(value, now=now), expected)
 
     def test_parse_since_datetime_raises_clear_error_on_invalid_value(self) -> None:
         with self.assertRaisesRegex(ValueError, "Invalid --since value"):
@@ -927,7 +933,7 @@ class TestPRStats(ExtTestCase):
 
         help_text = _build_parser().format_help()
         self.assertIn("relative values like '-1", help_text)
-        self.assertIn("day'). Default: 6 months ago.", help_text)
+        self.assertIn("or '-3d'). Default: 6 months ago.", help_text)
 
     def test_main_default_prefix_sanitizes_repo_name(self) -> None:
         fake_paths = {

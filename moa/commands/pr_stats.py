@@ -136,31 +136,36 @@ def _default_since() -> str:
     return datetime(year, month, day, tzinfo=timezone.utc).strftime("%Y-%m-%d")
 
 
-def _parse_since_datetime(value: str) -> datetime:
+def _parse_since_datetime(value: str, now: datetime | None = None) -> datetime:
     """Parse a ``--since`` value as ISO date/datetime or a relative expression."""
     since_value = value.strip()
     match = re.fullmatch(
-        r"(?P<amount>[+-]?\d+)\s+(?P<unit>day|hour|minute|week)s?",
+        (
+            r"(?P<amount>[+-]?\d+)\s*"
+            r"(?P<unit>d(?:ays?)?|h(?:ours?)?|m(?:in(?:ute)?s?)?|w(?:eeks?)?)"
+        ),
         since_value,
         flags=re.IGNORECASE,
     )
     if match:
         amount = int(match.group("amount"))
         unit = match.group("unit").lower()
-        unit_kwargs = {
-            "day": {"days": amount},
-            "hour": {"hours": amount},
-            "minute": {"minutes": amount},
-            "week": {"weeks": amount},
-        }
-        return datetime.now(timezone.utc) + timedelta(**unit_kwargs[unit])
+        if unit.startswith("d"):
+            delta = {"days": amount}
+        elif unit.startswith("h"):
+            delta = {"hours": amount}
+        elif unit.startswith("m"):
+            delta = {"minutes": amount}
+        else:
+            delta = {"weeks": amount}
+        return (now or datetime.now(timezone.utc)) + timedelta(**delta)
     try:
         return _parse_iso_datetime(since_value)
     except ValueError as e:
         raise ValueError(
             "Invalid --since value "
             f"{since_value!r}; expected YYYY-MM-DD, ISO datetime, "
-            "or relative values like '-1 day', '+2 weeks', or '3 hours'."
+            "or relative values like '-1 day', '-3d', '+2 weeks', or '3 hours'."
         ) from e
 
 
@@ -1333,7 +1338,7 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=None,
         help=(
             "Only include PRs created on/after this datetime "
-            "(YYYY-MM-DD, ISO 8601 datetime, or relative values like '-1 day'). "
+            "(YYYY-MM-DD, ISO 8601 datetime, or relative values like '-1 day' or '-3d'). "
             "Default: 6 months ago."
         ),
     )

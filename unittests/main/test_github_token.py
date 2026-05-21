@@ -121,6 +121,59 @@ class TestGitHubToken(ExtTestCase):
             main(["--show-permissions"])
         self.assertEqual(ctx.exception.code, 2)
 
+    def test_main_show_permissions_with_list_no_token(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            fake_config.write_text(
+                json.dumps(
+                    {
+                        "token": "classic_tok",
+                        "project_tokens": {"owner/repo": "project_tok"},
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._show_token_permissions",
+                    return_value=0,
+                ) as mocked,
+            ):
+                code = main(["--list", "--show-permissions"])
+
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked.call_count, 2)
+        called_tokens = [c.args[0] for c in mocked.call_args_list]
+        self.assertIn("classic_tok", called_tokens)
+        self.assertIn("project_tok", called_tokens)
+        output = out.getvalue()
+        self.assertIn("classic: classic_tok", output)
+        self.assertIn("permissions for classic", output)
+        self.assertIn("permissions for owner/repo", output)
+
+    def test_main_show_permissions_with_list_no_cached_tokens(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._show_token_permissions",
+                    return_value=0,
+                ) as mocked,
+            ):
+                code = main(["--list", "--show-permissions"])
+
+        self.assertEqual(code, 0)
+        mocked.assert_not_called()
+        self.assertIn("no cached tokens", out.getvalue())
+
     def test_main_show_permissions_combined_with_list(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:

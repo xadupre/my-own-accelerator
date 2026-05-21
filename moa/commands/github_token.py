@@ -45,7 +45,10 @@ def _build_parser() -> argparse.ArgumentParser:
         "--show-permissions",
         action="store_true",
         default=False,
-        help="Display token permissions/scopes and exit (requires --token).",
+        help=(
+            "Display token permissions/scopes and exit. Requires --token, "
+            "or --list to query permissions for each cached token."
+        ),
     )
     return parser
 
@@ -107,14 +110,42 @@ def _count_permission_entries(value: str) -> int:
     return sum(1 for item in value.split(",") if item.strip())
 
 
+def _show_permissions_for_cached_tokens() -> int:
+    cache = _load_cache()
+    entries: list[tuple[str, str]] = []
+    token = cache.get("token")
+    if isinstance(token, str) and token:
+        entries.append(("classic", token))
+    project_tokens = cache.get("project_tokens")
+    if isinstance(project_tokens, dict):
+        for key, value in sorted(project_tokens.items()):
+            if isinstance(value, str) and value:
+                entries.append((key, value))
+    if not entries:
+        print(f"github-token: no cached tokens in {CONFIG_FILE}.")
+        return 0
+    exit_code = 0
+    for label, tok in entries:
+        print(f"--- permissions for {label} ---")
+        try:
+            rc = _show_token_permissions(tok)
+            if rc != 0:
+                exit_code = rc
+        except (HTTPError, URLError, OSError) as e:
+            print(f"github-token: failed to query token permissions: {e}", file=sys.stderr)
+            exit_code = 1
+    return exit_code
+
+
 def main(argv: list[str] | None = None) -> int:
     if argv is None:
         argv = sys.argv[1:]
     parser = _build_parser()
     args = parser.parse_args(argv)
 
-    # --show-permissions always requires --token.
-    if args.show_permissions and not args.token:
+    # --show-permissions requires --token, unless --list is used (in which
+    # case permissions are queried for each cached token).
+    if args.show_permissions and not args.token and not args.list:
         parser.error("--token is required with --show-permissions.")
 
     # --list cannot be combined with token-saving options.
@@ -162,6 +193,10 @@ def main(argv: list[str] | None = None) -> int:
         _list_tokens(args.verbose)
         if not args.show_permissions:
             return 0
+        # When --show-permissions is combined with --list and no explicit
+        # --token is provided, query permissions for each cached token.
+        if not args.token:
+            return _show_permissions_for_cached_tokens()
 
     # Show permissions for the provided token.
     if args.show_permissions:

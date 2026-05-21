@@ -14,8 +14,8 @@ from typing import Any, TypeVar
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from .copilot_models import DEFAULT_MODEL, _send_chat_request
 from .pr_stats import _fetch_paginated
-from .review_pr import DEFAULT_MODEL, _send_chat_request
 from .review_token import (
     _extract_owner_repo,
     _resolve_cached_token,
@@ -24,8 +24,11 @@ from .review_token import (
 from .review_token import (
     _load_cache as _load_token_cache,
 )
+from .since_utils import parse_relative_since
 
 DEFAULT_CACHE_DIR = "dump_pr_stats"
+COPILOT_SUMMARY_UNAVAILABLE_PREFIX = "Copilot summary unavailable ("
+VALID_HELP_NEEDED_VALUES = {"", "yes", "no"}
 
 _FAILING_STATUS_STATES = {"error", "failure"}
 _T = TypeVar("_T")
@@ -73,6 +76,24 @@ def _default_since() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=7)).strftime("%Y-%m-%d")
 
 
+def _parse_since_datetime(value: str | None, now: datetime | None = None) -> datetime:
+    since_value = (value or _default_since()).strip()
+    relative_dt = parse_relative_since(since_value, now=now)
+    if relative_dt is not None:
+        return relative_dt
+    try:
+        parsed = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
+    except ValueError as e:
+        raise ValueError(
+            "Invalid --since value "
+            f"{since_value!r}; expected YYYY-MM-DD, ISO datetime, "
+            "or relative values like '-1 day', '-3d', '+2 weeks', or '3 hours'."
+        ) from e
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -83,7 +104,24 @@ def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
     rows = payload.get("rows", {})
     if not isinstance(rows, dict):
         return {}
-    return {k: v for k, v in rows.items() if isinstance(k, str) and isinstance(v, dict)}
+    cleaned_rows: dict[str, dict[str, Any]] = {}
+    for k, v in rows.items():
+        if not isinstance(k, str) or not isinstance(v, dict):
+            continue
+        row = dict(v)
+        raw_summary = row.get("copilot_summary", "")
+        raw_help_needed = row.get("help_needed", "")
+        summary = raw_summary.strip() if isinstance(raw_summary, str) else ""
+        help_needed = raw_help_needed.strip().lower() if isinstance(raw_help_needed, str) else ""
+        if (raw_summary != "" and not isinstance(raw_summary, str)) or (
+            summary.startswith(COPILOT_SUMMARY_UNAVAILABLE_PREFIX)
+            or not isinstance(raw_help_needed, str)
+            or help_needed not in VALID_HELP_NEEDED_VALUES
+        ):
+            row.pop("copilot_summary", None)
+            row.pop("help_needed", None)
+        cleaned_rows[k] = row
+    return cleaned_rows
 
 
 def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
@@ -216,7 +254,9 @@ def _collect_ci_status(
 def _call_copilot_summary(
     row: dict[str, Any],
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
+    on_model_used: Callable[[str], None] | None = None,
+    verbose: int = 0,
 ) -> tuple[str, str]:
     messages = [
         {
@@ -240,7 +280,14 @@ def _call_copilot_summary(
             ),
         },
     ]
-    raw = _send_chat_request(messages, token, model=model, command_name="pr-weekly-table")
+    raw = _send_chat_request(
+        messages,
+        token,
+        model=model,
+        command_name="pr-weekly-table",
+        on_model_used=on_model_used,
+        verbose=verbose,
+    )
     summary = raw.strip()
     help_needed = "unknown"
     try:
@@ -257,6 +304,35 @@ def _call_copilot_summary(
     return summary, help_needed
 
 
+def _format_copilot_error_details(error: Exception) -> str:
+    if isinstance(error, HTTPError):
+        return f"HTTP {error.code}: {error.reason}"
+    if isinstance(error, URLError):
+        return f"URL error: {error.reason}"
+    message = str(error)
+    if not message:
+        return type(error).__name__
+    return message
+
+
+def _build_copilot_warning(row: dict[str, Any], error: Exception) -> str:
+    number = str(row.get("number", "")).strip()
+    title = str(row.get("title", "")).strip()
+    link = str(row.get("link", "")).strip()
+    if number:
+        target = f"PR #{number}"
+    elif title:
+        target = f"PR {title!r}"
+    elif link:
+        target = link
+    else:
+        target = "a PR"
+    return (
+        "pr-weekly-table: warning: unable to generate Copilot summary for "
+        f"{target}: {_format_copilot_error_details(error)}."
+    )
+
+
 def build_weekly_pr_summary_rows(
     owner: str,
     repo: str,
@@ -265,10 +341,12 @@ def build_weekly_pr_summary_rows(
     since: str | None = None,
     cached_rows: dict[str, dict[str, Any]] | None = None,
     copilot: bool = False,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
+    warnings: list[str] | None = None,
+    on_model_used: Callable[[str], None] | None = None,
+    verbose: int = 0,
 ) -> list[dict[str, Any]]:
-    since_value = since or _default_since()
-    since_dt = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
+    since_dt = _parse_since_datetime(since)
     pulls_url = (
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
         "?state=all&sort=created&direction=desc"
@@ -284,6 +362,8 @@ def build_weekly_pr_summary_rows(
         if not created_at:
             continue
         created_dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+        if created_dt.tzinfo is None:
+            created_dt = created_dt.replace(tzinfo=timezone.utc)
         if created_dt < since_dt:
             continue
         number = int(pr.get("number", 0))
@@ -344,9 +424,20 @@ def build_weekly_pr_summary_rows(
             ),
         }
         if copilot:
-            summary, help_needed = _call_copilot_summary(row, token=token or "", model=model)
-            row["copilot_summary"] = summary
-            row["help_needed"] = help_needed
+            try:
+                summary, help_needed = _call_copilot_summary(
+                    row,
+                    token=token or "",
+                    model=model,
+                    on_model_used=on_model_used,
+                    verbose=verbose,
+                )
+            except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
+                if warnings is not None:
+                    warnings.append(_build_copilot_warning(row, e))
+            else:
+                row["copilot_summary"] = summary
+                row["help_needed"] = help_needed
         rows.append(row)
     return rows
 
@@ -355,13 +446,22 @@ def _escape_markdown(value: Any) -> str:
     return str(value).replace("|", r"\|").replace("\n", " ")
 
 
+def _format_pr_link(row: dict[str, Any]) -> str:
+    link = str(row.get("link", "")).strip()
+    number = row.get("number")
+    number_text = "" if number is None else str(number).strip()
+    if link and number_text:
+        return f"[#{_escape_markdown(number_text)}]({link})"
+    return _escape_markdown(link)
+
+
 def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = False) -> str:
     headers = [
         "Title",
         "Author",
         "Created",
         "Last update",
-        "Link",
+        "#",
         "Needs CI approval",
         "CI status",
         "Reviewers",
@@ -378,7 +478,7 @@ def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = F
             _escape_markdown(row.get("author", "")),
             _escape_markdown(row.get("created_at", "")),
             _escape_markdown(row.get("updated_at", "")),
-            _escape_markdown(row.get("link", "")),
+            _format_pr_link(row),
             _escape_markdown(row.get("needs_ci_approval", "")),
             _escape_markdown(row.get("ci_status", "")),
             _escape_markdown(row.get("reviewers", "")),
@@ -392,6 +492,14 @@ def build_weekly_pr_markdown_table(rows: list[dict[str, Any]], copilot: bool = F
             )
         lines.append("| " + " | ".join(values) + " |")
     return "\n".join(lines)
+
+
+def _default_cache_path(repo: str) -> pathlib.Path:
+    return pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{repo}_cache.json"
+
+
+def _default_output_path(repo: str) -> pathlib.Path:
+    return pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{repo}.md"
 
 
 def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
@@ -412,12 +520,20 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser.add_argument(
         "--since",
         default=None,
-        help="Only include PRs created on/after this date (YYYY-MM-DD or ISO datetime).",
+        help=(
+            "Only include PRs created on/after this date "
+            "(YYYY-MM-DD, ISO datetime, or relative values like '-1 day' or '-3d')."
+        ),
     )
     parser.add_argument(
         "--cache-file",
         default=None,
         help="Optional cache file path (default: dump_pr_stats/pr_weekly_<repo>_cache.json).",
+    )
+    parser.add_argument(
+        "--output-file",
+        default=None,
+        help="Optional Markdown output path (default: dump_pr_stats/pr_weekly_<repo>.md).",
     )
     parser.add_argument(
         "--copilot",
@@ -429,7 +545,9 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         "--model",
         default=DEFAULT_MODEL,
         help=(
-            f"AI model used for --copilot (default: {DEFAULT_MODEL}). "
+            "AI model used for --copilot. "
+            "When omitted, Copilot chooses the model automatically "
+            "and falls back to openai/gpt-4.1 if needed. "
             "Any model available on the GitHub Models API is accepted "
             "(for example: openai/gpt-4o-mini, openai/gpt-4.1, anthropic/claude-3.5-sonnet)."
         ),
@@ -454,6 +572,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
+    cache_path = (
+        pathlib.Path(args.cache_file) if args.cache_file else _default_cache_path(args.repo)
+    )
+    output_path = (
+        pathlib.Path(args.output_file) if args.output_file else _default_output_path(args.repo)
+    )
     if args.verbose:
         token_origin, token_type = _resolve_token_origin(
             argv,
@@ -468,9 +592,25 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         print(
+            f"pr-weekly-table: cache file={cache_path}",
+            file=sys.stderr,
+        )
+        print(
+            f"pr-weekly-table: output file={output_path}",
+            file=sys.stderr,
+        )
+        print(
             f"pr-weekly-table: collecting pull request data for {args.owner}/{args.repo}...",
             file=sys.stderr,
         )
+    reported_copilot_models: set[str] = set()
+
+    def report_copilot_model(model_name: str) -> None:
+        if not args.verbose or model_name in reported_copilot_models:
+            return
+        reported_copilot_models.add(model_name)
+        print(f"pr-weekly-table: copilot model={model_name}.", file=sys.stderr)
+
     if args.copilot and not args.token:
         print(
             "Unable to build weekly PR table (ValueError)\n"
@@ -478,13 +618,10 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 1
-    cache_path = (
-        pathlib.Path(args.cache_file)
-        if args.cache_file
-        else pathlib.Path(DEFAULT_CACHE_DIR) / f"pr_weekly_{args.repo}_cache.json"
-    )
     cache_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
     cached_rows = _load_cache(cache_path)
+    warnings: list[str] = []
     try:
         rows = build_weekly_pr_summary_rows(
             owner=args.owner,
@@ -495,14 +632,23 @@ def main(argv: list[str] | None = None) -> int:
             cached_rows=cached_rows,
             copilot=args.copilot,
             model=args.model,
+            warnings=warnings,
+            on_model_used=report_copilot_model if args.copilot else None,
+            verbose=args.verbose,
         )
     except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
         print(f"Unable to build weekly PR table ({type(e).__name__})\n{e}", file=sys.stderr)
         return 1
     _save_cache(cache_path, rows)
+    for warning in warnings:
+        print(warning, file=sys.stderr)
+    output_path.write_text(
+        build_weekly_pr_markdown_table(rows, copilot=args.copilot),
+        encoding="utf-8",
+    )
     if args.verbose:
         print("pr-weekly-table: done.", file=sys.stderr)
-    print(build_weekly_pr_markdown_table(rows, copilot=args.copilot))
+    print(str(output_path))
     return 0
 
 

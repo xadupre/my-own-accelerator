@@ -3,7 +3,7 @@ import os
 import pathlib
 import tempfile
 from io import StringIO
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from moa.commands.review_local import (
     DEFAULT_MODEL,
@@ -44,19 +44,27 @@ class TestReviewLocal(ExtTestCase):
         mock_ai.assert_called_once()
 
     def test_review_local_copilot_logs_request_and_answer(self) -> None:
-        fake_response = {"choices": [{"message": {"content": "Looks good to me!"}}]}
         with tempfile.TemporaryDirectory() as tmp:
             file1 = pathlib.Path(tmp) / "a.py"
             file1.write_text("print('a')", encoding="utf-8")
             with (
-                patch("moa.commands.review_pr.request.urlopen") as mock_urlopen,
-                patch("moa.commands.review_pr._log_copilot_request_and_answer") as mocked_log,
-                patch("moa.commands.review_pr.json.load", return_value=fake_response),
+                patch(
+                    "moa.commands.copilot_models._send_session_prompt",
+                    new=AsyncMock(return_value="Looks good to me!"),
+                ),
+                patch(
+                    "moa.commands.copilot_models._log_copilot_request_and_answer"
+                ) as mocked_log,
+                patch("moa.commands.copilot_models.CopilotClient") as mocked_client,
             ):
-                mock_urlopen.return_value.__enter__ = lambda s: s
-                mock_urlopen.return_value.__exit__ = lambda s, *a: False
-                mock_urlopen.return_value.read = lambda: json.dumps(fake_response).encode()
-                mock_urlopen.return_value.__iter__ = lambda s: iter([])
+                mocked_client.return_value.__aenter__ = AsyncMock(
+                    return_value=mocked_client.return_value
+                )
+                mocked_client.return_value.__aexit__ = AsyncMock(return_value=False)
+                mocked_session = mocked_client.return_value.create_session.return_value
+                mocked_client.return_value.create_session = AsyncMock(return_value=mocked_session)
+                mocked_session.__aenter__ = AsyncMock(return_value=mocked_session)
+                mocked_session.__aexit__ = AsyncMock(return_value=False)
                 got = review_local_files([str(file1)], copilot_review=True, token="tok")
 
         self.assertIn("## Copilot Review", got)
@@ -185,6 +193,31 @@ class TestReviewLocal(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("review-local: reading 1 file(s)...", err.getvalue())
         self.assertIn("review-local: done.", err.getvalue())
+
+    def test_main_verbose_flag_prints_copilot_model(self) -> None:
+        out = StringIO()
+        err = StringIO()
+
+        def fake_review_local_files(*args: object, **kwargs: object) -> str:
+            on_model_used = kwargs.get("on_model_used")
+            self.assertTrue(callable(on_model_used))
+            on_model_used("openai/gpt-4.1")
+            return "# review"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch(
+                    "moa.commands.review_local.review_local_files",
+                    side_effect=fake_review_local_files,
+                ),
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+            ):
+                code = main(["-v", "--copilot-review", "--token", "tok", str(file1)])
+        self.assertEqual(code, 0)
+        self.assertIn("review-local: copilot model=openai/gpt-4.1.", err.getvalue())
 
     def test_main_verbose_flag_prints_cached_classic_token_origin(self) -> None:
         out = StringIO()

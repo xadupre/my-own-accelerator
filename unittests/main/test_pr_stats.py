@@ -29,6 +29,7 @@ from moa.commands.pr_stats import (
     _collect_pr_job_info_batch,
     _count_comments,
     _default_since,
+    _parse_since_datetime,
     _print_progress,
     build_pr_activity_rows,
     main,
@@ -497,6 +498,41 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["number"], 13)
 
+    def test_build_pr_activity_rows_accepts_relative_since(self) -> None:
+        pulls = [
+            {
+                "number": 12,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "Old",
+                "created_at": "2026-05-18T12:00:00Z",
+                "merged_at": None,
+                "closed_at": "2026-05-18T13:00:00Z",
+                "html_url": "https://github.com/o/r/pull/12",
+            },
+            {
+                "number": 13,
+                "state": "closed",
+                "user": {"login": "bob"},
+                "title": "New",
+                "created_at": "2026-05-20T18:00:00Z",
+                "merged_at": "2026-05-20T19:00:00Z",
+                "closed_at": "2026-05-20T19:00:00Z",
+                "html_url": "https://github.com/o/r/pull/13",
+            },
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(30, [])),
+            patch("moa.commands.pr_stats.datetime") as mock_datetime,
+        ):
+            mock_datetime.now.return_value = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
+            mock_datetime.fromisoformat.side_effect = datetime.fromisoformat
+            rows = build_pr_activity_rows("o", "r", since="-1 day")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["number"], 13)
+
     def test_build_pr_activity_rows_reuses_cache(self) -> None:
         pulls = [
             {
@@ -838,6 +874,23 @@ class TestPRStats(ExtTestCase):
         self.assertGreaterEqual(diff_days, 180)
         self.assertLessEqual(diff_days, 185)
 
+    def test_parse_since_datetime_supports_requested_relative_day_forms(self) -> None:
+        now = datetime(2026, 5, 21, 12, 0, tzinfo=timezone.utc)
+        cases = {
+            "-1 day": datetime(2026, 5, 20, 12, 0, tzinfo=timezone.utc),
+            "-2 days": datetime(2026, 5, 19, 12, 0, tzinfo=timezone.utc),
+            "-3d": datetime(2026, 5, 18, 12, 0, tzinfo=timezone.utc),
+            "-4 d": datetime(2026, 5, 17, 12, 0, tzinfo=timezone.utc),
+            "-11 day": datetime(2026, 5, 10, 12, 0, tzinfo=timezone.utc),
+        }
+        for value, expected in cases.items():
+            with self.subTest(value=value):
+                self.assertEqual(_parse_since_datetime(value, now=now), expected)
+
+    def test_parse_since_datetime_raises_clear_error_on_invalid_value(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Invalid --since value"):
+            _parse_since_datetime("yesterday-ish")
+
     def test_main_prints_output_paths(self) -> None:
         out = StringIO()
         with tempfile.TemporaryDirectory() as tmp:
@@ -874,6 +927,13 @@ class TestPRStats(ExtTestCase):
         self.assertIn(".xlsx", out.getvalue())
         self.assertIn("/graphs_repo/", out.getvalue())
         self.assertIn(".html", out.getvalue())
+
+    def test_build_parser_help_mentions_relative_since_values(self) -> None:
+        from moa.commands.pr_stats import _build_parser
+
+        help_text = _build_parser().format_help()
+        self.assertIn("relative values like '-1", help_text)
+        self.assertIn("or '-3d'). Default: 6 months ago.", help_text)
 
     def test_main_default_prefix_sanitizes_repo_name(self) -> None:
         fake_paths = {

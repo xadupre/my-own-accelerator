@@ -3,15 +3,20 @@
 from __future__ import annotations
 
 import argparse
-import datetime
+import asyncio
 import json
 import os
-import pathlib
 import sys
+from collections.abc import Callable
 from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
+from .copilot_models import (
+    DEFAULT_MODEL,
+    MODELS_API_URL,
+    _send_copilot_prompts,
+)
 from .review_token import (
     CONFIG_FILE,
     _build_project_token_cache,
@@ -24,10 +29,6 @@ from .review_token import (
 )
 
 PAGE_SIZE = 100
-
-MODELS_API_URL = "https://models.inference.ai.azure.com"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
-LOGS_DIR = CONFIG_FILE.parent / "logs"
 
 
 def _fetch_json(url: str, token: str | None = None) -> Any:
@@ -112,8 +113,9 @@ def review_pull_request(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     copilot_review: bool = False,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     extra_prompts: list[str] | None = None,
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_request}"
     pr = _fetch_json(base, token)
@@ -127,86 +129,25 @@ def review_pull_request(
                 "A GitHub token (--token or GITHUB_TOKEN env var) "
                 "is required for --copilot-review."
             )
-        ai_text = _call_copilot_review(markdown, token, model, extra_prompts=extra_prompts)
+        ai_text = _call_copilot_review(
+            markdown,
+            token,
+            model,
+            extra_prompts=extra_prompts,
+            on_model_used=on_model_used,
+        )
         markdown = f"{markdown}\n\n## Copilot Review\n\n{ai_text}"
     return markdown
-
-
-def _send_chat_request(
-    messages: list[dict[str, str]],
-    token: str,
-    model: str = DEFAULT_MODEL,
-    models_url: str = MODELS_API_URL,
-    command_name: str = "review-pr",
-) -> str:
-    """Send a chat completion request to the GitHub Models API.
-
-    :param messages: List of message dicts with ``role`` and ``content`` keys.
-    :param token: GitHub personal access token with models access.
-    :param model: Model identifier accepted by the GitHub Models API.
-    :param models_url: Base URL of the GitHub Models API.
-    :return: Content string from the first choice in the API response.
-    :raises ValueError: If the API returns no choices or empty content.
-    :raises urllib.error.HTTPError: If the HTTP request fails.
-    """
-    url = f"{models_url.rstrip('/')}/chat/completions"
-    payload: dict[str, Any] = {"model": model, "messages": messages}
-    data = json.dumps(payload).encode()
-    headers = {
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "moa/review-pr",
-    }
-    req = request.Request(url, data=data, headers=headers, method="POST")
-    with request.urlopen(req) as response:
-        result = json.load(response)
-    choices = result.get("choices", [])
-    if not choices:
-        raise ValueError("No response choices returned by the AI model.")
-    message = choices[0].get("message", {})
-    content = message.get("content", "")
-    if not content:
-        raise ValueError("Empty content in AI model response.")
-    try:
-        _log_copilot_request_and_answer(payload, result, command_name=command_name)
-    except OSError:
-        pass
-    return content
-
-
-def _log_copilot_request_and_answer(
-    payload: dict[str, Any],
-    result: dict[str, Any],
-    logs_dir: pathlib.Path = LOGS_DIR,
-    now: datetime.datetime | None = None,
-    command_name: str = "review-pr",
-) -> None:
-    """Logs Copilot request/answer JSON payloads to timestamped files."""
-    if now is None:
-        now = datetime.datetime.now()
-    log_folder = (
-        logs_dir / f"{now:%Y}" / f"{now:%m}" / f"week-{now.isocalendar().week:02d}" / command_name
-    )
-    log_folder.mkdir(parents=True, exist_ok=True)
-    timestamp = f"{now:%Y-%m-%d_%H-%M-%S}"
-    (log_folder / f"{timestamp}_request.json").write_text(
-        json.dumps(payload, indent=2),
-        encoding="utf-8",
-    )
-    (log_folder / f"{timestamp}_answer.json").write_text(
-        json.dumps(result, indent=2),
-        encoding="utf-8",
-    )
 
 
 def _call_copilot_review(
     pr_markdown: str,
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     extra_prompts: list[str] | None = None,
     command_name: str = "review-pr",
+    on_model_used: Callable[[str], None] | None = None,
 ) -> str:
     """Send the PR summary to the GitHub Models API for an AI-powered review.
 
@@ -218,7 +159,9 @@ def _call_copilot_review(
 
     :param pr_markdown: Markdown text describing the pull request.
     :param token: GitHub personal access token with models access.
-    :param model: Model identifier accepted by the GitHub Models API.
+    :param model: Optional model identifier accepted by the GitHub Models API.
+        When omitted, Copilot chooses the model automatically and falls back
+        to ``openai/gpt-4.1`` if no default model is available.
     :param models_url: Base URL of the GitHub Models API.
     :param extra_prompts: Optional list of follow-up prompts to continue the
         conversation after the initial review.
@@ -231,24 +174,28 @@ def _call_copilot_review(
         "Review the following pull request summary and provide constructive feedback. "
         "Highlight potential issues, suggest improvements, and note relevant best practices."
     )
-    messages: list[dict[str, str]] = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": pr_markdown},
-    ]
-    initial_review = _send_chat_request(
-        messages, token, model, models_url, command_name=command_name
+    prompts = [pr_markdown]
+    if extra_prompts:
+        prompts.extend(extra_prompts)
+    responses = asyncio.run(
+        _send_copilot_prompts(
+            prompts,
+            token,
+            model=model,
+            models_url=models_url,
+            command_name=command_name,
+            system_prompt=system_prompt,
+            on_model_used=on_model_used,
+        )
     )
+    initial_review = responses[0]
 
     if not extra_prompts:
         return initial_review
 
     parts = [initial_review]
-    messages.append({"role": "assistant", "content": initial_review})
-    for prompt in extra_prompts:
-        messages.append({"role": "user", "content": prompt})
-        reply = _send_chat_request(messages, token, model, models_url, command_name=command_name)
+    for prompt, reply in zip(extra_prompts, responses[1:], strict=True):
         parts.append(f"**Prompt:** {prompt}\n\n{reply}")
-        messages.append({"role": "assistant", "content": reply})
     return "\n\n---\n\n".join(parts)
 
 
@@ -326,7 +273,9 @@ def _build_parser(
         "--model",
         default=DEFAULT_MODEL,
         help=(
-            f"AI model used for --copilot-review (default: {DEFAULT_MODEL}). "
+            "AI model used for --copilot-review. "
+            "When omitted, Copilot chooses the model automatically "
+            "and falls back to openai/gpt-4.1 if needed. "
             "Any model available on the GitHub Models API is accepted."
         ),
     )
@@ -412,17 +361,28 @@ def main(argv: list[str] | None = None) -> int:
             f"review-pr: fetching {args.owner}/{args.repo}#{args.pull_request}...",
             file=sys.stderr,
         )
+    reported_copilot_models: set[str] = set()
+
+    def report_copilot_model(model_name: str) -> None:
+        if not args.verbose or model_name in reported_copilot_models:
+            return
+        reported_copilot_models.add(model_name)
+        print(f"review-pr: copilot model={model_name}.", file=sys.stderr)
+
+    review_kwargs: dict[str, Any] = {
+        "owner": args.owner,
+        "repo": args.repo,
+        "pull_request": args.pull_request,
+        "token": args.token,
+        "api_url": args.api_url,
+        "copilot_review": args.copilot_review,
+        "model": args.model,
+        "extra_prompts": args.extra_prompts,
+    }
+    if args.copilot_review:
+        review_kwargs["on_model_used"] = report_copilot_model
     try:
-        markdown = review_pull_request(
-            owner=args.owner,
-            repo=args.repo,
-            pull_request=args.pull_request,
-            token=args.token,
-            api_url=args.api_url,
-            copilot_review=args.copilot_review,
-            model=args.model,
-            extra_prompts=args.extra_prompts,
-        )
+        markdown = review_pull_request(**review_kwargs)
     except (HTTPError, URLError, ValueError) as e:
         print(
             (

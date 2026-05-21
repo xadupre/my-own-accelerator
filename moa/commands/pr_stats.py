@@ -41,6 +41,7 @@ from .review_token import (
 from .review_token import (
     _load_cache as _load_token_cache,
 )
+from .since_utils import parse_relative_since
 
 PAGE_SIZE = 100
 COPILOT_COMMAND_RE = re.compile(r"(?:^|\s)(?:@copilot|/copilot)\b", re.IGNORECASE)
@@ -101,7 +102,10 @@ def _parse_iso_datetime(value: str) -> datetime:
         raise ValueError("Datetime value cannot be empty.")
     if "T" not in cleaned:
         cleaned = f"{cleaned}T00:00:00Z"
-    return datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
 
 
 def _default_prefix(repo: str) -> str:
@@ -131,6 +135,22 @@ def _default_since() -> str:
         year -= 1
     day = min(today.day, calendar.monthrange(year, month)[1])
     return datetime(year, month, day, tzinfo=timezone.utc).strftime("%Y-%m-%d")
+
+
+def _parse_since_datetime(value: str, now: datetime | None = None) -> datetime:
+    """Parse a ``--since`` value as ISO date/datetime or a relative expression."""
+    since_value = value.strip()
+    relative_dt = parse_relative_since(since_value, now=now)
+    if relative_dt is not None:
+        return relative_dt
+    try:
+        return _parse_iso_datetime(since_value)
+    except ValueError as e:
+        raise ValueError(
+            "Invalid --since value "
+            f"{since_value!r}; expected YYYY-MM-DD, ISO datetime, "
+            "or relative values like '-1 day', '-3d', '+2 weeks', or '3 hours'."
+        ) from e
 
 
 def _load_cache(path: pathlib.Path) -> dict[str, dict[str, Any]]:
@@ -694,7 +714,7 @@ def build_pr_activity_rows(
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
     """Build report rows for closed pull requests, reusing cached values when available."""
-    since_dt = _parse_iso_datetime(since) if since else None
+    since_dt = _parse_since_datetime(since) if since else None
     cache = cached_rows or {}
     pulls_url = (
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
@@ -1302,7 +1322,7 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=None,
         help=(
             "Only include PRs created on/after this datetime "
-            "(YYYY-MM-DD or ISO 8601 datetime). "
+            "(YYYY-MM-DD, ISO 8601 datetime, or relative values like '-1 day' or '-3d'). "
             "Default: 6 months ago."
         ),
     )

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 _RELATIVE_SINCE_RE = re.compile(
     (
         r"(?P<amount>[+-]?\d+)\s*"
-        r"(?P<unit>d(?:ays?)?|h(?:ours?)?|m(?:in(?:ute)?s?)?|w(?:eeks?)?)"
+        r"(?P<unit>d|day|days|h|hour|hours|m|min|mins|minute|minutes|w|week|weeks)"
     ),
     flags=re.IGNORECASE,
 )

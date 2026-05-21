@@ -276,6 +276,17 @@ def _call_copilot_summary(
     return summary, help_needed
 
 
+def _call_copilot_summary_with_fallback(
+    row: dict[str, Any],
+    token: str,
+    model: str = DEFAULT_MODEL,
+) -> tuple[str, str]:
+    try:
+        return _call_copilot_summary(row, token=token, model=model)
+    except (HTTPError, URLError, OSError, ValueError, IncompleteRead) as e:
+        return (f"Copilot summary unavailable ({type(e).__name__})", "unknown")
+
+
 def build_weekly_pr_summary_rows(
     owner: str,
     repo: str,
@@ -364,7 +375,9 @@ def build_weekly_pr_summary_rows(
             ),
         }
         if copilot:
-            summary, help_needed = _call_copilot_summary(row, token=token or "", model=model)
+            summary, help_needed = _call_copilot_summary_with_fallback(
+                row, token=token or "", model=model
+            )
             row["copilot_summary"] = summary
             row["help_needed"] = help_needed
         rows.append(row)

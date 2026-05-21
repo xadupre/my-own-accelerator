@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from http.client import IncompleteRead
 from io import StringIO
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from moa.commands.pr_weekly_table import (
     _build_parser,
@@ -210,6 +211,47 @@ class TestPRWeeklyTable(ExtTestCase):
         self.assertEqual(rows[0]["copilot_summary"], "Short summary")
         self.assertEqual(rows[0]["help_needed"], "yes")
 
+    def test_build_weekly_rows_with_copilot_falls_back_on_http_error(self) -> None:
+        pulls = [
+            {
+                "number": 2,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "Needs help?",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/2",
+                "head": {"sha": "def"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with (
+            patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+            patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+            patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+            patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+            patch(
+                "moa.commands.pr_weekly_table._call_copilot_summary",
+                side_effect=HTTPError(
+                    "https://models.inference.ai.azure.com/chat/completions",
+                    400,
+                    "Bad Request",
+                    {},
+                    None,
+                ),
+            ),
+        ):
+            rows = build_weekly_pr_summary_rows(
+                "o",
+                "r",
+                token="tok",
+                since="2026-05-10T00:00:00Z",
+                copilot=True,
+            )
+        self.assertEqual(rows[0]["copilot_summary"], "Copilot summary unavailable (HTTPError)")
+        self.assertEqual(rows[0]["help_needed"], "unknown")
+
     def test_main_copilot_requires_token(self) -> None:
         out = StringIO()
         err = StringIO()
@@ -371,6 +413,64 @@ class TestPRWeeklyTable(ExtTestCase):
             self.assertIn("[#1](https://github.com/o/r/pull/1)", output_text)
             cache_payload = json.loads(expected_cache.read_text(encoding="utf-8"))
             self.assertIn("1", cache_payload["rows"])
+
+    def test_main_copilot_http_error_still_writes_output(self) -> None:
+        out = StringIO()
+        err = StringIO()
+        pulls = [
+            {
+                "number": 1,
+                "created_at": "2026-05-19T00:00:00Z",
+                "updated_at": "2026-05-20T00:00:00Z",
+                "title": "PR",
+                "user": {"login": "alice"},
+                "html_url": "https://github.com/o/r/pull/1",
+                "head": {"sha": "abc"},
+                "base": {"ref": "main"},
+                "requested_reviewers": [],
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            expected_output = pathlib.Path(tmp) / "pr_weekly_repo.md"
+            with (
+                patch("sys.stdout", out),
+                patch("sys.stderr", err),
+                patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+                patch("moa.commands.pr_weekly_table.DEFAULT_CACHE_DIR", tmp),
+                patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+                patch("moa.commands.pr_weekly_table._fetch_paginated", return_value=pulls),
+                patch("moa.commands.pr_weekly_table._collect_required_contexts", return_value=[]),
+                patch("moa.commands.pr_weekly_table._needs_ci_approval", return_value=False),
+                patch("moa.commands.pr_weekly_table._collect_ci_status", return_value="green"),
+                patch("moa.commands.pr_weekly_table._collect_reviewers", return_value=""),
+                patch(
+                    "moa.commands.pr_weekly_table._call_copilot_summary",
+                    side_effect=HTTPError(
+                        "https://models.inference.ai.azure.com/chat/completions",
+                        400,
+                        "Bad Request",
+                        {},
+                        None,
+                    ),
+                ),
+            ):
+                code = main(
+                    [
+                        "owner",
+                        "repo",
+                        "--since",
+                        "2026-05-10T00:00:00Z",
+                        "--copilot",
+                        "--token",
+                        "tok",
+                    ]
+                )
+            self.assertEqual(code, 0)
+            self.assertEqual(out.getvalue().strip(), str(expected_output))
+            self.assertIn(
+                "Copilot summary unavailable (HTTPError)",
+                expected_output.read_text(encoding="utf-8"),
+            )
 
     def test_build_weekly_rows_retries_paginated_incomplete_read(self) -> None:
         pulls = [

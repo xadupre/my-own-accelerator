@@ -138,7 +138,7 @@ Optional Arguments
     AI model to use when ``--copilot-review`` is set.  Accepts any
     model identifier available on the
     `GitHub Models API <https://docs.github.com/en/github-models>`_.
-    Defaults to ``openai/gpt-4o-mini``::
+    When omitted, Copilot chooses the model automatically::
 
         review-pr --copilot-review --model openai/gpt-4o xadupre my-own-accelerator 1
 
@@ -256,7 +256,7 @@ The command can also be invoked programmatically:
         pull_request=1,
         token="ghp_xxxxxxxxxxxx",
         copilot_review=True,
-        model="openai/gpt-4o-mini",  # optional, this is the default
+        model="openai/gpt-4o",  # optional override
     )
     print(markdown)
 

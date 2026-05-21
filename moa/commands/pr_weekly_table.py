@@ -254,7 +254,7 @@ def _collect_ci_status(
 def _call_copilot_summary(
     row: dict[str, Any],
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
 ) -> tuple[str, str]:
     messages = [
         {
@@ -332,7 +332,7 @@ def build_weekly_pr_summary_rows(
     since: str | None = None,
     cached_rows: dict[str, dict[str, Any]] | None = None,
     copilot: bool = False,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     warnings: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     since_dt = _parse_since_datetime(since)
@@ -528,7 +528,8 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         "--model",
         default=DEFAULT_MODEL,
         help=(
-            f"AI model used for --copilot (default: {DEFAULT_MODEL}). "
+            "AI model used for --copilot. "
+            "When omitted, Copilot chooses the model automatically. "
             "Any model available on the GitHub Models API is accepted "
             "(for example: openai/gpt-4o-mini, openai/gpt-4.1, anthropic/claude-3.5-sonnet)."
         ),

@@ -40,7 +40,7 @@ def review_local_files(
     files: list[str],
     copilot_review: bool = False,
     token: str | None = None,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     extra_prompts: list[str] | None = None,
 ) -> str:
     """Reviews local files by building a markdown report and optional AI feedback."""
@@ -110,7 +110,8 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         "--model",
         default=DEFAULT_MODEL,
         help=(
-            f"AI model used for --copilot-review (default: {DEFAULT_MODEL}). "
+            "AI model used for --copilot-review. "
+            "When omitted, Copilot chooses the model automatically. "
             "Any model available on the GitHub Models API is accepted."
         ),
     )

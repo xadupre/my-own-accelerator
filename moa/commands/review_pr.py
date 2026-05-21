@@ -112,7 +112,7 @@ def review_pull_request(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     copilot_review: bool = False,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     extra_prompts: list[str] | None = None,
 ) -> str:
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls/{pull_request}"
@@ -135,7 +135,7 @@ def review_pull_request(
 def _call_copilot_review(
     pr_markdown: str,
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     extra_prompts: list[str] | None = None,
     command_name: str = "review-pr",
@@ -261,7 +261,8 @@ def _build_parser(
         "--model",
         default=DEFAULT_MODEL,
         help=(
-            f"AI model used for --copilot-review (default: {DEFAULT_MODEL}). "
+            "AI model used for --copilot-review. "
+            "When omitted, Copilot chooses the model automatically. "
             "Any model available on the GitHub Models API is accepted."
         ),
     )

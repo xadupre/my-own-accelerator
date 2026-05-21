@@ -20,14 +20,14 @@ from copilot.session import CopilotSession, PermissionHandler
 from .review_token import CONFIG_FILE
 
 MODELS_API_URL = "https://models.inference.ai.azure.com"
-DEFAULT_MODEL = "openai/gpt-4o-mini"
+DEFAULT_MODEL: str | None = None
 LOGS_DIR = CONFIG_FILE.parent / "logs"
 
 
 async def _send_copilot_prompts(
     prompts: list[str],
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
     system_prompt: str | None = None,
@@ -41,11 +41,12 @@ async def _send_copilot_prompts(
     }
     session_kwargs: dict[str, Any] = {
         "on_permission_request": PermissionHandler.approve_all,
-        "model": model,
         "provider": provider,
         "available_tools": [],
         "infinite_sessions": {"enabled": False},
     }
+    if model:
+        session_kwargs["model"] = model
     if system_prompt:
         session_kwargs["system_message"] = {"mode": "replace", "content": system_prompt}
 
@@ -61,10 +62,13 @@ async def _send_copilot_prompts(
                     request_messages.append({"role": "system", "content": system_prompt})
                 request_messages.extend(conversation_messages)
                 request_messages.append({"role": "user", "content": prompt})
+                payload: dict[str, Any] = {"messages": request_messages}
+                if model:
+                    payload["model"] = model
                 content = await _send_session_prompt(session, prompt)
                 try:
                     _log_copilot_request_and_answer(
-                        {"model": model, "messages": request_messages},
+                        payload,
                         {"choices": [{"message": {"content": content}}]},
                         command_name=command_name,
                     )
@@ -112,7 +116,7 @@ async def _send_session_prompt(session: CopilotSession, prompt: str) -> str:
 def _send_chat_request(
     messages: list[dict[str, str]],
     token: str,
-    model: str = DEFAULT_MODEL,
+    model: str | None = DEFAULT_MODEL,
     models_url: str = MODELS_API_URL,
     command_name: str = "review-pr",
 ) -> str:
@@ -120,7 +124,8 @@ def _send_chat_request(
 
     :param messages: List of message dicts with ``role`` and ``content`` keys.
     :param token: GitHub personal access token with models access.
-    :param model: Model identifier accepted by the configured provider.
+    :param model: Optional model identifier accepted by the configured provider.
+        When omitted or ``None``, Copilot chooses the default model automatically.
     :param models_url: Base URL of the OpenAI-compatible provider.
     :return: Content string from the first choice in the API response.
     :raises ValueError: If the API returns no choices or empty content.

@@ -3,11 +3,16 @@ import json
 import os
 import pathlib
 import tempfile
+from asyncio import run
 from datetime import datetime
 from io import StringIO
 from unittest.mock import AsyncMock, patch
 
-from moa.commands.copilot_models import _log_copilot_request_and_answer, _send_chat_request
+from moa.commands.copilot_models import (
+    _log_copilot_request_and_answer,
+    _send_chat_request,
+    _send_copilot_prompts,
+)
 from moa.commands.review_pr import (
     DEFAULT_MODEL,
     _call_copilot_review,
@@ -609,6 +614,29 @@ class TestReviewPR(ExtTestCase):
             result = _send_chat_request(messages, "mytoken")
         self.assertEqual(result, "Hello!")
         self.assertEqual(mocked_send.call_args.args[:2], (["Hi"], "mytoken"))
+        self.assertIsNone(mocked_send.call_args.kwargs["model"])
+
+    def test_send_copilot_prompts_omits_model_when_none(self) -> None:
+        with (
+            patch(
+                "moa.commands.copilot_models._send_session_prompt",
+                new=AsyncMock(return_value="Hello!"),
+            ),
+            patch("moa.commands.copilot_models.CopilotClient") as mocked_client,
+        ):
+            mocked_client.return_value.__aenter__ = AsyncMock(
+                return_value=mocked_client.return_value
+            )
+            mocked_client.return_value.__aexit__ = AsyncMock(return_value=False)
+            mocked_session = mocked_client.return_value.create_session.return_value
+            mocked_client.return_value.create_session = AsyncMock(return_value=mocked_session)
+            mocked_session.__aenter__ = AsyncMock(return_value=mocked_session)
+            mocked_session.__aexit__ = AsyncMock(return_value=False)
+
+            result = run(_send_copilot_prompts(["Hi"], "mytoken", model=None))
+
+        self.assertEqual(result, ["Hello!"])
+        self.assertNotIn("model", mocked_client.return_value.create_session.await_args.kwargs)
 
     def test_call_copilot_review_no_extra_prompts_single_call(self) -> None:
         with patch(

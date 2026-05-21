@@ -77,21 +77,20 @@ def _default_since() -> str:
 def _parse_since_datetime(value: str | None, now: datetime | None = None) -> datetime:
     since_value = (value or _default_since()).strip()
     match = re.fullmatch(
-        r"(?P<amount>[+-]?\d+)\s+(?P<unit>day|days|hour|hours|minute|minutes|week|weeks)",
+        r"(?P<amount>[+-]?\d+)\s+(?P<unit>day|hour|minute|week)s?",
         since_value,
         flags=re.IGNORECASE,
     )
     if match:
         amount = int(match.group("amount"))
         unit = match.group("unit").lower()
-        kwargs = {"days": amount}
-        if unit.startswith("hour"):
-            kwargs = {"hours": amount}
-        elif unit.startswith("minute"):
-            kwargs = {"minutes": amount}
-        elif unit.startswith("week"):
-            kwargs = {"weeks": amount}
-        return (now or datetime.now(timezone.utc)) + timedelta(**kwargs)
+        unit_kwargs = {
+            "day": {"days": amount},
+            "hour": {"hours": amount},
+            "minute": {"minutes": amount},
+            "week": {"weeks": amount},
+        }
+        return (now or datetime.now(timezone.utc)) + timedelta(**unit_kwargs[unit])
     parsed = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)

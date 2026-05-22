@@ -148,7 +148,9 @@ Optional Arguments
     running. Verbose output also shows which token source is used
     (``--token``, ``GITHUB_TOKEN``, project-specific cache, classic cache,
     or unauthenticated) and the token type (``explicit``, ``fine-grained``,
-    ``classic``, or ``none``).
+    ``classic``, or ``none``). For tokens supplied via ``--token`` or
+    ``GITHUB_TOKEN``, the type is inferred from the token prefix
+    (``ghp_*`` → ``classic``, ``github_pat_*`` → ``fine-grained``).
 
 ``-h``, ``--help``
     Print a short help message and exit.

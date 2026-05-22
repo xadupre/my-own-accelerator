@@ -140,6 +140,8 @@ def _default_since() -> str:
 def _parse_since_datetime(value: str, now: datetime | None = None) -> datetime:
     """Parse a ``--since`` value as ISO date/datetime or a relative expression."""
     since_value = value.strip()
+    if now is None:
+        now = datetime.now(timezone.utc)
     relative_dt = parse_relative_since(since_value, now=now)
     if relative_dt is not None:
         return relative_dt

@@ -5,6 +5,7 @@
 [![ruff](https://github.com/xadupre/my-own-accelerator/actions/workflows/ruff.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/ruff.yml)
 [![mypy](https://github.com/xadupre/my-own-accelerator/actions/workflows/mypy.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/mypy.yml)
 [![pyrefly](https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml/badge.svg)](https://github.com/xadupre/my-own-accelerator/actions/workflows/pyrefly.yml)
+[![Repo size](https://img.shields.io/github/repo-size/xadupre/my-own-accelerator)](https://github.com/xadupre/my-own-accelerator)
 
 Minimal Python project scaffold.
 

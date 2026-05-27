@@ -70,3 +70,5 @@ pytest -q
 
 The documentation uses reStructuredText (`docs/index.rst`) and a Sphinx configuration
 aligned with `yet-another-onnx-builder` extensions.
+
+See the project on GitHub: <https://github.com/xadupre/my-own-accelerator>.

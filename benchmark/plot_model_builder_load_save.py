@@ -22,12 +22,12 @@ import subprocess
 import sys
 import time
 
-MODEL_ID = "Qwen/Qwen3-8B"
-OUTPUT_DIR = os.environ.get("QWEN3_INT4_DIR", "qwen3-8b-int4-cpu")
+MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen3-0.6B")
+OUTPUT_DIR = f"temp_plot_model_builder_load_save/{MODEL_ID.split('/')[-1]}"
 
 
 ###################################################
-# Step 1: convert Qwen3-8B to CPU int4 with mbext.
+# Step 1: convert model to CPU int4 with mbext.
 # -----------------------------------------------
 #
 # The ``onnxruntime-genai`` package ships a *model builder* which exports a
@@ -80,48 +80,48 @@ except (FileNotFoundError, subprocess.CalledProcessError, ImportError) as exc:
     onnx_path = os.path.join(OUTPUT_DIR, "model.onnx")
 
 
-###################################################
-# Step 2: load and save with ``onnx``.
-# ------------------------------------
-#
-# The standard :epkg:`onnx` package parses the protobuf into Python objects,
-# which is convenient but also relatively expensive for very large models.
-
-
 def measure_onnx(path: str) -> tuple[float, float]:
     import onnx
 
     t0 = time.perf_counter()
-    model = onnx.load(path)
+    model = onnx.load(path, load_external_data=True)
     load_time = time.perf_counter() - t0
 
     out_path = path + ".onnx-resave.onnx"
     t0 = time.perf_counter()
-    onnx.save(model, out_path)
+    onnx.save(model, out_path, save_as_external_data=True)
     save_time = time.perf_counter() - t0
 
     return load_time, save_time
 
 
-###################################################
-# Step 3: load and save with ``onnx_ir`` (onnx-light).
-# ----------------------------------------------------
-#
-# :epkg:`onnx_ir` exposes a lighter intermediate representation that avoids
-# materializing the full protobuf object tree, which is typically faster for
-# large models.
+def measure_onnx_light(path: str) -> tuple[float, float]:
+    import onnx_light.onnx as onnxl
+
+    t0 = time.perf_counter()
+    model = onnxl.load(path, load_external_data=True)
+    load_time = time.perf_counter() - t0
+
+    out_path = path + ".onnx-resave.onnx"
+    t0 = time.perf_counter()
+    onnxl.save(model, out_path, save_as_external_data=True)
+    save_time = time.perf_counter() - t0
+
+    return load_time, save_time
 
 
 def measure_onnx_ir(path: str) -> tuple[float, float]:
     import onnx_ir as ir
+    from onnx_ir import external_data
 
     t0 = time.perf_counter()
     model = ir.load(path)
+    external_data.load_to_model(model)
     load_time = time.perf_counter() - t0
 
     out_path = path + ".onnx-ir-resave.onnx"
     t0 = time.perf_counter()
-    ir.save(model, out_path)
+    ir.save(model, out_path, external_data=os.path.split(path)[-1] + ".onnx-ir-resave.data")
     save_time = time.perf_counter() - t0
 
     return load_time, save_time
@@ -133,7 +133,17 @@ def measure_onnx_ir(path: str) -> tuple[float, float]:
 
 if os.path.exists(onnx_path):
     results: dict[str, tuple[float, float]] = {}
-    for name, fn in (("onnx", measure_onnx), ("onnx_ir", measure_onnx_ir)):
+    for name, fn in (
+        ("onnx.1", measure_onnx),
+        ("onnx_light.1", measure_onnx_light),
+        ("onnx_ir.1", measure_onnx_ir),
+        ("onnx.2", measure_onnx),
+        ("onnx_light.2", measure_onnx_light),
+        ("onnx_ir.2", measure_onnx_ir),
+        ("onnx.3", measure_onnx),
+        ("onnx_light.3", measure_onnx_light),
+        ("onnx_ir.3", measure_onnx_ir),
+    ):
         try:
             results[name] = fn(onnx_path)
         except ImportError as exc:
@@ -141,8 +151,8 @@ if os.path.exists(onnx_path):
 
     print()
     print(f"Benchmark results for {onnx_path}")
-    print(f"{'library':<10} {'load (s)':>12} {'save (s)':>12}")
-    for name, (load_s, save_s) in results.items():
-        print(f"{name:<10} {load_s:>12.3f} {save_s:>12.3f}")
+    print(f"{'library':<12} {'load (s)':>12} {'save (s)':>12}")
+    for name, (load_s, save_s) in sorted(results.items()):
+        print(f"{name:<12} {load_s:>12.3f} {save_s:>12.3f}")
 else:
     print(f"ONNX model not found at {onnx_path}; run the conversion step above to produce it.")

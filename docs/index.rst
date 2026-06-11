@@ -27,4 +27,5 @@ Sources: `GitHub repository <https://github.com/xadupre/my-own-accelerator>`_.
     :maxdepth: 1
 
     cmds/index
+    auto_examples/index
     api/index

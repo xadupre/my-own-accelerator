@@ -32,6 +32,21 @@ html_theme = "pydata_sphinx_theme"
 html_static_path = ["_static"]
 html_logo = "_static/logo.svg"
 
+sphinx_gallery_conf = {
+    "examples_dirs": ["../examples"],
+    "gallery_dirs": ["auto_examples"],
+    "filename_pattern": r"/plot_",
+    # Heavy examples (model downloads, conversions) are documented but not
+    # executed during the documentation build.
+    "ignore_pattern": r"plot_qwen3_int4_load_save\.py",
+}
+
+epkg_dictionary = {
+    "onnx": "https://onnx.ai/",
+    "onnx_ir": "https://pypi.org/project/onnx-ir/",
+    "onnxruntime-genai": "https://github.com/microsoft/onnxruntime-genai",
+}
+
 
 def linkcode_resolve(domain: str, info: dict[str, str]) -> str | None:
     return None

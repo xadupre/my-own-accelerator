@@ -12,9 +12,19 @@ This example shows how to:
 3. Measure the time needed to **load** and **save** the same ONNX model
    with the lightweight :epkg:`onnx_ir` package (``onnx-light``).
 
-The conversion step downloads a large model (~16 GB) and runs the model
-builder, so it is skipped automatically when the produced ONNX file is
-already present, or when the required tools are not installed.
+The conversion step downloads a large model (~16 GB for ``Qwen/Qwen3-8B``)
+and runs the model builder, so it is skipped automatically when the produced
+ONNX file is already present, or when the required tools are not installed.
+
+The model to convert is controlled by the ``MODEL_ID`` environment variable
+and defaults to ``Qwen/Qwen3-0.6B`` to keep the example cheap to run. Set it
+to any Hugging Face model id supported by the ``onnxruntime-genai`` model
+builder, for example::
+
+    MODEL_ID=Qwen/Qwen3-8B python benchmark/plot_model_builder_load_save.py
+
+The output directory is derived from ``MODEL_ID`` and written under
+``temp_plot_model_builder_load_save/<model-name>``.
 """
 
 import os

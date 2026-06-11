@@ -11,6 +11,8 @@ This example shows how to:
    model with the standard :epkg:`onnx` package.
 3. Measure the time needed to **load** and **save** the same ONNX model
    with the lightweight :epkg:`onnx_ir` package (``onnx-light``).
+4. Measure the time needed to **load** the same ONNX model into an
+   :epkg:`onnxruntime` inference session with graph optimisations disabled.
 
 The conversion step downloads a large model (~16 GB for ``Qwen/Qwen3-8B``)
 and runs the model builder, so it is skipped automatically when the produced
@@ -138,6 +140,20 @@ def measure_onnx_ir(path: str) -> tuple[float, float]:
     return load_time, save_time
 
 
+def measure_onnxruntime(path: str) -> tuple[float, float]:
+    import onnxruntime
+
+    so = onnxruntime.SessionOptions()
+    so.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
+
+    t0 = time.perf_counter()
+    onnxruntime.InferenceSession(path, sess_options=so, providers=["CPUExecutionProvider"])
+    load_time = time.perf_counter() - t0
+
+    # onnxruntime does not provide a save API; report NaN for the save column.
+    return load_time, float("nan")
+
+
 ###################################################
 # Run the benchmarks and print a small report.
 # --------------------------------------------
@@ -148,12 +164,15 @@ if os.path.exists(onnx_path):
         ("onnx.1", measure_onnx),
         ("onnx_light.1", measure_onnx_light),
         ("onnx_ir.1", measure_onnx_ir),
+        ("onnxruntime.1", measure_onnxruntime),
         ("onnx.2", measure_onnx),
         ("onnx_light.2", measure_onnx_light),
         ("onnx_ir.2", measure_onnx_ir),
+        ("onnxruntime.2", measure_onnxruntime),
         ("onnx.3", measure_onnx),
         ("onnx_light.3", measure_onnx_light),
         ("onnx_ir.3", measure_onnx_ir),
+        ("onnxruntime.3", measure_onnxruntime),
     ):
         try:
             results[name] = fn(onnx_path)
@@ -162,8 +181,8 @@ if os.path.exists(onnx_path):
 
     print()
     print(f"Benchmark results for {onnx_path}")
-    print(f"{'library':<12} {'load (s)':>12} {'save (s)':>12}")
+    print(f"{'library':<16} {'load (s)':>12} {'save (s)':>12}")
     for name, (load_s, save_s) in sorted(results.items()):
-        print(f"{name:<12} {load_s:>12.3f} {save_s:>12.3f}")
+        print(f"{name:<16} {load_s:>12.3f} {save_s:>12.3f}")
 else:
     print(f"ONNX model not found at {onnx_path}; run the conversion step above to produce it.")

@@ -93,17 +93,32 @@ except (FileNotFoundError, subprocess.CalledProcessError, ImportError) as exc:
     onnx_path = os.path.join(OUTPUT_DIR, "model.onnx")
 
 
+def _file_size_mb(path: str) -> float:
+    try:
+        return os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        return float("nan")
+
+
+def _log(msg: str) -> None:
+    print(f"[bench {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
 def measure_onnx(path: str) -> tuple[float, float]:
     import onnx
 
+    _log(f"onnx: loading {path} ({_file_size_mb(path):.1f} MB)")
     t0 = time.perf_counter()
     model = onnx.load(path, load_external_data=True)
     load_time = time.perf_counter() - t0
+    _log(f"onnx: loaded in {load_time:.3f} s")
 
     out_path = path + ".onnx-resave.onnx"
+    _log(f"onnx: saving to {out_path}")
     t0 = time.perf_counter()
     onnx.save(model, out_path, save_as_external_data=True)
     save_time = time.perf_counter() - t0
+    _log(f"onnx: saved in {save_time:.3f} s ({_file_size_mb(out_path):.1f} MB)")
 
     return load_time, save_time
 
@@ -111,14 +126,18 @@ def measure_onnx(path: str) -> tuple[float, float]:
 def measure_onnx_light(path: str) -> tuple[float, float]:
     import onnx_light.onnx as onnxl
 
+    _log(f"onnx_light: loading {path} ({_file_size_mb(path):.1f} MB)")
     t0 = time.perf_counter()
     model = onnxl.load(path, load_external_data=True)
     load_time = time.perf_counter() - t0
+    _log(f"onnx_light: loaded in {load_time:.3f} s")
 
     out_path = path + ".onnx-resave.onnx"
+    _log(f"onnx_light: saving to {out_path}")
     t0 = time.perf_counter()
     onnxl.save(model, out_path, save_as_external_data=True)
     save_time = time.perf_counter() - t0
+    _log(f"onnx_light: saved in {save_time:.3f} s ({_file_size_mb(out_path):.1f} MB)")
 
     return load_time, save_time
 
@@ -127,15 +146,19 @@ def measure_onnx_ir(path: str) -> tuple[float, float]:
     import onnx_ir as ir
     from onnx_ir import external_data
 
+    _log(f"onnx_ir: loading {path} ({_file_size_mb(path):.1f} MB)")
     t0 = time.perf_counter()
     model = ir.load(path)
     external_data.load_to_model(model)
     load_time = time.perf_counter() - t0
+    _log(f"onnx_ir: loaded in {load_time:.3f} s")
 
     out_path = path + ".onnx-ir-resave.onnx"
+    _log(f"onnx_ir: saving to {out_path}")
     t0 = time.perf_counter()
     ir.save(model, out_path, external_data=os.path.split(path)[-1] + ".onnx-ir-resave.data")
     save_time = time.perf_counter() - t0
+    _log(f"onnx_ir: saved in {save_time:.3f} s ({_file_size_mb(out_path):.1f} MB)")
 
     return load_time, save_time
 
@@ -146,9 +169,11 @@ def measure_onnxruntime(path: str) -> tuple[float, float]:
     so = onnxruntime.SessionOptions()
     so.graph_optimization_level = onnxruntime.GraphOptimizationLevel.ORT_DISABLE_ALL
 
+    _log(f"onnxruntime: creating InferenceSession from {path} ({_file_size_mb(path):.1f} MB)")
     t0 = time.perf_counter()
     onnxruntime.InferenceSession(path, sess_options=so, providers=["CPUExecutionProvider"])
     load_time = time.perf_counter() - t0
+    _log(f"onnxruntime: session ready in {load_time:.3f} s")
 
     # onnxruntime does not provide a save API; report NaN for the save column.
     return load_time, float("nan")
@@ -159,8 +184,9 @@ def measure_onnxruntime(path: str) -> tuple[float, float]:
 # --------------------------------------------
 
 if os.path.exists(onnx_path):
+    _log(f"Starting benchmark for {onnx_path} ({_file_size_mb(onnx_path):.1f} MB)")
     results: dict[str, tuple[float, float]] = {}
-    for name, fn in (
+    benchmarks = (
         ("onnx.1", measure_onnx),
         ("onnx_light.1", measure_onnx_light),
         ("onnx_ir.1", measure_onnx_ir),
@@ -173,11 +199,16 @@ if os.path.exists(onnx_path):
         ("onnx_light.3", measure_onnx_light),
         ("onnx_ir.3", measure_onnx_ir),
         ("onnxruntime.3", measure_onnxruntime),
-    ):
+    )
+    total = len(benchmarks)
+    for i, (name, fn) in enumerate(benchmarks, start=1):
+        _log(f"[{i}/{total}] running {name}")
         try:
-            results[name] = fn(onnx_path)
+            load_s, save_s = fn(onnx_path)
+            results[name] = (load_s, save_s)
+            _log(f"[{i}/{total}] {name}: load={load_s:.3f}s save={save_s:.3f}s")
         except ImportError as exc:
-            print(f"Skipping {name}: {exc}")
+            _log(f"[{i}/{total}] skipping {name}: {exc}")
 
     print()
     print(f"Benchmark results for {onnx_path}")

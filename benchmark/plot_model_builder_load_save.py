@@ -23,7 +23,8 @@ import sys
 import time
 
 MODEL_ID = os.environ.get("MODEL_ID", "Qwen/Qwen3-0.6B")
-OUTPUT_DIR = f"temp_plot_model_builder_load_save/{MODEL_ID.split('/')[-1]}"
+ROOT = os.environ.get("ROOT", ".")
+OUTPUT_DIR = f"{ROOT}/temp_plot_model_builder_load_save/{MODEL_ID.split('/')[-1]}"
 
 
 ###################################################

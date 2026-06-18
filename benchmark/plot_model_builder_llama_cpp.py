@@ -192,7 +192,7 @@ def benchmark_mbext(onnx_dir: str, prompt: str, max_new_tokens: int) -> dict[str
 
     input_tokens = tokenizer.encode(prompt)
     params = og.GeneratorParams(model)
-    params.max_length = len(input_tokens) + max_new_tokens
+    params.set_search_options(max_length=len(input_tokens) + max_new_tokens)
     params.input_ids = input_tokens
 
     _log(f"mbext: generating up to {max_new_tokens} new tokens …")

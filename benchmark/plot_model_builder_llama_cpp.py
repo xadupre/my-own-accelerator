@@ -33,6 +33,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 
 MODEL_ID = os.environ.get("MODEL_ID", "arnir0/Tiny-LLM")
 ROOT = os.environ.get("ROOT", ".")
@@ -118,7 +119,7 @@ def _find_llama_convert_script() -> str | None:
             if os.path.exists(candidate):
                 return candidate
     except ImportError:
-        pass
+        traceback.print_exc()
     return None
 
 
@@ -279,6 +280,7 @@ try:
     mbext_onnx_path = convert_with_mbext(MODEL_ID, MBEXT_DIR)
 except (FileNotFoundError, subprocess.CalledProcessError, ImportError, OSError) as exc:
     _log(f"mbext: skipping conversion – {exc}")
+    traceback.print_exc()
 
 # --- llama.cpp GGUF ---
 gguf_path = GGUF_PATH
@@ -286,6 +288,7 @@ try:
     gguf_path = convert_to_gguf(MODEL_ID, GGUF_PATH)
 except (FileNotFoundError, subprocess.CalledProcessError, ImportError, OSError) as exc:
     _log(f"gguf: skipping conversion – {exc}")
+    traceback.print_exc()
 
 ###################################################
 # Step 5: run benchmarks and print report.
@@ -304,8 +307,10 @@ for run in range(1, N_RUNS + 1):
             results.setdefault(key, []).append(metrics)
         except ImportError as exc:
             _log(f"mbext: benchmark skipped (missing dependency) – {exc}")
+            traceback.print_exc()
         except (RuntimeError, ValueError, OSError) as exc:
             _log(f"mbext: benchmark failed – {exc}")
+            traceback.print_exc()
     else:
         _log(f"mbext: skipping benchmark – model dir not found: {MBEXT_DIR}")
 
@@ -317,8 +322,10 @@ for run in range(1, N_RUNS + 1):
             results.setdefault(key, []).append(metrics)
         except ImportError as exc:
             _log(f"llama.cpp: benchmark skipped (missing dependency) – {exc}")
+            traceback.print_exc()
         except (RuntimeError, ValueError, OSError) as exc:
             _log(f"llama.cpp: benchmark failed – {exc}")
+            traceback.print_exc()
     else:
         _log(f"llama.cpp: skipping benchmark – GGUF not found: {gguf_path}")
 

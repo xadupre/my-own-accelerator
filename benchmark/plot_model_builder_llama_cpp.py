@@ -11,7 +11,8 @@ This example benchmarks inference throughput on
 2. **llama.cpp** – converts the checkpoint to GGUF format via
    ``llama.cpp`` ``convert_hf_to_gguf.py`` (or downloads a pre-built GGUF
    from HuggingFace if available) and runs inference through the
-   ``llama-cpp-python`` package.
+   ``llama-cpp-python`` package,
+   ``pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu``
 
 For each backend the script measures:
 

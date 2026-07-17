@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import parse, request
@@ -52,6 +53,10 @@ SVG_X_AXIS_LABEL_ROTATION = _SVG_X_AXIS_LABEL_ROTATION
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
+# Maximum number of concurrent workflow-job fetch requests.
+MAX_PARALLEL_JOB_FETCHES = 8
+# Matches a bare ISO date (YYYY-MM-DD) used to detect date-only strings in _parse_iso_datetime.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -61,7 +66,8 @@ def _print_progress(current: int, total: int, file: Any = None) -> None:
     bar_width = 30
     filled = int(bar_width * current / total) if total else bar_width
     bar = "=" * filled + "-" * (bar_width - filled)
-    end = "\n" if current >= total else "\r"
+    is_tty = hasattr(file, "isatty") and bool(file.isatty())
+    end = "\n" if current >= total or not is_tty else "\r"
     print(f"  [{bar}] {current}/{total}", end=end, file=file, flush=True)
 
 
@@ -102,11 +108,25 @@ def _parse_iso_datetime(value: str) -> datetime:
     if not cleaned:
         raise ValueError("Datetime value cannot be empty.")
     if "T" not in cleaned:
+        if not _ISO_DATE_RE.match(cleaned):
+            raise ValueError(f"Invalid isoformat string: {value!r}")
         cleaned = f"{cleaned}T00:00:00Z"
     parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=timezone.utc)
     return parsed
+
+
+def _dt_str(value: Any) -> str:
+    """Normalize a datetime field value to a clean string.
+
+    Returns an empty string for ``None`` values and for the string ``"None"``
+    (which can appear in caches written by older versions of this module that
+    called ``str(pr.get("created_at", ""))`` when the GitHub API returned
+    ``null`` for that field).
+    """
+    s = "" if value is None else str(value)
+    return "" if s == "None" else s
 
 
 def _default_prefix(repo: str) -> str:
@@ -178,6 +198,24 @@ def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     """Persist PR rows to the JSON cache file keyed by PR number."""
     payload = {"rows": {str(row["number"]): row for row in rows}}
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
+def _load_pulls_cache(path: pathlib.Path) -> list[dict[str, Any]] | None:
+    """Load the cached raw PR list from *path*, or return ``None`` on any error."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, list):
+        return None
+    if any(not isinstance(item, dict) for item in payload):
+        return None
+    return payload
+
+
+def _save_pulls_cache(path: pathlib.Path, pulls: list[dict[str, Any]]) -> None:
+    """Persist the raw PR list to *path* as a JSON array."""
+    path.write_text(json.dumps(pulls, indent=2), encoding="utf-8")
 
 
 def _collect_pr_comment_stats(
@@ -541,6 +579,8 @@ def _collect_pr_job_info_batch(
     run_by_id: dict[int, dict[str, Any]] = {}
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
     page = 1
+    # Track which target SHAs we have not yet encountered in the workflow runs pages.
+    remaining_shas = set(by_sha.keys())
     try:
         while True:
             if verbose:
@@ -560,9 +600,13 @@ def _collect_pr_job_info_batch(
                 break
             if any(not isinstance(item, dict) for item in workflow_runs):
                 raise ValueError("Unexpected workflow runs payload returned by API.")
+            page_had_target = False
             for run in workflow_runs:
                 head_sha = str(run.get("head_sha", ""))
                 pull_numbers = by_sha.get(head_sha, [])
+                if pull_numbers:
+                    page_had_target = True
+                    remaining_shas.discard(head_sha)
                 if not pull_numbers:
                     continue
                 run_id = int(run.get("id", 0))
@@ -578,6 +622,10 @@ def _collect_pr_job_info_batch(
                     if run_pull_numbers and pull_number not in run_pull_numbers:
                         continue
                     run_ids_by_pr.setdefault(pull_number, set()).add(run_id)
+            # Early exit: all target SHAs have been encountered and the most recent
+            # page contained no target-SHA runs, so older pages won't have them either.
+            if not remaining_shas and not page_had_target:
+                break
             if len(workflow_runs) < PAGE_SIZE:
                 break
             page += 1
@@ -586,6 +634,19 @@ def _collect_pr_job_info_batch(
         return {}
     results: dict[int, tuple[int, list[dict[str, Any]]]] = {}
     pr_numbers = sorted(run_ids_by_pr)
+    if not pr_numbers:
+        return results
+    # Fetch jobs for all runs in parallel to reduce wall-clock time.
+    all_run_ids = sorted({run_id for ids in run_ids_by_pr.values() for run_id in ids})
+    jobs_by_run_id: dict[int, list[dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOB_FETCHES) as executor:
+        future_to_run: dict[Future[list[dict[str, Any]]], int] = {
+            executor.submit(_fetch_workflow_run_jobs, owner, repo, run_id, token, api_url): run_id
+            for run_id in all_run_ids
+        }
+        for future in as_completed(future_to_run):
+            run_id = future_to_run[future]
+            jobs_by_run_id[run_id] = future.result()
     for idx, pull_number in enumerate(pr_numbers, 1):
         if verbose:
             run_count = len(run_ids_by_pr[pull_number])
@@ -599,7 +660,7 @@ def _collect_pr_job_info_batch(
         successful_jobs: list[dict[str, Any]] = []
         for run_id in sorted(run_ids_by_pr[pull_number]):
             run = run_by_id.get(run_id, {"id": run_id})
-            jobs = _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url)
+            jobs = jobs_by_run_id.get(run_id, [])
             if not jobs:
                 _warn_if_old_run_has_no_jobs(run, pull_number)
                 continue
@@ -695,9 +756,9 @@ def _build_pr_activity_row(
         "number": number,
         "author": (pr.get("user") or {}).get("login", ""),
         "title": pr.get("title", ""),
-        "created_at": str(pr.get("created_at", "")),
+        "created_at": _dt_str(pr.get("created_at")),
         "merged_at": merged_at or "",
-        "closed_at": pr.get("closed_at", ""),
+        "closed_at": _dt_str(pr.get("closed_at")),
         "status": "merged" if merged_at else "cancelled",
         "manual_comments": manual_comments,
         "copilot_commands": copilot_commands,
@@ -715,6 +776,7 @@ def build_pr_activity_rows(
     since: str | None = None,
     cached_rows: dict[str, dict[str, Any]] | None = None,
     verbose: bool = False,
+    pulls_cache_path: pathlib.Path | None = None,
 ) -> list[dict[str, Any]]:
     """Build report rows for closed pull requests, reusing cached values when available."""
     since_dt = _parse_since_datetime(since) if since else None
@@ -723,14 +785,20 @@ def build_pr_activity_rows(
         f"{api_url.rstrip('/')}/repos/{owner}/{repo}/pulls"
         "?state=closed&sort=created&direction=desc"
     )
-    pulls = _fetch_paginated(pulls_url, token)
+    if pulls_cache_path is not None:
+        pulls = _load_pulls_cache(pulls_cache_path)
+        if pulls is None:
+            pulls = _fetch_paginated(pulls_url, token)
+            _save_pulls_cache(pulls_cache_path, pulls)
+    else:
+        pulls = _fetch_paginated(pulls_url, token)
     # Pre-filter to the PRs that will actually be processed so we can show
     # an accurate progress bar total.
     filtered: list[dict[str, Any]] = []
     for pr in pulls:
         if pr.get("state") != "closed":
             continue
-        created_at = str(pr.get("created_at", ""))
+        created_at = _dt_str(pr.get("created_at"))
         if since_dt and created_at and _parse_iso_datetime(created_at) < since_dt:
             continue
         filtered.append(pr)
@@ -860,8 +928,8 @@ _week_label_first_day = week_label_first_day
 
 def _compute_pr_duration_hours(row: dict[str, Any]) -> float | None:
     """Return hours from created_at to merged_at, or None if data is missing."""
-    created_at = str(row.get("created_at", ""))
-    merged_at = str(row.get("merged_at", ""))
+    created_at = _dt_str(row.get("created_at"))
+    merged_at = _dt_str(row.get("merged_at"))
     if not created_at or not merged_at:
         return None
     dt_created = _parse_iso_datetime(created_at)
@@ -873,7 +941,7 @@ def _build_avg_duration_per_user_week_rows(rows: list[dict[str, Any]]) -> list[d
     """Average PR duration (created_at→merged_at) per author per merge week, merged PRs only."""
     data: dict[tuple[str, str], list[float]] = {}
     for row in rows:
-        merged_at = str(row.get("merged_at", ""))
+        merged_at = _dt_str(row.get("merged_at"))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
@@ -901,7 +969,7 @@ def _build_avg_duration_per_user_rows(rows: list[dict[str, Any]]) -> list[dict[s
     """Average PR duration per author across all merged PRs."""
     data: dict[str, list[float]] = {}
     for row in rows:
-        merged_at = str(row.get("merged_at", ""))
+        merged_at = _dt_str(row.get("merged_at"))
         if not merged_at:
             continue
         author = str(row.get("author", ""))
@@ -924,7 +992,7 @@ def _build_avg_duration_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[s
     """Average PR duration per merge week across all merged PRs."""
     data: dict[str, list[float]] = {}
     for row in rows:
-        merged_at = str(row.get("merged_at", ""))
+        merged_at = _dt_str(row.get("merged_at"))
         if not merged_at:
             continue
         week = _week_label(merged_at)
@@ -1011,7 +1079,7 @@ def _build_prs_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
     """Aggregate created pull requests into weekly counts."""
     prs_per_week: Counter[str] = Counter()
     for row in rows:
-        created_at = str(row.get("created_at", ""))
+        created_at = _dt_str(row.get("created_at"))
         if not created_at:
             continue
         prs_per_week[_week_label(created_at)] += 1
@@ -1024,7 +1092,7 @@ def _build_comments_per_week_rows(rows: list[dict[str, Any]]) -> list[dict[str, 
     """Aggregate manual, Copilot, and total comments by PR creation week."""
     comments_per_week: dict[str, dict[str, Any]] = {}
     for row in rows:
-        created_at = str(row.get("created_at", ""))
+        created_at = _dt_str(row.get("created_at"))
         if not created_at:
             continue
         week = _week_label(created_at)
@@ -1141,6 +1209,9 @@ def save_pr_activity_report(
     out.mkdir(parents=True, exist_ok=True)
     graph_dir = out / f"graphs_{_safe_repo_name(repo)}"
     graph_dir.mkdir(parents=True, exist_ok=True)
+    pulls_cache_dir = out / f"pr_list_cache_{_safe_repo_name(repo)}"
+    pulls_cache_dir.mkdir(parents=True, exist_ok=True)
+    pulls_cache_path = pulls_cache_dir / f"{prefix}_pulls.json"
     cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
     cached_rows = _load_cache(cache_path)
     csv_path = out / f"{prefix}.csv"
@@ -1163,6 +1234,7 @@ def save_pr_activity_report(
             since=since,
             cached_rows=cached_rows,
             verbose=verbose,
+            pulls_cache_path=pulls_cache_path,
         )
     except (HTTPError, URLError, OSError, ValueError) as e:
         if isinstance(e, HTTPError) and e.code == 404:
@@ -1294,6 +1366,7 @@ def save_pr_activity_report(
         "avg_duration_per_job_svg": avg_duration_per_job_svg_path,
         "graphs_html": graphs_html_path,
         "cache": cache_path,
+        "pulls_cache": pulls_cache_path,
     }
 
 

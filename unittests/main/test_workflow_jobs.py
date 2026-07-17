@@ -4,16 +4,67 @@ import tempfile
 from datetime import datetime, timezone
 from io import StringIO
 from unittest.mock import patch
+from urllib.error import HTTPError
 
 from moa.commands.workflow_jobs import (
     _build_fail_rate_rows,
     _build_queued_rows,
+    _fetch_run_jobs,
+    _fetch_workflow_runs,
     main,
 )
 from moa.ext_test_case import ExtTestCase
 
 
 class TestWorkflowJobs(ExtTestCase):
+    def test_fetch_workflow_runs_retries_without_token_on_403(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=[
+                    HTTPError("https://api.github.com", 403, "Forbidden", None, StringIO()),
+                    {"workflow_runs": []},
+                ],
+            ) as mocked,
+        ):
+            rows = _fetch_workflow_runs("owner", "repo", token="tok", verbose=True)
+        self.assertEqual(rows, [])
+        self.assertEqual(mocked.call_args_list[0].args[1], "tok")
+        self.assertIsNone(mocked.call_args_list[1].args[1])
+        self.assertIn("retrying without token.", err.getvalue())
+
+    def test_fetch_run_jobs_retries_without_token_on_403(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=[
+                    HTTPError("https://api.github.com", 403, "Forbidden", None, StringIO()),
+                    {"jobs": []},
+                ],
+            ) as mocked,
+        ):
+            rows = _fetch_run_jobs("owner", "repo", 12, token="tok", verbose=True)
+        self.assertEqual(rows, [])
+        self.assertEqual(mocked.call_args_list[0].args[1], "tok")
+        self.assertIsNone(mocked.call_args_list[1].args[1])
+        self.assertIn("retrying without token for run_id=12.", err.getvalue())
+
+    def test_fetch_workflow_runs_does_not_swallow_non_403(self) -> None:
+        with (
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=HTTPError(
+                    "https://api.github.com", 401, "Bad credentials", None, StringIO()
+                ),
+            ),
+            self.assertRaises(HTTPError),
+        ):
+            _fetch_workflow_runs("owner", "repo", token="tok")
+
     def test_build_queued_rows_sorted_by_name(self) -> None:
         rows = _build_queued_rows(
             [

@@ -11,6 +11,7 @@ import sys
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import parse
+from urllib.error import HTTPError
 
 from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
 from .review_pr import _fetch_json
@@ -33,6 +34,17 @@ def _default_since() -> str:
     return (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
 
 
+def _print_403_retry_warning(verbose: bool, run_id: int | None = None) -> None:
+    if not verbose:
+        return
+    details = f" for run_id={run_id}" if run_id is not None else ""
+    print(
+        "workflow-jobs: warning: received HTTP 403 with token; "
+        f"retrying without token{details}.",
+        file=sys.stderr,
+    )
+
+
 def _parse_since_datetime(value: str | None) -> datetime:
     since_value = (value or _default_since()).strip()
     relative_dt = parse_relative_since(since_value)
@@ -50,6 +62,7 @@ def _fetch_workflow_runs(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     status: str | None = None,
+    verbose: bool = False,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
@@ -58,7 +71,13 @@ def _fetch_workflow_runs(
         if status:
             query["status"] = status
         url = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs?{parse.urlencode(query)}"
-        payload = _fetch_json(url, token)
+        try:
+            payload = _fetch_json(url, token)
+        except HTTPError as e:
+            if e.code != 403:
+                raise
+            _print_403_retry_warning(verbose)
+            payload = _fetch_json(url, None)
         if not isinstance(payload, dict):
             break
         runs = payload.get("workflow_runs", [])
@@ -77,6 +96,7 @@ def _fetch_run_jobs(
     run_id: int,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
@@ -85,7 +105,13 @@ def _fetch_run_jobs(
             f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?"
             f"{parse.urlencode({'per_page': 100, 'page': page})}"
         )
-        payload = _fetch_json(url, token)
+        try:
+            payload = _fetch_json(url, token)
+        except HTTPError as e:
+            if e.code != 403:
+                raise
+            _print_403_retry_warning(verbose, run_id=run_id)
+            payload = _fetch_json(url, None)
         if not isinstance(payload, dict):
             break
         jobs = payload.get("jobs", [])
@@ -143,7 +169,9 @@ def _build_duration_rows(
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
-        for job in _fetch_run_jobs(owner, repo, run_id, token=token, api_url=api_url):
+        for job in _fetch_run_jobs(
+            owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
+        ):
             if str(job.get("conclusion", "")).strip().lower() != "success":
                 continue
             started_at = str(job.get("started_at", "")).strip()
@@ -179,13 +207,16 @@ def _build_fail_rate_rows(
     since: datetime,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> list[dict[str, int | str]]:
     by_day: dict[str, dict[str, int]] = {}
     for run in runs:
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
-        for job in _fetch_run_jobs(owner, repo, run_id, token=token, api_url=api_url):
+        for job in _fetch_run_jobs(
+            owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
+        ):
             status = str(job.get("conclusion", "")).strip().lower()
             completed_at = str(job.get("completed_at", "")).strip()
             if status not in _FAIL_RATE_STATUSES or not completed_at:
@@ -300,6 +331,7 @@ def main(argv: list[str] | None = None) -> int:
         token=args.token,
         api_url=args.api_url,
         status="queued" if args.queued else None,
+        verbose=args.verbose,
     )
     if args.queued:
         rows = _build_queued_rows(runs)
@@ -331,6 +363,7 @@ def main(argv: list[str] | None = None) -> int:
         since,
         token=args.token,
         api_url=args.api_url,
+        verbose=args.verbose,
     )
     csv_path = _write_fail_rate_csv(fail_rows, args.output_dir, args.repo)
     print(

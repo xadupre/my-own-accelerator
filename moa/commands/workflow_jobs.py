@@ -160,7 +160,7 @@ def _build_running_rows(
 ) -> list[dict[str, Any]]:
     if now is None:
         now = datetime.now(timezone.utc)
-    if verbose and runs:
+    if runs:
         _print_verbose_step(verbose, f"collecting running jobs from {len(runs)} run(s)...")
     rows: list[dict[str, Any]] = []
     for index, run in enumerate(runs, 1):
@@ -263,7 +263,7 @@ def _build_duration_rows(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
-    if verbose and runs:
+    if runs:
         _print_verbose_step(verbose, f"collecting duration history from {len(runs)} run(s)...")
     rows: list[dict[str, Any]] = []
     for index, run in enumerate(runs, 1):
@@ -315,7 +315,7 @@ def _build_fail_rate_rows(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> list[dict[str, int | str]]:
-    if verbose and runs:
+    if runs:
         _print_verbose_step(verbose, f"collecting fail-rate history from {len(runs)} run(s)...")
     by_day: dict[str, dict[str, int]] = {}
     for index, run in enumerate(runs, 1):
@@ -370,7 +370,7 @@ def _write_duration_outputs(
         job_series.setdefault(str(row["job_name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
     graph_names = sorted(job_series)
-    if verbose and graph_names:
+    if graph_names:
         _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
     for index, job_name in enumerate(graph_names, 1):
         svg = graph_dir / f"workflow_jobs_duration_{_safe_name(job_name)}.svg"

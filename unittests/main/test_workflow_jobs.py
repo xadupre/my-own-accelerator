@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 import pandas
 
 from moa.commands.workflow_jobs import (
+    _WORKFLOW_RUNS_DAY_CACHE_VERSION,
     _build_duration_rows,
     _build_fail_rate_rows,
     _build_queued_rows,
@@ -236,6 +237,7 @@ class TestWorkflowJobs(ExtTestCase):
                     {
                         "meta": {
                             "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
                             "owner": "owner",
                             "repo": "repo",
                             "status": "completed",
@@ -268,6 +270,7 @@ class TestWorkflowJobs(ExtTestCase):
                     {
                         "meta": {
                             "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
                             "owner": "owner",
                             "repo": "repo",
                             "status": "completed",
@@ -328,6 +331,7 @@ class TestWorkflowJobs(ExtTestCase):
                     {
                         "meta": {
                             "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
                             "owner": "owner",
                             "repo": "repo",
                             "status": "completed",
@@ -343,6 +347,7 @@ class TestWorkflowJobs(ExtTestCase):
                     {
                         "meta": {
                             "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
                             "owner": "owner",
                             "repo": "repo",
                             "status": "completed",
@@ -373,6 +378,71 @@ class TestWorkflowJobs(ExtTestCase):
                 ],
             )
             self.assertEqual(mocked.call_count, 1)
+
+    def test_fetch_workflow_runs_ignores_legacy_daily_cache_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            for day, rows in [
+                ("2026-01-01", []),
+                ("2026-01-02", []),
+                ("2026-01-03", [{"id": 3, "created_at": "2026-01-03T10:00:00Z"}]),
+            ]:
+                path = _workflow_runs_cache_path(tmp, "owner", "repo", "completed", day)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text(
+                    json.dumps(
+                        {
+                            "meta": {
+                                "kind": "workflow_runs_day",
+                                "owner": "owner",
+                                "repo": "repo",
+                                "status": "completed",
+                                "day": day,
+                            },
+                            "rows": rows,
+                        }
+                    ),
+                    encoding="utf-8",
+                )
+            captured_urls: list[str] = []
+
+            def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
+                self.assertIsNone(token)
+                captured_urls.append(url)
+                return {
+                    "workflow_runs": [
+                        {"id": 1, "created_at": "2026-01-01T10:00:00Z"},
+                        {"id": 2, "created_at": "2026-01-02T10:00:00Z"},
+                        {"id": 4, "created_at": "2026-01-03T12:00:00Z"},
+                    ]
+                }
+
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=datetime(2026, 1, 3, 15, 0, 0, tzinfo=timezone.utc),
+                    status="completed",
+                )
+            self.assertEqual(
+                rows,
+                [
+                    {"id": 1, "created_at": "2026-01-01T10:00:00Z"},
+                    {"id": 2, "created_at": "2026-01-02T10:00:00Z"},
+                    {"id": 4, "created_at": "2026-01-03T12:00:00Z"},
+                ],
+            )
+            self.assertEqual(len(captured_urls), 1)
+            query = parse_qs(urlparse(captured_urls[0]).query)
+            self.assertEqual(query["created"], [">=2026-01-01T00:00:00Z"])
+            day1 = json.loads(
+                _workflow_runs_cache_path(
+                    tmp, "owner", "repo", "completed", "2026-01-01"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertEqual(day1["meta"]["version"], _WORKFLOW_RUNS_DAY_CACHE_VERSION)
+            self.assertEqual(day1["rows"], [{"id": 1, "created_at": "2026-01-01T10:00:00Z"}])
 
     def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
         err = StringIO()

@@ -33,6 +33,7 @@ from .since_utils import parse_relative_since
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 _FAIL_RATE_STATUSES = ("failure", "cancelled", "skipped", "success")
 _DEFAULT_SINCE_DAYS = 60
+_WORKFLOW_RUNS_DAY_CACHE_VERSION = 2
 
 
 def _default_since() -> str:
@@ -154,6 +155,7 @@ def _workflow_runs_day_meta(
 ) -> dict[str, Any]:
     return {
         "kind": "workflow_runs_day",
+        "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
         "owner": owner,
         "repo": repo,
         "status": status,
@@ -250,6 +252,7 @@ def _load_workflow_runs_day_rows(
         return None
     if (
         meta.get("kind") != "workflow_runs_day"
+        or meta.get("version") != _WORKFLOW_RUNS_DAY_CACHE_VERSION
         or meta.get("owner") != owner
         or meta.get("repo") != repo
         or meta.get("day") != day

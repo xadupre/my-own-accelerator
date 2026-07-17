@@ -1229,8 +1229,10 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertIn(">failure</text>", graph)
             self.assertIn(">cancelled</text>", graph)
             self.assertIn("f=1.0h, c=0.5h", graph)
+            self.assertIn("Lost compute time (hours)", graph)
+            self.assertIn("Workflow fail/cancel cost (hours): build", graph)
             html = html_path.read_text(encoding="utf-8")
-            self.assertIn("Workflow fail/cancel cost: build", html)
+            self.assertIn("Workflow fail/cancel cost (hours): build", html)
 
     def test_build_duration_row_from_run_keeps_html_url(self) -> None:
         row = _build_duration_rows(

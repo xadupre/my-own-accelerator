@@ -1594,13 +1594,13 @@ def _write_fail_cost_outputs(
         save_bar_graph(
             svg,
             values,
-            f"Workflow fail/cancel cost: {job_name}",
+            f"Workflow fail/cancel cost (hours): {job_name}",
             x_axis_label="Date",
             y_axis_label="Lost compute time (hours)",
             bar_labels=labels,
             bar_segments=segments,
         )
-        graphs.append((f"Workflow fail/cancel cost: {job_name}", svg))
+        graphs.append((f"Workflow fail/cancel cost (hours): {job_name}", svg))
         if verbose:
             _print_progress(index, len(graph_names))
     html_path = graph_dir / f"workflow_jobs_fail_cost_{repo}.html"

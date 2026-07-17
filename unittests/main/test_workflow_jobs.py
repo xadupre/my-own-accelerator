@@ -307,6 +307,7 @@ class TestWorkflowJobs(ExtTestCase):
                 verbose=True,
                 stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
             )
+        # Older page-2 runs are now discarded by the defensive since-bound filtering.
         self.assertEqual(len(rows), 100)
         self.assertEqual(mocked.call_count, 2)
         self.assertIn("stopping workflow runs fetch on page 2", err.getvalue())
@@ -354,6 +355,71 @@ class TestWorkflowJobs(ExtTestCase):
                     "skipped": 1,
                     "success": 0,
                 },
+            ],
+        )
+
+    def test_build_duration_rows_uses_workflow_run_metadata_without_fetching_jobs(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            side_effect=RuntimeError("Run-level metadata should avoid job fetches."),
+        ):
+            rows = _build_duration_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "success",
+                        "run_started_at": "2026-01-03T10:00:00Z",
+                        "updated_at": "2026-01-03T10:02:00Z",
+                    }
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "job_name": "build",
+                    "completed_at": "2026-01-03T10:02:00+00:00",
+                    "duration_seconds": 120,
+                }
+            ],
+        )
+
+    def test_build_fail_rate_rows_uses_workflow_run_metadata_without_fetching_jobs(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            side_effect=RuntimeError("Run-level metadata should avoid job fetches."),
+        ):
+            rows = _build_fail_rate_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "conclusion": "success",
+                        "updated_at": "2026-01-03T10:02:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "conclusion": "failure",
+                        "updated_at": "2026-01-03T11:02:00Z",
+                    },
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure": 1,
+                    "cancelled": 0,
+                    "skipped": 0,
+                    "success": 1,
+                }
             ],
         )
 
@@ -722,7 +788,11 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(query["created"], [">=2026-01-02T00:00:00Z"])
             self.assertTrue(
                 _workflow_runs_cache_path(
-                    tmp, "owner", "repo", "completed", "2026-01-03"
+                    tmp,
+                    "owner",
+                    "repo",
+                    "completed",
+                    datetime(2026, 1, 3, tzinfo=timezone.utc),
                 ).exists()
             )
 

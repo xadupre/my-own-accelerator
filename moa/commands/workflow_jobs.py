@@ -1093,7 +1093,7 @@ def _write_duration_outputs(
         graphs.append((f"Workflow duration: {job_name}", svg))
         if verbose:
             _print_progress(index, graph_count)
-    for index, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+    for index, hourly_graph in enumerate(hourly_graphs, len(graph_names) + 1):
         graphs.append(hourly_graph)
         if verbose:
             _print_progress(index, graph_count)
@@ -1167,7 +1167,7 @@ def _write_waiting_outputs(
         graphs.append((f"Workflow waiting time: {job_name}", svg))
         if verbose:
             _print_progress(index, graph_count)
-    for index, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+    for index, hourly_graph in enumerate(hourly_graphs, len(graph_names) + 1):
         graphs.append(hourly_graph)
         if verbose:
             _print_progress(index, graph_count)

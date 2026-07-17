@@ -29,8 +29,11 @@ from moa.commands.pr_stats import (
     _collect_pr_job_info_batch,
     _count_comments,
     _default_since,
+    _dt_str,
+    _load_pulls_cache,
     _parse_since_datetime,
     _print_progress,
+    _save_pulls_cache,
     build_pr_activity_rows,
     main,
     save_pr_activity_report,
@@ -1053,11 +1056,12 @@ class TestPRStats(ExtTestCase):
                 "conclusion": "failure",
             }
         ]
+        job_map = {101: jobs_run_101, 102: jobs_run_102}
         with (
             patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
             patch(
                 "moa.commands.pr_stats._fetch_workflow_run_jobs",
-                side_effect=[jobs_run_101, jobs_run_102],
+                side_effect=lambda o, r, run_id, tok=None, api=None: job_map[run_id],
             ),
         ):
             results = _collect_pr_job_info_batch(
@@ -1217,6 +1221,53 @@ class TestPRStats(ExtTestCase):
             "workflow run #101 for PR #22 is older than 2 weeks but has no jobs",
             err.getvalue(),
         )
+
+    def test_collect_pr_job_info_batch_early_exit(self) -> None:
+        """Batch stops fetching pages once all target SHAs found and a page has no targets."""
+        # page1 has PAGE_SIZE (100) runs: 1 target + 99 non-target to simulate a full page.
+        page1 = {
+            "workflow_runs": [
+                {"id": 201, "head_sha": "sha1", "pull_requests": [{"number": 30}]},
+            ]
+            + [
+                {"id": 300 + i, "head_sha": f"other{i}", "pull_requests": []}
+                for i in range(99)  # PAGE_SIZE - 1 non-target runs to fill the page
+            ]
+        }
+        page2 = {
+            "workflow_runs": [
+                {"id": 401 + i, "head_sha": f"old{i}", "pull_requests": []} for i in range(100)
+            ]
+        }
+        jobs_run_201 = [
+            {
+                "name": "build",
+                "started_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:00Z",
+                "conclusion": "success",
+            }
+        ]
+        pages = [page1, page2]
+        fetch_json_calls: list[str] = []
+
+        def fake_fetch_json(url: str, token: str | None = None) -> dict:
+            fetch_json_calls.append(url)
+            page_index = len(fetch_json_calls) - 1
+            if page_index < len(pages):
+                return pages[page_index]
+            return {"workflow_runs": []}
+
+        with (
+            patch("moa.commands.pr_stats._fetch_json", side_effect=fake_fetch_json),
+            patch(
+                "moa.commands.pr_stats._fetch_workflow_run_jobs",
+                return_value=jobs_run_201,
+            ),
+        ):
+            results = _collect_pr_job_info_batch("o", "r", {30: "sha1"})
+        # Two pages were fetched: page1 (found sha1) + page2 (no target → exit).
+        self.assertEqual(len(fetch_json_calls), 2)
+        self.assertEqual(results[30][0], 60)
 
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [
@@ -1646,3 +1697,103 @@ class TestPRStats(ExtTestCase):
             with self.assertRaises(SystemExit) as ctx:
                 main(["--gh", "--token", "explicit_tok", "owner", "repo"])
         self.assertEqual(ctx.exception.code, 2)
+
+    def test_dt_str_normalizes_none_and_none_string(self) -> None:
+        self.assertEqual(_dt_str(None), "")
+        self.assertEqual(_dt_str("None"), "")
+        self.assertEqual(_dt_str(""), "")
+        self.assertEqual(_dt_str("2026-01-01T00:00:00Z"), "2026-01-01T00:00:00Z")
+
+    def test_build_pr_activity_rows_null_created_at_does_not_raise(self) -> None:
+        """A PR with created_at=None (GitHub null) must not crash even with --since."""
+        pulls = [
+            {
+                "number": 50,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "Null date PR",
+                "created_at": None,
+                "merged_at": None,
+                "closed_at": "2026-01-15T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/50",
+                "head": {"sha": "abc"},
+            },
+        ]
+        with (
+            patch("moa.commands.pr_stats._fetch_paginated", return_value=pulls),
+            patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(0, 0)),
+            patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(0, [])),
+        ):
+            # Should not raise ValueError even though created_at is None
+            rows = build_pr_activity_rows("o", "r", since="2026-01-01")
+        # PR with null created_at passes the since filter (treated as no date)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["created_at"], "")
+
+    def test_load_save_pulls_cache_roundtrip(self) -> None:
+        pulls = [
+            {"number": 1, "state": "closed", "title": "A"},
+            {"number": 2, "state": "closed", "title": "B"},
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = pathlib.Path(tmp) / "pulls.json"
+            self.assertIsNone(_load_pulls_cache(path))
+            _save_pulls_cache(path, pulls)
+            loaded = _load_pulls_cache(path)
+        self.assertEqual(loaded, pulls)
+
+    def test_build_pr_activity_rows_uses_pulls_cache(self) -> None:
+        """Cached raw PR list is used on the second call; _fetch_paginated not called again."""
+        pulls = [
+            {
+                "number": 99,
+                "state": "closed",
+                "user": {"login": "alice"},
+                "title": "Cached",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-02T00:00:00Z",
+                "closed_at": "2026-01-02T00:00:00Z",
+                "html_url": "https://github.com/o/r/pull/99",
+                "head": {"sha": "aaa"},
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = pathlib.Path(tmp) / "pulls.json"
+            _save_pulls_cache(cache_path, pulls)
+            with (
+                patch("moa.commands.pr_stats._fetch_paginated") as mocked_fetch,
+                patch("moa.commands.pr_stats._collect_pr_comment_stats", return_value=(1, 0)),
+                patch("moa.commands.pr_stats._collect_pr_job_info", return_value=(60, [])),
+            ):
+                rows = build_pr_activity_rows("o", "r", pulls_cache_path=cache_path)
+        mocked_fetch.assert_not_called()
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["number"], 99)
+
+    def test_save_pr_activity_report_creates_pulls_cache_in_subdirectory(self) -> None:
+        """pulls_cache is written to a pr_list_cache_* subdirectory of output_dir."""
+        fake_rows = [
+            {
+                "number": 1,
+                "author": "alice",
+                "title": "A",
+                "created_at": "2026-01-01T00:00:00Z",
+                "merged_at": "2026-01-03T00:00:00Z",
+                "closed_at": "2026-01-03T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 1,
+                "copilot_commands": 0,
+                "total_job_duration_hours": 0.0,
+                "successful_job_durations": [],
+                "html_url": "https://github.com/o/r/pull/1",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("moa.commands.pr_stats.build_pr_activity_rows", return_value=fake_rows):
+                outputs = save_pr_activity_report("o", "myrepo", output_dir=tmp, prefix="report")
+            pulls_cache_path = pathlib.Path(outputs["pulls_cache"])
+            pulls_cache_dir = pathlib.Path(tmp) / "pr_list_cache_myrepo"
+            self.assertEqual(pulls_cache_path.parent, pulls_cache_dir)
+            # The file is only written if build_pr_activity_rows actually fetches; here it's
+            # mocked, so the cache file may not exist yet — but the directory must exist.
+            self.assertTrue(pulls_cache_dir.is_dir())

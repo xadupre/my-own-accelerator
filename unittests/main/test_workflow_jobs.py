@@ -108,7 +108,7 @@ class TestWorkflowJobs(ExtTestCase):
     def test_fetch_workflow_runs_writes_and_reuses_output_cache(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             cache_path = _workflow_runs_cache_path(
-                tmp, "owner", "repo", datetime(2026, 1, 1, tzinfo=timezone.utc)
+                tmp, "owner", "repo", None, datetime(2026, 1, 1, tzinfo=timezone.utc)
             )
             with patch(
                 "moa.commands.workflow_jobs._fetch_json",

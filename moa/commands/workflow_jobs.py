@@ -120,11 +120,19 @@ def _workflow_runs_cache_path(
     output_dir: str,
     owner: str,
     repo: str,
-    stop_before: datetime,
+    status: str | None,
+    stop_before: datetime | None,
 ) -> pathlib.Path:
     slug = f"{_safe_name(owner)}_{_safe_name(repo)}"
-    stamp = stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    return pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_runs_{stamp}.json"
+    status_slug = _safe_name(status or "all")
+    stamp = (
+        stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        if stop_before is not None
+        else "live"
+    )
+    return (
+        pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_runs_{status_slug}_{stamp}.json"
+    )
 
 
 def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) -> pathlib.Path:
@@ -619,19 +627,21 @@ def main(argv: list[str] | None = None) -> int:
         )
         print(f"workflow-jobs: token source={token_origin}, type={token_type}.", file=sys.stderr)
     since = _parse_since_datetime(args.since) if args.duration or args.fail_rate else None
+    status = "queued" if args.queued else "in_progress" if args.running else None
+    history_cache_path = (
+        _workflow_runs_cache_path(args.output_dir, args.owner, args.repo, status, since)
+        if args.duration or args.fail_rate
+        else None
+    )
     runs = _fetch_workflow_runs(
         args.owner,
         args.repo,
         token=args.token,
         api_url=args.api_url,
-        status="queued" if args.queued else "in_progress" if args.running else None,
+        status=status,
         verbose=args.verbose,
         stop_before=since,
-        cache_path=(
-            _workflow_runs_cache_path(args.output_dir, args.owner, args.repo, since)
-            if since is not None
-            else None
-        ),
+        cache_path=history_cache_path,
     )
     if args.queued:
         rows = _build_queued_rows(runs)

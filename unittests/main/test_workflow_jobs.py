@@ -408,13 +408,14 @@ class TestWorkflowJobs(ExtTestCase):
             def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
                 self.assertIsNone(token)
                 captured_urls.append(url)
-                return {
-                    "workflow_runs": [
-                        {"id": 1, "created_at": "2026-01-01T10:00:00Z"},
-                        {"id": 2, "created_at": "2026-01-02T10:00:00Z"},
-                        {"id": 4, "created_at": "2026-01-03T12:00:00Z"},
-                    ]
-                }
+                created = parse_qs(urlparse(url).query)["created"][0]
+                if created == "2026-01-01T00:00:00Z..2026-01-01T23:59:59Z":
+                    return {"workflow_runs": [{"id": 1, "created_at": "2026-01-01T10:00:00Z"}]}
+                if created == "2026-01-02T00:00:00Z..2026-01-02T23:59:59Z":
+                    return {"workflow_runs": [{"id": 2, "created_at": "2026-01-02T10:00:00Z"}]}
+                if created == "2026-01-03T00:00:00Z..2026-01-03T23:59:59Z":
+                    return {"workflow_runs": [{"id": 4, "created_at": "2026-01-03T12:00:00Z"}]}
+                raise AssertionError(f"Unexpected created query: {created}")
 
             with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
                 rows = _fetch_workflow_runs(
@@ -433,9 +434,7 @@ class TestWorkflowJobs(ExtTestCase):
                     {"id": 4, "created_at": "2026-01-03T12:00:00Z"},
                 ],
             )
-            self.assertEqual(len(captured_urls), 1)
-            query = parse_qs(urlparse(captured_urls[0]).query)
-            self.assertEqual(query["created"], [">=2026-01-01T00:00:00Z"])
+            self.assertEqual(len(captured_urls), 3)
             day1 = json.loads(
                 _workflow_runs_cache_path(
                     tmp, "owner", "repo", "completed", "2026-01-01"
@@ -939,7 +938,12 @@ class TestWorkflowJobs(ExtTestCase):
             def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
                 self.assertIsNone(token)
                 captured_urls.append(url)
-                return {"workflow_runs": [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}]}
+                created = parse_qs(urlparse(url).query)["created"][0]
+                if created == "2026-01-02T00:00:00Z..2026-01-02T23:59:59Z":
+                    return {"workflow_runs": [{"id": 1, "created_at": "2026-01-02T00:00:00Z"}]}
+                if created == "2026-01-03T00:00:00Z..2026-01-03T23:59:59Z":
+                    return {"workflow_runs": [{"id": 2, "created_at": "2026-01-03T00:00:00Z"}]}
+                raise AssertionError(f"Unexpected created query: {created}")
 
             with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
                 rows = _fetch_workflow_runs(
@@ -948,12 +952,19 @@ class TestWorkflowJobs(ExtTestCase):
                     status="completed",
                     stop_before=datetime(2026, 1, 2, tzinfo=timezone.utc),
                     cache_dir=tmp,
+                    now=datetime(2026, 1, 3, 12, 0, 0, tzinfo=timezone.utc),
                 )
-            self.assertEqual(rows, [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}])
-            self.assertEqual(len(captured_urls), 1)
-            query = parse_qs(urlparse(captured_urls[0]).query)
-            self.assertEqual(query["status"], ["completed"])
-            self.assertEqual(query["created"], [">=2026-01-02T00:00:00Z"])
+            self.assertEqual(
+                rows,
+                [
+                    {"id": 1, "created_at": "2026-01-02T00:00:00Z"},
+                    {"id": 2, "created_at": "2026-01-03T00:00:00Z"},
+                ],
+            )
+            self.assertEqual(len(captured_urls), 2)
+            for url in captured_urls:
+                query = parse_qs(urlparse(url).query)
+                self.assertEqual(query["status"], ["completed"])
             self.assertTrue(
                 _workflow_runs_cache_path(
                     tmp,
@@ -962,6 +973,53 @@ class TestWorkflowJobs(ExtTestCase):
                     "completed",
                     datetime(2026, 1, 3, tzinfo=timezone.utc),
                 ).exists()
+            )
+
+    def test_fetch_workflow_runs_history_fetches_each_day_window(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            captured_created: list[str] = []
+
+            def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
+                self.assertIsNone(token)
+                created = parse_qs(urlparse(url).query)["created"][0]
+                captured_created.append(created)
+                rows = {
+                    "2026-01-01T00:00:00Z..2026-01-01T23:59:59Z": [
+                        {"id": 1, "created_at": "2026-01-01T10:00:00Z"}
+                    ],
+                    "2026-01-02T00:00:00Z..2026-01-02T23:59:59Z": [
+                        {"id": 2, "created_at": "2026-01-02T10:00:00Z"}
+                    ],
+                    "2026-01-03T00:00:00Z..2026-01-03T23:59:59Z": [
+                        {"id": 3, "created_at": "2026-01-03T10:00:00Z"}
+                    ],
+                }
+                return {"workflow_runs": rows[created]}
+
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    status="completed",
+                    stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=datetime(2026, 1, 3, 12, 0, 0, tzinfo=timezone.utc),
+                )
+            self.assertEqual(
+                rows,
+                [
+                    {"id": 1, "created_at": "2026-01-01T10:00:00Z"},
+                    {"id": 2, "created_at": "2026-01-02T10:00:00Z"},
+                    {"id": 3, "created_at": "2026-01-03T10:00:00Z"},
+                ],
+            )
+            self.assertEqual(
+                captured_created,
+                [
+                    "2026-01-01T00:00:00Z..2026-01-01T23:59:59Z",
+                    "2026-01-02T00:00:00Z..2026-01-02T23:59:59Z",
+                    "2026-01-03T00:00:00Z..2026-01-03T23:59:59Z",
+                ],
             )
 
     def test_main_duration_fetches_completed_runs(self) -> None:

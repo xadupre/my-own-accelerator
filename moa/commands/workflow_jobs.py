@@ -216,6 +216,91 @@ def _cache_day_start(day: str) -> datetime:
     return datetime.fromisoformat(f"{day}T00:00:00+00:00")
 
 
+def _cache_day_end(day: str) -> datetime:
+    """Return the exclusive UTC end for a cached ``YYYY-MM-DD`` day."""
+    return _cache_day_start(day) + timedelta(days=1)
+
+
+def _github_datetime_range_text(start: datetime, end: datetime) -> str:
+    """Format an inclusive GitHub API range from ``start`` to ``end``."""
+    return f"{_github_datetime_text(start)}..{_github_datetime_text(end)}"
+
+
+def _merge_cached_run_rows(
+    rows: list[dict[str, Any]], cached_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    """Preserve cached per-run job data when refreshing workflow-run rows."""
+    cached_by_id = {
+        run_id: cached_run
+        for cached_run in cached_rows
+        if isinstance((run_id := cached_run.get("id")), int)
+    }
+    merged: list[dict[str, Any]] = []
+    for run in rows:
+        run_id = run.get("id")
+        if not isinstance(run_id, int):
+            merged.append(run)
+            continue
+        cached_run = cached_by_id.get(run_id)
+        if cached_run is not None and "jobs" in cached_run and "jobs" not in run:
+            merged.append({**run, "jobs": cached_run["jobs"]})
+            continue
+        merged.append(run)
+    return merged
+
+
+def _fetch_workflow_runs_by_day(
+    owner: str,
+    repo: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+    status: str | None = None,
+    verbose: bool = False,
+    stop_before: datetime | None = None,
+    cache_dir: str | None = None,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    if stop_before is None or cache_dir is None:
+        return []
+    today = (now or datetime.now(timezone.utc)).astimezone(timezone.utc).date()
+    start = stop_before.astimezone(timezone.utc).date()
+    if start > today:
+        return []
+    rows: list[dict[str, Any]] = []
+    current_day = today.isoformat()
+    for offset in range((today - start).days + 1):
+        day = (start + timedelta(days=offset)).isoformat()
+        path = _workflow_runs_cache_path(cache_dir, owner, repo, status, day)
+        cached_rows = _load_workflow_runs_day_rows(path, owner, repo, day, verbose)
+        if cached_rows is not None and day != current_day:
+            rows.extend(cached_rows)
+            continue
+        if day == current_day:
+            _print_verbose_step(verbose, f"refreshing workflow runs cache for current day {day}")
+        else:
+            _print_verbose_step(verbose, f"fetching workflow runs cache for day {day}")
+        fetched_rows = _fetch_workflow_runs(
+            owner,
+            repo,
+            token=token,
+            api_url=api_url,
+            status=status,
+            verbose=verbose,
+            stop_before=_cache_day_start(day),
+            stop_after=_cache_day_end(day),
+        )
+        if cached_rows is not None:
+            fetched_rows = _merge_cached_run_rows(fetched_rows, cached_rows)
+        _save_rows_cache(
+            path,
+            _workflow_runs_day_meta(owner, repo, status, day),
+            fetched_rows,
+            verbose,
+        )
+        rows.extend(fetched_rows)
+    return rows
+
+
 def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) -> pathlib.Path:
     """Build a per-run jobs cache path scoped to owner/repo and run identifier."""
     return _workflow_jobs_cache_dir(output_dir, owner, repo) / f"run_{run_id}_jobs.json"
@@ -273,83 +358,36 @@ def _fetch_workflow_runs(
     status: str | None = None,
     verbose: bool = False,
     stop_before: datetime | None = None,
+    stop_after: datetime | None = None,
     cache_path: pathlib.Path | None = None,
     cache_dir: str | None = None,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
+    if cache_dir is not None and stop_before is not None and stop_after is None:
+        return _fetch_workflow_runs_by_day(
+            owner,
+            repo,
+            token=token,
+            api_url=api_url,
+            status=status,
+            verbose=verbose,
+            stop_before=stop_before,
+            cache_dir=cache_dir,
+            now=now,
+        )
     meta = {
         "kind": "workflow_runs",
         "owner": owner,
         "repo": repo,
         "status": status,
         "stop_before": stop_before.isoformat() if stop_before is not None else None,
+        "stop_after": stop_after.isoformat() if stop_after is not None else None,
     }
     cached_rows = _load_rows_cache(cache_path, meta, verbose) if cache_path is not None else None
     if cached_rows is not None:
         return cached_rows
-    requested_days: list[str] = []
-    cached_day_rows: dict[str, list[dict[str, Any]]] = {}
-    refresh_from_day: str | None = None
     fetch_stop_before = stop_before
-    if cache_dir is not None and stop_before is not None:
-        cache_paths = _workflow_runs_cache_paths(
-            cache_dir, owner, repo, status, stop_before, now=now
-        )
-        cache_days = [(path, _workflow_runs_cache_path_day(path)) for path in cache_paths]
-        requested_days = [day for _, day in cache_days]
-        missing_days: list[str] = []
-        for day_path, day in cache_days:
-            day_meta = _workflow_runs_day_meta(owner, repo, status, day)
-            day_rows = _load_rows_cache(day_path, day_meta, verbose)
-            if day_rows is None:
-                missing_days.append(day)
-                continue
-            cached_day_rows[day] = day_rows
-        if cache_paths:
-            if missing_days:
-                refresh_from_day = missing_days[0]
-                fetch_stop_before = _cache_day_start(refresh_from_day)
-                _print_verbose_step(
-                    verbose,
-                    f"refreshing workflow runs cache from missing day {refresh_from_day}",
-                )
-            else:
-                refresh_from_day = _cache_day_text(now or datetime.now(timezone.utc))
-                fetch_stop_before = _cache_day_start(refresh_from_day)
-                _print_verbose_step(
-                    verbose,
-                    f"refreshing workflow runs cache for current day {refresh_from_day}",
-                )
     rows: list[dict[str, Any]] = []
-
-    def _save_daily_runs_cache(include_empty: bool = False) -> None:
-        if cache_dir is None or stop_before is None:
-            return
-        grouped: dict[str, list[dict[str, Any]]] = {}
-        for run in rows:
-            day = _workflow_run_cache_day(run)
-            if day is None:
-                continue
-            grouped.setdefault(day, []).append(run)
-        days_to_write = set(grouped)
-        if include_empty:
-            days_to_write.update(
-                _cache_day_text(stop_before + timedelta(days=offset))
-                for offset in range(
-                    len(
-                        _workflow_runs_cache_paths(
-                            cache_dir, owner, repo, status, stop_before, now=now
-                        )
-                    )
-                )
-            )
-        for day in sorted(days_to_write):
-            _save_rows_cache(
-                _workflow_runs_cache_path(cache_dir, owner, repo, status, day),
-                _workflow_runs_day_meta(owner, repo, status, day),
-                grouped.get(day, []),
-                verbose,
-            )
 
     page = 1
     while True:
@@ -357,8 +395,14 @@ def _fetch_workflow_runs(
         query: dict[str, Any] = {"per_page": 100, "page": page}
         if status:
             query["status"] = status
-        if fetch_stop_before is not None:
+        if fetch_stop_before is not None and stop_after is not None:
+            query["created"] = _github_datetime_range_text(
+                fetch_stop_before, stop_after - timedelta(seconds=1)
+            )
+        elif fetch_stop_before is not None:
             query["created"] = f">={_github_datetime_text(fetch_stop_before)}"
+        elif stop_after is not None:
+            query["created"] = f"<={_github_datetime_text(stop_after)}"
         url = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs?{parse.urlencode(query)}"
         try:
             payload = _fetch_json(url, token)
@@ -382,21 +426,22 @@ def _fetch_workflow_runs(
                 # `--since` is an inclusive lower bound, so rows exactly at
                 # `stop_before` remain in the result set.
                 created_at = _parse_optional_github_datetime(run.get("created_at"))
-                if created_at is None or created_at >= fetch_stop_before:
-                    filtered_runs.append(run)
-                else:
+                if created_at is not None and created_at < fetch_stop_before:
                     older_dates.append(created_at)
+                    continue
+                if created_at is not None and stop_after is not None and created_at >= stop_after:
+                    continue
+                filtered_runs.append(run)
             current_runs = filtered_runs
         rows.extend(current_runs)
         if cache_path is not None:
             _save_rows_cache(cache_path, meta, rows, verbose)
-        _save_daily_runs_cache()
         _print_verbose_step(
             verbose,
             f"fetched {len(current_runs)} workflow run(s) from page {page}"
             f"{_date_range_text(current_runs, ('created_at', 'run_started_at', 'updated_at'))}",
         )
-        if fetch_stop_before is not None:
+        if fetch_stop_before is not None and stop_after is None:
             dates = [
                 parsed
                 for run in current_runs
@@ -421,25 +466,8 @@ def _fetch_workflow_runs(
         if len(runs) < 100:
             break
         page += 1
-    if refresh_from_day is not None and requested_days:
-        grouped_rows: dict[str, list[dict[str, Any]]] = {}
-        for run in rows:
-            cache_day = _workflow_run_cache_day(run)
-            if cache_day is None:
-                continue
-            grouped_rows.setdefault(cache_day, []).append(run)
-        rows = [
-            run
-            for day in requested_days
-            for run in (
-                cached_day_rows.get(day, [])
-                if day < refresh_from_day
-                else grouped_rows.get(day, [])
-            )
-        ]
     if cache_path is not None:
         _save_rows_cache(cache_path, meta, rows, verbose)
-    _save_daily_runs_cache(include_empty=True)
     return rows
 
 

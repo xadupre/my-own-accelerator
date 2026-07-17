@@ -110,6 +110,8 @@ def save_job_duration_line_graph(
     for pt in series:
         raw_duration = pt.get("duration_seconds")
         if raw_duration is None:
+            raw_duration = pt.get("waiting_seconds")
+        if raw_duration is None:
             raw_duration = pt.get("duration", 0)
         values.append(float(0 if raw_duration is None else raw_duration) / 60)
     x_labels_raw = [str(pt.get("completed_at", pt.get("created_at", "")))[:10] for pt in series]

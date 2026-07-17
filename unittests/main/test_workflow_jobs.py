@@ -634,7 +634,6 @@ class TestWorkflowJobs(ExtTestCase):
                     "name": "build",
                     "pr": "42",
                     "waiting_seconds": 120,
-                    "duration_seconds": 120,
                 }
             ],
         )
@@ -921,7 +920,6 @@ class TestWorkflowJobs(ExtTestCase):
                         "name": "build",
                         "pr": "1",
                         "waiting_seconds": 120,
-                        "duration_seconds": 120,
                     }
                 ],
                 "owner",

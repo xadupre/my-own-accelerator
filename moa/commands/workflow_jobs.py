@@ -660,7 +660,6 @@ def _build_waiting_row_from_run(
         "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
         "pr": pr,
         "waiting_seconds": int((started - created).total_seconds()),
-        "duration_seconds": int((started - created).total_seconds()),
     }
     url = str(run.get("html_url", "")).strip()
     if url:

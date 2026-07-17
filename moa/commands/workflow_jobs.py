@@ -15,6 +15,7 @@ from urllib.error import HTTPError
 
 import pandas
 
+from .pr_stats import _xlsx_sanitize_rows
 from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
 from .review_pr import _fetch_json
 from .review_token import (
@@ -160,25 +161,6 @@ def _build_fixed_width_table(rows: list[dict[str, str]], headers: list[str]) -> 
 def _safe_name(name: str) -> str:
     cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", name.strip())
     return cleaned.strip("._") or "job"
-
-
-def _xlsx_safe_text(value: str) -> str:
-    return "".join(
-        ch
-        for ch in value
-        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF or 0xE000 <= ord(ch) <= 0xFFFD
-    )
-
-
-def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[dict[str, Any]]:
-    sanitized_rows = []
-    for row in rows:
-        sanitized_row: dict[str, Any] = {}
-        for key in headers:
-            value = row.get(key, "")
-            sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
-        sanitized_rows.append(sanitized_row)
-    return sanitized_rows
 
 
 def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]], headers: list[str]) -> None:

@@ -1093,10 +1093,10 @@ def _write_duration_outputs(
         graphs.append((f"Workflow duration: {job_name}", svg))
         if verbose:
             _print_progress(index, graph_count)
-    for offset, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+    for index, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
         graphs.append(hourly_graph)
         if verbose:
-            _print_progress(offset, graph_count)
+            _print_progress(index, graph_count)
     html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
     _print_verbose_step(verbose, f"writing {html_path}...")
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
@@ -1167,10 +1167,10 @@ def _write_waiting_outputs(
         graphs.append((f"Workflow waiting time: {job_name}", svg))
         if verbose:
             _print_progress(index, graph_count)
-    for offset, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+    for index, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
         graphs.append(hourly_graph)
         if verbose:
-            _print_progress(offset, graph_count)
+            _print_progress(index, graph_count)
     html_path = graph_dir / f"workflow_jobs_waiting_{repo}.html"
     _print_verbose_step(verbose, f"writing {html_path}...")
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)

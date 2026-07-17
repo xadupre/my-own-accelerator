@@ -31,10 +31,11 @@ from .since_utils import parse_relative_since
 
 DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 _FAIL_RATE_STATUSES = ("failure", "cancelled", "skipped", "success")
+_DEFAULT_SINCE_DAYS = 60
 
 
 def _default_since() -> str:
-    return (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+    return (datetime.now(timezone.utc) - timedelta(days=_DEFAULT_SINCE_DAYS)).strftime("%Y-%m-%d")
 
 
 def _print_403_retry_warning(verbose: bool, run_id: int | None = None) -> None:
@@ -65,6 +66,25 @@ def _parse_since_datetime(value: str | None) -> datetime:
     return parsed
 
 
+def _parse_optional_github_datetime(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    return datetime.fromisoformat(text.replace("Z", "+00:00"))
+
+
+def _date_range_text(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
+    dates = [
+        parsed
+        for row in rows
+        for key in keys
+        if (parsed := _parse_optional_github_datetime(row.get(key))) is not None
+    ]
+    if not dates:
+        return ""
+    return f", min(date)={min(dates).isoformat()}, max(date)={max(dates).isoformat()}"
+
+
 def _fetch_workflow_runs(
     owner: str,
     repo: str,
@@ -72,6 +92,7 @@ def _fetch_workflow_runs(
     api_url: str = "https://api.github.com",
     status: str | None = None,
     verbose: bool = False,
+    stop_before: datetime | None = None,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     page = 1
@@ -93,8 +114,27 @@ def _fetch_workflow_runs(
         runs = payload.get("workflow_runs", [])
         if not isinstance(runs, list) or not runs:
             break
-        rows.extend(run for run in runs if isinstance(run, dict))
-        _print_verbose_step(verbose, f"fetched {len(runs)} workflow run(s) from page {page}")
+        current_runs = [run for run in runs if isinstance(run, dict)]
+        rows.extend(current_runs)
+        _print_verbose_step(
+            verbose,
+            f"fetched {len(current_runs)} workflow run(s) from page {page}"
+            f"{_date_range_text(current_runs, ('created_at', 'run_started_at', 'updated_at'))}",
+        )
+        if stop_before is not None:
+            dates = [
+                parsed
+                for run in current_runs
+                if (parsed := _parse_optional_github_datetime(run.get("created_at"))) is not None
+            ]
+            if dates and min(dates) < stop_before:
+                _print_verbose_step(
+                    verbose,
+                    "stopping workflow runs fetch on page "
+                    f"{page} because min(date)={min(dates).isoformat()} "
+                    f"is older than since={stop_before.isoformat()}",
+                )
+                break
         if len(runs) < 100:
             break
         page += 1
@@ -129,9 +169,12 @@ def _fetch_run_jobs(
         jobs = payload.get("jobs", [])
         if not isinstance(jobs, list) or not jobs:
             break
-        rows.extend(job for job in jobs if isinstance(job, dict))
+        current_jobs = [job for job in jobs if isinstance(job, dict)]
+        rows.extend(current_jobs)
         _print_verbose_step(
-            verbose, f"fetched {len(jobs)} job(s) from page {page} for run_id={run_id}"
+            verbose,
+            f"fetched {len(current_jobs)} job(s) from page {page} for run_id={run_id}"
+            f"{_date_range_text(current_jobs, ('started_at', 'completed_at', 'created_at'))}",
         )
         if len(jobs) < 100:
             break
@@ -425,7 +468,7 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=os.environ.get("GITHUB_API_URL") or "https://api.github.com",
         help="GitHub API base URL",
     )
-    parser.add_argument("--since", default=None, help="Since date (default: 30 days ago).")
+    parser.add_argument("--since", default=None, help="Since date (default: 60 days ago).")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output folder.")
     parser.add_argument(
         "--dump",
@@ -482,6 +525,7 @@ def main(argv: list[str] | None = None) -> int:
             argv, args.token, os.environ.get("GITHUB_TOKEN"), cache, args.owner, args.repo
         )
         print(f"workflow-jobs: token source={token_origin}, type={token_type}.", file=sys.stderr)
+    since = _parse_since_datetime(args.since) if args.duration or args.fail_rate else None
     runs = _fetch_workflow_runs(
         args.owner,
         args.repo,
@@ -489,6 +533,7 @@ def main(argv: list[str] | None = None) -> int:
         api_url=args.api_url,
         status="queued" if args.queued else "in_progress" if args.running else None,
         verbose=args.verbose,
+        stop_before=since,
     )
     if args.queued:
         rows = _build_queued_rows(runs)
@@ -531,8 +576,8 @@ def main(argv: list[str] | None = None) -> int:
         if path is not None:
             print(path)
         return 0
-    since = _parse_since_datetime(args.since)
     if args.duration:
+        assert since is not None, "`since` must be set when --duration is used."
         paths = _write_duration_outputs(
             _build_duration_rows(
                 args.owner,
@@ -552,6 +597,7 @@ def main(argv: list[str] | None = None) -> int:
         for path in paths:
             print(path)
         return 0
+    assert since is not None, "`since` must be set when --fail-rate is used."
     fail_rows = _build_fail_rate_rows(
         args.owner,
         args.repo,

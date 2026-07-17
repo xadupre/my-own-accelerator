@@ -14,6 +14,7 @@ from moa.commands.workflow_jobs import (
     _build_fail_rate_rows,
     _build_queued_rows,
     _build_running_rows,
+    _default_since,
     _fetch_run_jobs,
     _fetch_workflow_runs,
     _write_duration_outputs,
@@ -23,6 +24,12 @@ from moa.ext_test_case import ExtTestCase
 
 
 class TestWorkflowJobs(ExtTestCase):
+    def test_default_since_uses_two_month_window(self) -> None:
+        default_since = datetime.fromisoformat(_default_since()).date()
+        delta = datetime.now(timezone.utc).date() - default_since
+        self.assertGreaterEqual(delta.days, 59)
+        self.assertLessEqual(delta.days, 60)
+
     def test_fetch_workflow_runs_retries_without_token_on_403(self) -> None:
         err = StringIO()
         with (
@@ -78,8 +85,13 @@ class TestWorkflowJobs(ExtTestCase):
             patch(
                 "moa.commands.workflow_jobs._fetch_json",
                 side_effect=[
-                    {"workflow_runs": [{"id": i} for i in range(100)]},
-                    {"workflow_runs": [{"id": 101}]},
+                    {
+                        "workflow_runs": [
+                            {"id": i, "created_at": f"2026-01-{(i % 9) + 1:02d}T00:00:00Z"}
+                            for i in range(100)
+                        ]
+                    },
+                    {"workflow_runs": [{"id": 101, "created_at": "2026-01-10T00:00:00Z"}]},
                 ],
             ),
         ):
@@ -87,7 +99,41 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual(len(rows), 101)
         self.assertIn("fetching workflow runs page 1", err.getvalue())
         self.assertIn("fetched 100 workflow run(s) from page 1", err.getvalue())
+        self.assertIn("min(date)=2026-01-01T00:00:00+00:00", err.getvalue())
+        self.assertIn("max(date)=2026-01-09T00:00:00+00:00", err.getvalue())
         self.assertIn("fetching workflow runs page 2", err.getvalue())
+
+    def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=[
+                    {
+                        "workflow_runs": [
+                            {"id": i, "created_at": "2026-02-15T00:00:00Z"} for i in range(100)
+                        ]
+                    },
+                    {
+                        "workflow_runs": [
+                            {"id": 100 + i, "created_at": "2025-12-15T00:00:00Z"}
+                            for i in range(100)
+                        ]
+                    },
+                    {"workflow_runs": [{"id": 201, "created_at": "2025-11-15T00:00:00Z"}]},
+                ],
+            ) as mocked,
+        ):
+            rows = _fetch_workflow_runs(
+                "owner",
+                "repo",
+                verbose=True,
+                stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(len(rows), 200)
+        self.assertEqual(mocked.call_count, 2)
+        self.assertIn("stopping workflow runs fetch on page 2", err.getvalue())
 
     def test_build_queued_rows_sorted_by_name(self) -> None:
         rows = _build_queued_rows(
@@ -170,8 +216,25 @@ class TestWorkflowJobs(ExtTestCase):
             patch(
                 "moa.commands.workflow_jobs._fetch_json",
                 side_effect=[
-                    {"jobs": [{"id": i} for i in range(100)]},
-                    {"jobs": [{"id": 101}]},
+                    {
+                        "jobs": [
+                            {
+                                "id": i,
+                                "started_at": "2026-01-03T10:00:00Z",
+                                "completed_at": "2026-01-03T10:02:00Z",
+                            }
+                            for i in range(100)
+                        ]
+                    },
+                    {
+                        "jobs": [
+                            {
+                                "id": 101,
+                                "started_at": "2026-01-04T10:00:00Z",
+                                "completed_at": "2026-01-04T10:05:00Z",
+                            }
+                        ]
+                    },
                 ],
             ),
         ):
@@ -179,6 +242,8 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual(len(rows), 101)
         self.assertIn("fetching jobs page 1 for run_id=12", err.getvalue())
         self.assertIn("fetched 100 job(s) from page 1 for run_id=12", err.getvalue())
+        self.assertIn("min(date)=2026-01-03T10:00:00+00:00", err.getvalue())
+        self.assertIn("max(date)=2026-01-03T10:02:00+00:00", err.getvalue())
         self.assertIn("fetching jobs page 2 for run_id=12", err.getvalue())
 
     def test_build_running_rows(self) -> None:

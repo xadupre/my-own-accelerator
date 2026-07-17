@@ -32,6 +32,8 @@ Exactly one option must be chosen:
   current duration in seconds.
 * ``--duration`` writes historical successful job durations to CSV and
   generates SVG/HTML graphs. With ``--dump xlsx``, it also writes an Excel file.
+  The fetch stops at ``--since`` (60 days by default), and ``--verbose`` shows
+  ``min(date)`` / ``max(date)`` for each fetched page.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
   jobs to CSV and prints the same data as a fixed-width table.
 

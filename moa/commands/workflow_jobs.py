@@ -100,7 +100,9 @@ def _load_rows_cache(
     rows = payload.get("rows")
     if not isinstance(rows, list):
         return None
-    cached_rows = [row for row in rows if isinstance(row, dict)]
+    if any(not isinstance(row, dict) for row in rows):
+        return None
+    cached_rows = rows
     _print_verbose_step(verbose, f"using cache {path}")
     return cached_rows
 
@@ -116,6 +118,10 @@ def _save_rows_cache(
     path.write_text(json.dumps({"meta": meta, "rows": rows}, indent=2), encoding="utf-8")
 
 
+def _repo_cache_slug(owner: str, repo: str) -> str:
+    return f"{_safe_name(owner)}_{_safe_name(repo)}"
+
+
 def _workflow_runs_cache_path(
     output_dir: str,
     owner: str,
@@ -123,7 +129,7 @@ def _workflow_runs_cache_path(
     status: str | None,
     stop_before: datetime | None,
 ) -> pathlib.Path:
-    slug = f"{_safe_name(owner)}_{_safe_name(repo)}"
+    slug = _repo_cache_slug(owner, repo)
     status_slug = _safe_name(status or "all")
     stamp = (
         stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -136,7 +142,7 @@ def _workflow_runs_cache_path(
 
 
 def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) -> pathlib.Path:
-    slug = f"{_safe_name(owner)}_{_safe_name(repo)}"
+    slug = _repo_cache_slug(owner, repo)
     return pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_run_{run_id}_jobs.json"
 
 

@@ -1315,6 +1315,29 @@ def _write_fail_rate_outputs(
         svg = graph_dir / f"workflow_jobs_fail_rate_{_safe_name(job_name)}.svg"
         series = by_job[job_name]
         values = {str(row["date"]): float(row["fail_cancel_rate"]) for row in series}
+        segments = {
+            str(row["date"]): [
+                (
+                    "failure",
+                    (
+                        (100.0 * int(row["failure"]) / int(row["total"]))
+                        if int(row["total"])
+                        else 0.0
+                    ),
+                    "#e05c5c",
+                ),
+                (
+                    "cancelled",
+                    (
+                        (100.0 * int(row["cancelled"]) / int(row["total"]))
+                        if int(row["total"])
+                        else 0.0
+                    ),
+                    "#f2cc60",
+                ),
+            ]
+            for row in series
+        }
         labels = {
             str(row["date"]): (
                 f"f={int(row['failure'])}, c={int(row['cancelled'])}, n={int(row['total'])}"
@@ -1328,6 +1351,7 @@ def _write_fail_rate_outputs(
             x_axis_label="Date",
             y_axis_label="Fail/cancel rate (%)",
             bar_labels=labels,
+            bar_segments=segments,
         )
         graphs.append((f"Workflow fail/cancel rate: {job_name}", svg))
         if verbose:

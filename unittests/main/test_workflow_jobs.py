@@ -1106,6 +1106,11 @@ class TestWorkflowJobs(ExtTestCase):
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["name"], "build")
             self.assertEqual(rows[0]["fail_cancel_rate"], "66.67")
+            graph = graph_svg.read_text(encoding="utf-8")
+            self.assertIn("#e05c5c", graph)
+            self.assertIn("#f2cc60", graph)
+            self.assertIn(">failure</text>", graph)
+            self.assertIn(">cancelled</text>", graph)
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("Workflow fail/cancel rate: build", html)
 

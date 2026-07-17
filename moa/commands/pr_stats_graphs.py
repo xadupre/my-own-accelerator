@@ -273,6 +273,7 @@ def save_bar_graph(
     x_axis_label: str | None = None,
     y_axis_label: str | None = None,
     bar_labels: Mapping[str, str] | None = None,
+    bar_segments: Mapping[str, list[tuple[str, int | float, str]]] | None = None,
     horizontal: bool = False,
 ) -> None:
     """Saves a themed SVG bar chart.
@@ -283,6 +284,8 @@ def save_bar_graph(
     :param x_axis_label: Optional x-axis label.
     :param y_axis_label: Optional y-axis label.
     :param bar_labels: Optional secondary labels rendered near each bar.
+    :param bar_segments: Optional per-bar stacked segments as
+        ``[(segment_name, segment_value, color), ...]``.
     :param horizontal: When ``True``, renders a horizontal bar chart;
         otherwise renders a vertical bar chart.
     """
@@ -363,14 +366,41 @@ def save_bar_graph(
             + "</svg>"
         )
     else:
+        legend_entries: list[tuple[str, str]] = []
+        seen_legend_entries: set[str] = set()
         for i, (label, value) in enumerate(values.items()):
             x = left + i * (bar_width + gap)
-            height = int(value * scale) if max_value else 0
-            y = baseline - height
-            bars.append(
-                f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
-                'class="bar" fill="#4e79a7"/>'
-            )
+            segments = list(bar_segments.get(label, [])) if bar_segments else []
+            if segments:
+                y = baseline
+                stacked_height = 0
+                for segment_name, segment_value, segment_color in segments:
+                    if segment_name not in seen_legend_entries:
+                        seen_legend_entries.add(segment_name)
+                        legend_entries.append((segment_name, segment_color))
+                    segment_height = int(segment_value * scale) if max_value else 0
+                    if segment_height <= 0:
+                        continue
+                    y -= segment_height
+                    stacked_height += segment_height
+                    bars.append(
+                        f'<rect x="{x}" y="{y}" width="{bar_width}" height="{segment_height}" '
+                        f'fill="{segment_color}"/>'
+                    )
+                if stacked_height == 0:
+                    height = int(value * scale) if max_value else 0
+                    y = baseline - height
+                    bars.append(
+                        f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
+                        'class="bar" fill="#4e79a7"/>'
+                    )
+            else:
+                height = int(value * scale) if max_value else 0
+                y = baseline - height
+                bars.append(
+                    f'<rect x="{x}" y="{y}" width="{bar_width}" height="{height}" '
+                    'class="bar" fill="#4e79a7"/>'
+                )
             labels.append(
                 f'<text x="{x + bar_width / 2}" y="{baseline + 20}" text-anchor="end" '
                 f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION} '
@@ -391,6 +421,21 @@ def save_bar_graph(
                     'text-anchor="middle" class="label" fill="#888" font-size="11">'
                     f"{escape(extra_label)}</text>"
                 )
+        legend = ""
+        if legend_entries:
+            legend_x = width - SVG_AXIS_MARGIN - 140
+            legend_parts = []
+            for legend_index, (legend_name, legend_color) in enumerate(legend_entries):
+                legend_y = 24 + legend_index * 16
+                legend_parts.append(
+                    f'<rect x="{legend_x}" y="{legend_y - 10}" width="12" height="12" '
+                    f'fill="{legend_color}"/>'
+                )
+                legend_parts.append(
+                    f'<text x="{legend_x + 18}" y="{legend_y}" font-size="11" '
+                    f'class="label" fill="#111">{escape(legend_name)}</text>'
+                )
+            legend = "".join(legend_parts)
         svg = (
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="360">'
             f"{DARK_THEME_SVG_CSS}"
@@ -404,6 +449,7 @@ def save_bar_graph(
             f'x2="{width - SVG_AXIS_MARGIN}" y2="{baseline}" class="axis" stroke="#000"/>'
             + "".join(bars)
             + "".join(labels)
+            + legend
             + (
                 f'<text x="{left + (width - left - SVG_AXIS_MARGIN) / 2:.1f}" '
                 f'y="{SVG_BAR_X_AXIS_LABEL_Y}" '

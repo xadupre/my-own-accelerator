@@ -12,7 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import parse, request
@@ -606,7 +606,7 @@ def _collect_pr_job_info_batch(
     all_run_ids = sorted({run_id for ids in run_ids_by_pr.values() for run_id in ids})
     jobs_by_run_id: dict[int, list[dict[str, Any]]] = {}
     with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOB_FETCHES) as executor:
-        future_to_run: dict[Any, int] = {
+        future_to_run: dict[Future[list[dict[str, Any]]], int] = {
             executor.submit(_fetch_workflow_run_jobs, owner, repo, run_id, token, api_url): run_id
             for run_id in all_run_ids
         }

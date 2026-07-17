@@ -1221,11 +1221,15 @@ class TestPRStats(ExtTestCase):
 
     def test_collect_pr_job_info_batch_early_exit(self) -> None:
         """Batch stops fetching pages once all target SHAs found and a page has no targets."""
+        # page1 has PAGE_SIZE (100) runs: 1 target + 99 non-target to simulate a full page.
         page1 = {
             "workflow_runs": [
                 {"id": 201, "head_sha": "sha1", "pull_requests": [{"number": 30}]},
             ]
-            + [{"id": 300 + i, "head_sha": f"other{i}", "pull_requests": []} for i in range(99)]
+            + [
+                {"id": 300 + i, "head_sha": f"other{i}", "pull_requests": []}
+                for i in range(99)  # PAGE_SIZE - 1 non-target runs to fill the page
+            ]
         }
         page2 = {
             "workflow_runs": [

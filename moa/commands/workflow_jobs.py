@@ -18,7 +18,7 @@ from urllib.error import HTTPError
 import pandas
 
 from .pr_stats import _print_progress, _xlsx_sanitize_rows
-from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
+from .pr_stats_graphs import save_bar_graph, save_graphs_html_report, save_job_duration_line_graph
 from .review_pr import _fetch_json
 from .review_token import (
     _extract_owner_repo,
@@ -862,6 +862,69 @@ def _split_waiting_outliers(
     )
 
 
+def _build_average_per_hour_graph_inputs(
+    rows: list[dict[str, Any]],
+    value_getter: Any,
+    *,
+    time_keys: tuple[str, ...],
+) -> dict[str, tuple[dict[str, float], dict[str, str]]]:
+    grouped: dict[str, dict[int, list[float]]] = {"weekday": {}, "weekend": {}}
+    for row in rows:
+        timestamp = None
+        for key in time_keys:
+            timestamp = _parse_optional_github_datetime(row.get(key))
+            if timestamp is not None:
+                break
+        value = value_getter(row)
+        if timestamp is None or value is None:
+            continue
+        day_kind = "weekend" if timestamp.weekday() >= 5 else "weekday"
+        grouped.setdefault(day_kind, {}).setdefault(timestamp.hour, []).append(
+            float(value) / 60.0
+        )
+
+    graphs: dict[str, tuple[dict[str, float], dict[str, str]]] = {}
+    for day_kind in ("weekday", "weekend"):
+        values: dict[str, float] = {}
+        labels: dict[str, str] = {}
+        by_hour = grouped[day_kind]
+        for hour in range(24):
+            key = f"{hour:02d}h"
+            samples = by_hour.get(hour, [])
+            values[key] = round(sum(samples) / len(samples), 2) if samples else 0.0
+            labels[key] = f"n={len(samples)}"
+        graphs[day_kind] = (values, labels)
+    return graphs
+
+
+def _save_average_per_hour_graphs(
+    graph_dir: pathlib.Path,
+    prefix: str,
+    title_prefix: str,
+    rows: list[dict[str, Any]],
+    value_getter: Any,
+    *,
+    time_keys: tuple[str, ...],
+    y_axis_label: str,
+) -> list[tuple[str, pathlib.Path]]:
+    graphs: list[tuple[str, pathlib.Path]] = []
+    graph_inputs = _build_average_per_hour_graph_inputs(rows, value_getter, time_keys=time_keys)
+    for day_kind, day_label in (("weekday", "Weekdays"), ("weekend", "Weekends")):
+        svg = graph_dir / f"{prefix}_{day_kind}_hourly_average.svg"
+        values, labels = graph_inputs[day_kind]
+        title = f"{title_prefix} by hour ({day_label})"
+        save_bar_graph(
+            svg,
+            values,
+            title,
+            x_axis_label="Hour of day (UTC)",
+            y_axis_label=y_axis_label,
+            bar_labels=labels,
+        )
+        graphs.append((title, svg))
+    return graphs
+
+
 def _build_duration_rows(
     owner: str,
     repo: str,
@@ -1012,14 +1075,28 @@ def _write_duration_outputs(
         job_series.setdefault(str(row["name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
     graph_names = sorted(job_series)
-    if graph_names:
-        _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
+    hourly_graphs = _save_average_per_hour_graphs(
+        graph_dir,
+        "workflow_jobs_duration",
+        "Avg workflow duration",
+        plotted_rows,
+        _duration_seconds_value,
+        time_keys=("created_at",),
+        y_axis_label="Average duration (minutes)",
+    )
+    graph_count = len(graph_names) + len(hourly_graphs)
+    if graph_count:
+        _print_verbose_step(verbose, f"generating {graph_count} graph(s)...")
     for index, job_name in enumerate(graph_names, 1):
         svg = graph_dir / f"workflow_jobs_duration_{_safe_name(job_name)}.svg"
         save_job_duration_line_graph(svg, job_series[job_name], f"Workflow duration: {job_name}")
         graphs.append((f"Workflow duration: {job_name}", svg))
         if verbose:
-            _print_progress(index, len(graph_names))
+            _print_progress(index, graph_count)
+    for offset, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+        graphs.append(hourly_graph)
+        if verbose:
+            _print_progress(offset, graph_count)
     html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
     _print_verbose_step(verbose, f"writing {html_path}...")
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
@@ -1065,8 +1142,18 @@ def _write_waiting_outputs(
         job_series.setdefault(str(row["name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
     graph_names = sorted(job_series)
-    if graph_names:
-        _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
+    hourly_graphs = _save_average_per_hour_graphs(
+        graph_dir,
+        "workflow_jobs_waiting",
+        "Avg workflow waiting time",
+        plotted_rows,
+        _waiting_seconds_value,
+        time_keys=("created_at", "started_at"),
+        y_axis_label="Average waiting time (minutes)",
+    )
+    graph_count = len(graph_names) + len(hourly_graphs)
+    if graph_count:
+        _print_verbose_step(verbose, f"generating {graph_count} graph(s)...")
     for index, job_name in enumerate(graph_names, 1):
         svg = graph_dir / f"workflow_jobs_waiting_{_safe_name(job_name)}.svg"
         save_job_duration_line_graph(
@@ -1079,7 +1166,11 @@ def _write_waiting_outputs(
         )
         graphs.append((f"Workflow waiting time: {job_name}", svg))
         if verbose:
-            _print_progress(index, len(graph_names))
+            _print_progress(index, graph_count)
+    for offset, hourly_graph in enumerate(hourly_graphs, len(graphs) + 1):
+        graphs.append(hourly_graph)
+        if verbose:
+            _print_progress(offset, graph_count)
     html_path = graph_dir / f"workflow_jobs_waiting_{repo}.html"
     _print_verbose_step(verbose, f"writing {html_path}...")
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)

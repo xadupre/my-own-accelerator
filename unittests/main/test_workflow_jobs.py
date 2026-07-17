@@ -13,6 +13,7 @@ import pandas
 
 from moa.commands.workflow_jobs import (
     _WORKFLOW_RUNS_DAY_CACHE_VERSION,
+    _build_average_per_hour_graph_inputs,
     _build_duration_rows,
     _build_fail_rate_rows,
     _build_queued_rows,
@@ -823,8 +824,8 @@ class TestWorkflowJobs(ExtTestCase):
                 )
             self.assertGreaterEqual(len(paths), 4)
             self.assertIn("writing", err.getvalue())
-            self.assertIn("generating 1 graph(s)", err.getvalue())
-            self.assertIn("1/1", err.getvalue())
+            self.assertIn("generating 3 graph(s)", err.getvalue())
+            self.assertIn("3/3", err.getvalue())
 
     def test_split_duration_outliers_uses_per_name_median(self) -> None:
         plotted, outliers = _split_duration_outliers(
@@ -902,6 +903,32 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual([row["run_id"] for row in plotted], [1, 2, 3])
         self.assertEqual([row["run_id"] for row in outliers], [4])
 
+    def test_build_average_per_hour_graph_inputs_splits_weekday_and_weekend(self) -> None:
+        graphs = _build_average_per_hour_graph_inputs(
+            [
+                {
+                    "created_at": "2026-01-02T10:00:00+00:00",
+                    "duration": 120,
+                },
+                {
+                    "created_at": "2026-01-02T10:30:00+00:00",
+                    "duration": 240,
+                },
+                {
+                    "created_at": "2026-01-03T10:00:00+00:00",
+                    "duration": 600,
+                },
+            ],
+            lambda row: row.get("duration"),
+            time_keys=("created_at",),
+        )
+        weekday_values, weekday_labels = graphs["weekday"]
+        weekend_values, weekend_labels = graphs["weekend"]
+        self.assertEqual(weekday_values["10h"], 3.0)
+        self.assertEqual(weekday_labels["10h"], "n=2")
+        self.assertEqual(weekend_values["10h"], 10.0)
+        self.assertEqual(weekend_labels["10h"], "n=1")
+
     def test_write_duration_outputs_dumps_outliers_separately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = _write_duration_outputs(
@@ -949,9 +976,25 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(rows[0]["run_id"], "3")
             self.assertEqual(rows[0]["url"], "https://x/runs/3")
             graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_duration_build.svg"
+            weekday_hourly_svg = (
+                pathlib.Path(tmp)
+                / "graphs_repo"
+                / "workflow_jobs_duration_weekday_hourly_average.svg"
+            )
+            weekend_hourly_svg = (
+                pathlib.Path(tmp)
+                / "graphs_repo"
+                / "workflow_jobs_duration_weekend_hourly_average.svg"
+            )
+            html_path = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_duration_repo.html"
             self.assertTrue(graph_svg.exists())
+            self.assertTrue(weekday_hourly_svg.exists())
+            self.assertTrue(weekend_hourly_svg.exists())
             content = graph_svg.read_text(encoding="utf-8")
             self.assertNotIn("2026-01-03", content)
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("Avg workflow duration by hour (Weekdays)", html)
+            self.assertIn("Avg workflow duration by hour (Weekends)", html)
 
     def test_build_duration_row_from_run_keeps_html_url(self) -> None:
         row = _build_duration_rows(
@@ -994,14 +1037,29 @@ class TestWorkflowJobs(ExtTestCase):
             csv_path = pathlib.Path(tmp) / "workflow_jobs_waiting_repo.csv"
             xlsx_path = pathlib.Path(tmp) / "workflow_jobs_waiting_repo.xlsx"
             graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_build.svg"
+            weekday_hourly_svg = (
+                pathlib.Path(tmp)
+                / "graphs_repo"
+                / "workflow_jobs_waiting_weekday_hourly_average.svg"
+            )
+            weekend_hourly_svg = (
+                pathlib.Path(tmp)
+                / "graphs_repo"
+                / "workflow_jobs_waiting_weekend_hourly_average.svg"
+            )
             html_path = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_repo.html"
             self.assertIn(csv_path, paths)
             self.assertIn(xlsx_path, paths)
             self.assertIn(graph_svg, paths)
+            self.assertIn(weekday_hourly_svg, paths)
+            self.assertIn(weekend_hourly_svg, paths)
             self.assertIn(html_path, paths)
             with csv_path.open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["waiting_seconds"], "120")
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("Avg workflow waiting time by hour (Weekdays)", html)
+            self.assertIn("Avg workflow waiting time by hour (Weekends)", html)
 
     def test_write_waiting_outputs_dumps_outliers_separately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

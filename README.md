@@ -71,9 +71,10 @@ Historical `workflow-jobs` fetches also cache raw runs/jobs JSON in the
 day so repeating the same report can reuse previously collected data. Duration
 graphs exclude workflow durations at least three times the per-workflow median
 and write those outliers to separate `workflow_jobs_duration_outliers_*` files
-with the workflow-run URL. Waiting-time reports use the same historical run
-cache and write `workflow_jobs_waiting_*` CSV/XLSX/graph outputs based on the
-queue delay between `created_at` and `run_started_at`.
+with the workflow-run URL. Duration and waiting reports also generate hourly
+average graphs split between weekdays and weekends. Waiting-time reports use the
+same historical run cache and write `workflow_jobs_waiting_*` CSV/XLSX/graph
+outputs based on the queue delay between `created_at` and `run_started_at`.
 
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 

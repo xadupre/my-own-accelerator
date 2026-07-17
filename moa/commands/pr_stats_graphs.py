@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pathlib
 import re
+from collections.abc import Mapping
 from datetime import date
 from html import escape
 from typing import Any
@@ -267,11 +268,11 @@ def save_graphs_html_report(
 
 def save_bar_graph(
     path: pathlib.Path,
-    values: dict[str, int],
+    values: Mapping[str, int | float],
     title: str,
     x_axis_label: str | None = None,
     y_axis_label: str | None = None,
-    bar_labels: dict[str, str] | None = None,
+    bar_labels: Mapping[str, str] | None = None,
     horizontal: bool = False,
 ) -> None:
     """Saves a themed SVG bar chart.

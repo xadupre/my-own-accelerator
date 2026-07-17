@@ -38,7 +38,8 @@ Exactly one option must be chosen:
   an Excel file. Graph generation excludes duration outliers at least three
   times the per-workflow median and writes those excluded rows to separate
   ``workflow_jobs_duration_outliers_*`` files in ``--output-dir`` with a
-  ``url`` column pointing to the workflow run.
+  ``url`` column pointing to the workflow run. It also adds hourly average
+  graphs split between weekdays and weekends.
   The fetch stops at ``--since`` (60 days by default). ``--since`` accepts an ISO
   date/datetime, a relative value such as ``-60d``, or an integer day count such
   as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched
@@ -53,7 +54,8 @@ Exactly one option must be chosen:
   outliers at least three times the per-workflow median are excluded from the
   graphs and written to separate ``workflow_jobs_waiting_outliers_*`` files in
   ``--output-dir`` with a ``url`` column pointing to the workflow run. The
-  fetch/caching behavior is the same as ``--duration``.
+  fetch/caching behavior is the same as ``--duration``. It also adds hourly
+  average graphs split between weekdays and weekends.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
   jobs to CSV and prints the same data as a fixed-width table.
 

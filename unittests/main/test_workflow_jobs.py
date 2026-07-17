@@ -816,6 +816,7 @@ class TestWorkflowJobs(ExtTestCase):
                         "name": "build",
                         "pr": "3",
                         "duration": 400,
+                        "url": "https://x/runs/3",
                     },
                 ],
                 "owner",
@@ -831,10 +832,31 @@ class TestWorkflowJobs(ExtTestCase):
                 rows = list(csv.DictReader(f))
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["run_id"], "3")
+            self.assertEqual(rows[0]["url"], "https://x/runs/3")
             graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_duration_build.svg"
             self.assertTrue(graph_svg.exists())
             content = graph_svg.read_text(encoding="utf-8")
             self.assertNotIn("2026-01-03", content)
+
+    def test_build_duration_row_from_run_keeps_html_url(self) -> None:
+        row = _build_duration_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 3,
+                    "created_at": "2026-01-03T10:00:00Z",
+                    "updated_at": "2026-01-03T10:06:40Z",
+                    "conclusion": "success",
+                    "name": "build",
+                    "html_url": "https://x/runs/3",
+                    "pull_requests": [{"number": 12}],
+                }
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(len(row), 1)
+        self.assertEqual(row[0]["url"], "https://x/runs/3")
 
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()

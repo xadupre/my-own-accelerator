@@ -609,13 +609,17 @@ def _build_duration_row_from_run(
             number = first_pr.get("number")
             if number is not None:
                 pr = str(number)
-    return {
+    row = {
         "run_id": run_id,
         "created_at": created.isoformat(),
         "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
         "pr": pr,
         "duration": int((completed - created).total_seconds()),
     }
+    url = str(run.get("html_url", "")).strip()
+    if url:
+        row["url"] = url
+    return row
 
 
 def _build_fail_rate_row_from_run(run: dict[str, Any], since: datetime) -> tuple[str, str] | None:
@@ -891,13 +895,14 @@ def _write_duration_outputs(
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
     outlier_csv_path = out / f"workflow_jobs_duration_outliers_{repo}.csv"
     headers = ["run_id", "created_at", "name", "pr", "duration"]
+    outlier_headers = [*headers, "url"]
     _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]
     plotted_rows, outlier_rows = _split_duration_outliers(rows)
     if outlier_rows:
         _print_verbose_step(verbose, f"writing {outlier_csv_path}...")
-        _write_csv(outlier_csv_path, outlier_rows, headers)
+        _write_csv(outlier_csv_path, outlier_rows, outlier_headers)
         paths.append(outlier_csv_path)
     if dump == "xlsx":
         xlsx_path = out / f"workflow_jobs_duration_{repo}.xlsx"
@@ -907,7 +912,7 @@ def _write_duration_outputs(
         if outlier_rows:
             outlier_xlsx_path = out / f"workflow_jobs_duration_outliers_{repo}.xlsx"
             _print_verbose_step(verbose, f"writing {outlier_xlsx_path}...")
-            _write_xlsx(outlier_xlsx_path, outlier_rows, headers, "Outliers")
+            _write_xlsx(outlier_xlsx_path, outlier_rows, outlier_headers, "Outliers")
             paths.append(outlier_xlsx_path)
     job_series: dict[str, list[dict[str, Any]]] = {}
     for row in plotted_rows:

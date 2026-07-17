@@ -36,7 +36,7 @@ Exactly one option must be chosen:
   ``duration`` (in seconds). With ``--dump xlsx``, it also writes an Excel file.
   Graph generation excludes duration outliers above three times the per-workflow
   median and writes those excluded rows to separate ``workflow_jobs_duration_outliers_*``
-  files in ``--output-dir``.
+  files in ``--output-dir`` with a ``url`` column pointing to the workflow run.
   The fetch stops at ``--since`` (60 days by default). ``--since`` accepts an ISO
   date/datetime, a relative value such as ``-60d``, or an integer day count such
   as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched

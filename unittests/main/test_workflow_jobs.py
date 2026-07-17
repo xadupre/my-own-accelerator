@@ -71,6 +71,24 @@ class TestWorkflowJobs(ExtTestCase):
         ):
             _fetch_workflow_runs("owner", "repo", token="tok")
 
+    def test_fetch_workflow_runs_verbose_reports_pages(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=[
+                    {"workflow_runs": [{"id": i} for i in range(100)]},
+                    {"workflow_runs": [{"id": 101}]},
+                ],
+            ),
+        ):
+            rows = _fetch_workflow_runs("owner", "repo", verbose=True)
+        self.assertEqual(len(rows), 101)
+        self.assertIn("fetching workflow runs page 1", err.getvalue())
+        self.assertIn("fetched 100 workflow run(s) from page 1", err.getvalue())
+        self.assertIn("fetching workflow runs page 2", err.getvalue())
+
     def test_build_queued_rows_sorted_by_name(self) -> None:
         rows = _build_queued_rows(
             [
@@ -144,6 +162,24 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertIn("collecting duration history from 2 run(s)", err.getvalue())
         self.assertIn("fetching jobs for run 1/2 (run_id=1)", err.getvalue())
         self.assertIn("2/2", err.getvalue())
+
+    def test_fetch_run_jobs_verbose_reports_pages(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=[
+                    {"jobs": [{"id": i} for i in range(100)]},
+                    {"jobs": [{"id": 101}]},
+                ],
+            ),
+        ):
+            rows = _fetch_run_jobs("owner", "repo", 12, verbose=True)
+        self.assertEqual(len(rows), 101)
+        self.assertIn("fetching jobs page 1 for run_id=12", err.getvalue())
+        self.assertIn("fetched 100 job(s) from page 1 for run_id=12", err.getvalue())
+        self.assertIn("fetching jobs page 2 for run_id=12", err.getvalue())
 
     def test_build_running_rows(self) -> None:
         with patch(

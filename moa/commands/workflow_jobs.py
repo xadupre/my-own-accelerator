@@ -15,7 +15,7 @@ from urllib.error import HTTPError
 
 import pandas
 
-from .pr_stats import _xlsx_sanitize_rows
+from .pr_stats import _print_progress, _xlsx_sanitize_rows
 from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
 from .review_pr import _fetch_json
 from .review_token import (
@@ -46,6 +46,12 @@ def _print_403_retry_warning(verbose: bool, run_id: int | None = None) -> None:
         f"retrying without token{details}.",
         file=sys.stderr,
     )
+
+
+def _print_verbose_step(verbose: bool, message: str) -> None:
+    if not verbose:
+        return
+    print(f"workflow-jobs: {message}", file=sys.stderr, flush=True)
 
 
 def _parse_since_datetime(value: str | None) -> datetime:
@@ -154,11 +160,16 @@ def _build_running_rows(
 ) -> list[dict[str, Any]]:
     if now is None:
         now = datetime.now(timezone.utc)
+    if verbose and runs:
+        _print_verbose_step(verbose, f"collecting running jobs from {len(runs)} run(s)...")
     rows: list[dict[str, Any]] = []
-    for run in runs:
+    for index, run in enumerate(runs, 1):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
+        _print_verbose_step(
+            verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
+        )
         workflow = str(run.get("display_title", "")).strip()
         for job in _fetch_run_jobs(
             owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
@@ -178,6 +189,8 @@ def _build_running_rows(
                     "url": str(job.get("html_url", "")).strip(),
                 }
             )
+        if verbose:
+            _print_progress(index, len(runs))
     return sorted(rows, key=lambda r: (str(r["name"]).lower(), str(r["started_at"])))
 
 
@@ -250,11 +263,16 @@ def _build_duration_rows(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> list[dict[str, Any]]:
+    if verbose and runs:
+        _print_verbose_step(verbose, f"collecting duration history from {len(runs)} run(s)...")
     rows: list[dict[str, Any]] = []
-    for run in runs:
+    for index, run in enumerate(runs, 1):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
+        _print_verbose_step(
+            verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
+        )
         for job in _fetch_run_jobs(
             owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
         ):
@@ -283,6 +301,8 @@ def _build_duration_rows(
                     "duration_seconds": int((completed - started).total_seconds()),
                 }
             )
+        if verbose:
+            _print_progress(index, len(runs))
     return sorted(rows, key=lambda r: (str(r["job_name"]).lower(), str(r["completed_at"])))
 
 
@@ -295,11 +315,16 @@ def _build_fail_rate_rows(
     api_url: str = "https://api.github.com",
     verbose: bool = False,
 ) -> list[dict[str, int | str]]:
+    if verbose and runs:
+        _print_verbose_step(verbose, f"collecting fail-rate history from {len(runs)} run(s)...")
     by_day: dict[str, dict[str, int]] = {}
-    for run in runs:
+    for index, run in enumerate(runs, 1):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
+        _print_verbose_step(
+            verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
+        )
         for job in _fetch_run_jobs(
             owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
         ):
@@ -313,6 +338,8 @@ def _build_fail_rate_rows(
             day = completed.date().isoformat()
             stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
             stats[status] += 1
+        if verbose:
+            _print_progress(index, len(runs))
     return [{"date": day, **by_day[day]} for day in sorted(by_day)]
 
 
@@ -322,6 +349,7 @@ def _write_duration_outputs(
     repo: str,
     output_dir: str,
     dump: str | None = None,
+    verbose: bool = False,
 ) -> list[pathlib.Path]:
     out = pathlib.Path(output_dir)
     graph_dir = out / f"graphs_{repo}"
@@ -329,21 +357,29 @@ def _write_duration_outputs(
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
     headers = ["job_name", "completed_at", "duration_seconds"]
+    _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]
     if dump == "xlsx":
         xlsx_path = out / f"workflow_jobs_duration_{repo}.xlsx"
+        _print_verbose_step(verbose, f"writing {xlsx_path}...")
         _write_xlsx(xlsx_path, rows, headers, "Durations")
         paths.append(xlsx_path)
     job_series: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         job_series.setdefault(str(row["job_name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
-    for job_name in sorted(job_series):
+    graph_names = sorted(job_series)
+    if verbose and graph_names:
+        _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
+    for index, job_name in enumerate(graph_names, 1):
         svg = graph_dir / f"workflow_jobs_duration_{_safe_name(job_name)}.svg"
         save_job_duration_line_graph(svg, job_series[job_name], f"Job duration: {job_name}")
         graphs.append((f"Job duration: {job_name}", svg))
+        if verbose:
+            _print_progress(index, len(graph_names))
     html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
+    _print_verbose_step(verbose, f"writing {html_path}...")
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
     return [*paths, *(path for _, path in graphs), html_path]
 
@@ -505,6 +541,7 @@ def main(argv: list[str] | None = None) -> int:
             args.repo,
             args.output_dir,
             dump=args.dump,
+            verbose=args.verbose,
         )
         for path in paths:
             print(path)

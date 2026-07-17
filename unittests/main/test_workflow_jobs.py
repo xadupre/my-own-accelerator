@@ -10,11 +10,13 @@ from urllib.error import HTTPError
 import pandas
 
 from moa.commands.workflow_jobs import (
+    _build_duration_rows,
     _build_fail_rate_rows,
     _build_queued_rows,
     _build_running_rows,
     _fetch_run_jobs,
     _fetch_workflow_runs,
+    _write_duration_outputs,
     main,
 )
 from moa.ext_test_case import ExtTestCase
@@ -115,6 +117,34 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_duration_rows_verbose_reports_progress(self) -> None:
+        err = StringIO()
+        with (
+            patch("sys.stderr", err),
+            patch(
+                "moa.commands.workflow_jobs._fetch_run_jobs",
+                return_value=[
+                    {
+                        "conclusion": "success",
+                        "name": "build",
+                        "started_at": "2026-01-03T10:00:00Z",
+                        "completed_at": "2026-01-03T10:02:00Z",
+                    }
+                ],
+            ),
+        ):
+            rows = _build_duration_rows(
+                "owner",
+                "repo",
+                [{"id": 1}, {"id": 2}],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+                verbose=True,
+            )
+        self.assertEqual(len(rows), 2)
+        self.assertIn("collecting duration history from 2 run(s)", err.getvalue())
+        self.assertIn("fetching jobs for run 1/2 (run_id=1)", err.getvalue())
+        self.assertIn("2/2", err.getvalue())
+
     def test_build_running_rows(self) -> None:
         with patch(
             "moa.commands.workflow_jobs._fetch_run_jobs",
@@ -151,6 +181,29 @@ class TestWorkflowJobs(ExtTestCase):
                 }
             ],
         )
+
+    def test_write_duration_outputs_verbose_reports_writes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            err = StringIO()
+            with patch("sys.stderr", err):
+                paths = _write_duration_outputs(
+                    [
+                        {
+                            "job_name": "build",
+                            "completed_at": "2026-01-03T10:02:00+00:00",
+                            "duration_seconds": 120,
+                        }
+                    ],
+                    "owner",
+                    "repo",
+                    tmp,
+                    dump="xlsx",
+                    verbose=True,
+                )
+            self.assertGreaterEqual(len(paths), 4)
+            self.assertIn("writing", err.getvalue())
+            self.assertIn("generating 1 graph(s)", err.getvalue())
+            self.assertIn("1/1", err.getvalue())
 
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()

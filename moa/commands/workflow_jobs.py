@@ -103,9 +103,8 @@ def _load_rows_cache(
         return None
     if any(not isinstance(row, dict) for row in rows):
         return None
-    cached_rows = rows
     _print_verbose_step(verbose, f"using cache {path}")
-    return cached_rows
+    return rows
 
 
 def _save_rows_cache(

@@ -501,19 +501,17 @@ def _build_duration_row_from_run(
 ) -> dict[str, Any] | None:
     if str(run.get("conclusion", "")).strip().lower() != "success":
         return None
-    started = _parse_optional_github_datetime(
-        run.get("run_started_at")
-    ) or _parse_optional_github_datetime(run.get("created_at"))
+    created = _parse_optional_github_datetime(run.get("created_at"))
     completed = _parse_optional_github_datetime(
         run.get("updated_at")
     ) or _parse_optional_github_datetime(run.get("completed_at"))
-    if started is None or completed is None:
+    if created is None or completed is None:
         return None
-    if completed < started:
+    if completed < created:
         if verbose:
             print(
-                "workflow-jobs: warning: skipping workflow run with completed_at earlier than "
-                f"started_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
+                "workflow-jobs: warning: skipping workflow run with updated_at earlier than "
+                f"created_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
                 file=sys.stderr,
             )
         return None
@@ -532,10 +530,10 @@ def _build_duration_row_from_run(
                 pr = str(number)
     return {
         "run_id": run_id,
-        "created_at": started.isoformat(),
+        "created_at": created.isoformat(),
         "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
         "pr": pr,
-        "duration": int((completed - started).total_seconds()),
+        "duration": int((completed - created).total_seconds()),
     }
 
 

@@ -689,7 +689,9 @@ def _build_duration_rows(
             rows.append(run_row)
         if verbose:
             _print_progress(index, len(runs))
-    return sorted(rows, key=lambda r: (str(r["created_at"]), str(r["name"]).lower()))
+    return sorted(
+        rows, key=lambda r: (str(r.get("created_at", "")), str(r.get("name", "")).lower())
+    )
 
 
 def _build_fail_rate_rows(

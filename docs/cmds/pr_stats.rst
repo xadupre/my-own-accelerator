@@ -45,9 +45,12 @@ with a 10-run moving average.
 
 Use ``--since`` to only include pull requests created on/after a given date
 (``YYYY-MM-DD`` or ISO datetime), and ``--cache-file`` to control where the
-PR statistics cache is stored. By default, cache is written to
-``<output-dir>/<prefix>_cache.json`` and cached PR rows are reused on
-subsequent runs instead of requesting their comment statistics again.
+PR statistics cache is stored. By default, cached PR rows are written to a
+per-year directory ``<output-dir>/pr_cache_<repo>/`` (one file per calendar
+year, e.g. ``<prefix>_cache_2025.json``) so that the cache never grows into a
+single large file.  Pass ``--cache-file`` to fall back to a single JSON file
+instead.  Cached PR rows are reused on subsequent runs to avoid requesting
+their comment and job statistics again.
 Generated files are written to the ``dump_pr_stats`` directory by default, with
 SVG graphs stored in a repo-specific ``graphs_<repo>`` subdirectory.
 By default, generated file names use the ``pr_activity_<repo>`` prefix.

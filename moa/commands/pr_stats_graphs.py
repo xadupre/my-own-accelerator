@@ -108,7 +108,9 @@ def save_job_duration_line_graph(
 
     values = []
     for pt in series:
-        raw_duration = pt.get("duration_seconds") or pt.get("duration", 0)
+        raw_duration = pt.get("duration_seconds")
+        if raw_duration is None:
+            raw_duration = pt.get("duration", 0)
         values.append(float(0 if raw_duration is None else raw_duration) / 60)
     x_labels_raw = [str(pt.get("completed_at", pt.get("created_at", "")))[:10] for pt in series]
     max_val = max(values) if values else 1

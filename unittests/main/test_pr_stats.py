@@ -22,6 +22,7 @@ from moa.commands.pr_stats import (
     _build_avg_duration_per_user_week_rows,
     _build_job_duration_sheet_rows,
     _build_pr_comments_distribution,
+    _cache_day_key,
     _collect_pr_comment_stats,
     _collect_pr_comment_stats_batch,
     _collect_pr_job_duration_hours,
@@ -30,9 +31,11 @@ from moa.commands.pr_stats import (
     _count_comments,
     _default_since,
     _dt_str,
+    _load_cache_dir,
     _load_pulls_cache,
     _parse_since_datetime,
     _print_progress,
+    _save_cache_dir,
     _save_pulls_cache,
     build_pr_activity_rows,
     main,
@@ -171,7 +174,7 @@ class TestPRStats(ExtTestCase):
             self.assertEqual(job_dur_svgs["test"].parent, graph_dir / "job_durations")
             with outputs["csv"].open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
-            cache = json.loads(outputs["cache"].read_text(encoding="utf-8"))
+            cache_rows = _load_cache_dir(outputs["cache"])
             status_svg = outputs["status_svg"].read_text(encoding="utf-8")
             comments_per_pr_svg = outputs["comments_per_pr_svg"].read_text(encoding="utf-8")
             comments_per_week_svg = outputs["comments_per_week_svg"].read_text(encoding="utf-8")
@@ -192,7 +195,7 @@ class TestPRStats(ExtTestCase):
         self.assertIn("prefers-color-scheme: dark", status_svg)
         self.assertIn('class="bar"', status_svg)
         self.assertIn('class="label"', status_svg)
-        self.assertIn("1", cache["rows"])
+        self.assertIn("1", cache_rows)
         self.assertIn(f'transform="rotate({SVG_X_AXIS_LABEL_ROTATION}', status_svg)
         self.assertIn("Pull requests per week", prs_per_week_svg)
         self.assertIn("Pull requests (count)", prs_per_week_svg)
@@ -1797,3 +1800,103 @@ class TestPRStats(ExtTestCase):
             # The file is only written if build_pr_activity_rows actually fetches; here it's
             # mocked, so the cache file may not exist yet — but the directory must exist.
             self.assertTrue(pulls_cache_dir.is_dir())
+
+    def test_save_cache_dir_splits_rows_by_day(self) -> None:
+        """_save_cache_dir writes one JSON file per day."""
+        rows = [
+            {
+                "number": 1,
+                "created_at": "2024-06-01T00:00:00Z",
+                "author": "alice",
+                "title": "Old PR",
+                "merged_at": "2024-06-02T00:00:00Z",
+                "closed_at": "2024-06-02T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 1,
+                "copilot_commands": 0,
+                "total_job_duration_hours": 0.0,
+                "successful_job_durations": [],
+                "html_url": "https://github.com/o/r/pull/1",
+            },
+            {
+                "number": 2,
+                "created_at": "2025-03-10T00:00:00Z",
+                "author": "bob",
+                "title": "Mid PR",
+                "merged_at": "2025-03-11T00:00:00Z",
+                "closed_at": "2025-03-11T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 0,
+                "copilot_commands": 1,
+                "total_job_duration_hours": 0.5,
+                "successful_job_durations": [],
+                "html_url": "https://github.com/o/r/pull/2",
+            },
+            {
+                "number": 3,
+                "created_at": "2025-11-20T00:00:00Z",
+                "author": "carol",
+                "title": "Late PR",
+                "merged_at": "2025-11-21T00:00:00Z",
+                "closed_at": "2025-11-21T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 2,
+                "copilot_commands": 0,
+                "total_job_duration_hours": 1.0,
+                "successful_job_durations": [],
+                "html_url": "https://github.com/o/r/pull/3",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_dir = pathlib.Path(tmp) / "cache"
+            _save_cache_dir(cache_dir, "report", rows)
+            day_files = sorted(cache_dir.glob("*.json"))
+            day_names = {f.name for f in day_files}
+            self.assertIn("report_cache_2024-06-01.json", day_names)
+            self.assertIn("report_cache_2025-03-10.json", day_names)
+            self.assertIn("report_cache_2025-11-20.json", day_names)
+            self.assertEqual(len(day_files), 3)
+            loaded = _load_cache_dir(cache_dir)
+            self.assertEqual(set(loaded.keys()), {"1", "2", "3"})
+
+    def test_load_cache_dir_returns_empty_for_missing_dir(self) -> None:
+        """_load_cache_dir returns an empty dict when the directory does not exist."""
+        result = _load_cache_dir(pathlib.Path("/nonexistent/path/to/cache_dir"))
+        self.assertEqual(result, {})
+
+    def test_cache_day_key_returns_unknown_for_missing_created_at(self) -> None:
+        """_cache_day_key returns 'unknown' when created_at is absent or unparseable."""
+        self.assertEqual(_cache_day_key({}), "unknown")
+        self.assertEqual(_cache_day_key({"created_at": ""}), "unknown")
+        self.assertEqual(_cache_day_key({"created_at": "not-a-date"}), "unknown")
+
+    def test_save_pr_activity_report_uses_cache_dir_by_default(self) -> None:
+        """Without --cache-file the cache is split into per-day files in pr_cache_<repo>/."""
+        fake_rows = [
+            {
+                "number": 10,
+                "author": "alice",
+                "title": "PR",
+                "created_at": "2026-02-01T00:00:00Z",
+                "merged_at": "2026-02-02T00:00:00Z",
+                "closed_at": "2026-02-02T00:00:00Z",
+                "status": "merged",
+                "manual_comments": 1,
+                "copilot_commands": 0,
+                "total_job_duration_hours": 0.0,
+                "successful_job_durations": [],
+                "html_url": "https://github.com/o/r/pull/10",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("moa.commands.pr_stats.build_pr_activity_rows", return_value=fake_rows):
+                outputs = save_pr_activity_report("o", "myrepo", output_dir=tmp, prefix="rpt")
+            cache_path = outputs["cache"]
+            self.assertTrue(cache_path.is_dir())
+            self.assertEqual(cache_path.parent, pathlib.Path(tmp))
+            self.assertEqual(cache_path.name, "pr_cache_myrepo")
+            day_files = list(cache_path.glob("*.json"))
+            self.assertEqual(len(day_files), 1)
+            self.assertEqual(day_files[0].name, "rpt_cache_2026-02-01.json")
+            loaded = _load_cache_dir(cache_path)
+            self.assertIn("10", loaded)

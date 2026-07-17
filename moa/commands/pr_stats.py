@@ -200,6 +200,39 @@ def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
+def _cache_day_key(row: dict[str, Any]) -> str:
+    """Return the ``YYYY-MM-DD`` string used to bucket a PR row into a per-day cache file."""
+    created_at = _dt_str(row.get("created_at"))
+    if created_at:
+        try:
+            dt = _parse_iso_datetime(created_at)
+            return dt.strftime("%Y-%m-%d")
+        except ValueError:
+            pass
+    return "unknown"
+
+
+def _load_cache_dir(cache_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
+    """Load all per-day cache files from *cache_dir* and merge them into one dict."""
+    result: dict[str, dict[str, Any]] = {}
+    if not cache_dir.is_dir():
+        return result
+    for json_file in sorted(cache_dir.glob("*.json")):
+        result.update(_load_cache(json_file))
+    return result
+
+
+def _save_cache_dir(cache_dir: pathlib.Path, prefix: str, rows: list[dict[str, Any]]) -> None:
+    """Split *rows* by day and write each day's rows to a separate JSON file in *cache_dir*."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    by_day: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_day.setdefault(_cache_day_key(row), []).append(row)
+    for day, day_rows in by_day.items():
+        day_file = cache_dir / f"{prefix}_cache_{day}.json"
+        _save_cache(day_file, day_rows)
+
+
 def _load_pulls_cache(path: pathlib.Path) -> list[dict[str, Any]] | None:
     """Load the cached raw PR list from *path*, or return ``None`` on any error."""
     try:
@@ -1212,8 +1245,12 @@ def save_pr_activity_report(
     pulls_cache_dir = out / f"pr_list_cache_{_safe_repo_name(repo)}"
     pulls_cache_dir.mkdir(parents=True, exist_ok=True)
     pulls_cache_path = pulls_cache_dir / f"{prefix}_pulls.json"
-    cache_path = pathlib.Path(cache_file) if cache_file else out / f"{prefix}_cache.json"
-    cached_rows = _load_cache(cache_path)
+    cache_file_path: pathlib.Path | None = pathlib.Path(cache_file) if cache_file else None
+    cache_dir_path = out / f"pr_cache_{_safe_repo_name(repo)}"
+    if cache_file_path is not None:
+        cached_rows = _load_cache(cache_file_path)
+    else:
+        cached_rows = _load_cache_dir(cache_dir_path)
     csv_path = out / f"{prefix}.csv"
     xlsx_path = out / f"{prefix}.xlsx"
     status_svg_path = graph_dir / f"{prefix}_status.svg"
@@ -1241,10 +1278,16 @@ def save_pr_activity_report(
             raise
         fallback_rows = list(cached_rows.values())
         if fallback_rows:
-            _save_cache(cache_path, fallback_rows)
+            if cache_file_path is not None:
+                _save_cache(cache_file_path, fallback_rows)
+            else:
+                _save_cache_dir(cache_dir_path, prefix, fallback_rows)
             _save_csv(csv_path, fallback_rows)
         raise
-    _save_cache(cache_path, rows)
+    if cache_file_path is not None:
+        _save_cache(cache_file_path, rows)
+    else:
+        _save_cache_dir(cache_dir_path, prefix, rows)
     _save_csv(csv_path, rows)
     _save_xlsx(xlsx_path, rows)
     status_counts = Counter(row["status"] for row in rows)
@@ -1352,6 +1395,7 @@ def save_pr_activity_report(
     )
     report_graphs.append(("Avg job duration per job name", avg_duration_per_job_svg_path))
     save_graphs_html_report(graphs_html_path, f"{owner}/{repo}", report_graphs)
+    cache_return_path = cache_file_path if cache_file_path is not None else cache_dir_path
     return {
         "csv": csv_path,
         "xlsx": xlsx_path,
@@ -1365,7 +1409,7 @@ def save_pr_activity_report(
         "job_duration_svgs": job_duration_svgs,
         "avg_duration_per_job_svg": avg_duration_per_job_svg_path,
         "graphs_html": graphs_html_path,
-        "cache": cache_path,
+        "cache": cache_return_path,
         "pulls_cache": pulls_cache_path,
     }
 

@@ -7,6 +7,8 @@ from io import StringIO
 from unittest.mock import patch
 from urllib.error import HTTPError
 
+import pandas
+
 from moa.commands.workflow_jobs import (
     _build_fail_rate_rows,
     _build_queued_rows,
@@ -112,7 +114,7 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
-    def test_main_queued_prints_table(self) -> None:
+    def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()
         with (
             patch("sys.stdout", out),
@@ -140,8 +142,68 @@ class TestWorkflowJobs(ExtTestCase):
         ):
             code = main(["owner", "repo", "--queued"])
         self.assertEqual(code, 0)
-        self.assertIn("| name | workflow | created_at | url |", out.getvalue())
-        self.assertLess(out.getvalue().find("| a |"), out.getvalue().find("| b |"))
+        self.assertIn("name  workflow", out.getvalue())
+        self.assertNotIn("| name |", out.getvalue())
+        self.assertLess(out.getvalue().find("\na   "), out.getvalue().find("\nb   "))
+
+    def test_main_queued_dump_writes_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+                patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+                patch(
+                    "moa.commands.workflow_jobs._fetch_workflow_runs",
+                    return_value=[
+                        {
+                            "status": "queued",
+                            "name": "a",
+                            "display_title": "wf-a",
+                            "created_at": "2026-01-01T00:00:00Z",
+                            "html_url": "https://x/a",
+                        }
+                    ],
+                ),
+            ):
+                code = main(["owner", "repo", "--queued", "--dump", "csv", "--output-dir", tmp])
+            self.assertEqual(code, 0)
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_queued_repo.csv"
+            self.assertTrue(csv_path.exists())
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["workflow"], "wf-a")
+
+    def test_main_fail_rate_dump_writes_xlsx(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            with (
+                patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+                patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+                patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+                patch(
+                    "moa.commands.workflow_jobs._build_fail_rate_rows",
+                    return_value=[
+                        {
+                            "date": "2026-01-03",
+                            "failure": 1,
+                            "cancelled": 2,
+                            "skipped": 3,
+                            "success": 4,
+                        }
+                    ],
+                ),
+            ):
+                code = main(
+                    ["owner", "repo", "--fail-rate", "--dump", "xlsx", "--output-dir", tmp]
+                )
+            self.assertEqual(code, 0)
+            xlsx_path = pathlib.Path(tmp) / "workflow_jobs_fail_rate_repo.xlsx"
+            self.assertTrue(xlsx_path.exists())
+            sheets = pandas.read_excel(xlsx_path, sheet_name=None)
+            self.assertEqual(
+                sheets["Fail rate"].to_dict(orient="records")[0]["success"],
+                4,
+            )
 
     def test_main_gh_rejects_non_empty_github_token_env(self) -> None:
         with (

@@ -58,7 +58,9 @@ Command line workflow jobs reports:
 
 ```bash
 workflow-jobs xadupre my-own-accelerator --queued
+workflow-jobs xadupre my-own-accelerator --queued --dump csv
 workflow-jobs xadupre my-own-accelerator --duration
+workflow-jobs xadupre my-own-accelerator --duration --dump xlsx
 workflow-jobs xadupre my-own-accelerator --fail-rate
 ```
 

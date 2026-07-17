@@ -13,6 +13,8 @@ from typing import Any
 from urllib import parse
 from urllib.error import HTTPError
 
+import pandas
+
 from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
 from .review_pr import _fetch_json
 from .review_token import (
@@ -140,19 +142,83 @@ def _build_queued_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     return sorted(rows, key=lambda r: (r["name"].lower(), r["created_at"], r["url"]))
 
 
-def _build_markdown_table(rows: list[dict[str, str]], headers: list[str]) -> str:
-    lines = [
-        "| " + " | ".join(headers) + " |",
-        "| " + " | ".join(["---"] * len(headers)) + " |",
-    ]
+def _build_fixed_width_table(rows: list[dict[str, str]], headers: list[str]) -> str:
+    widths = {header: len(header) for header in headers}
     for row in rows:
-        lines.append("| " + " | ".join(row.get(h, "") for h in headers) + " |")
+        for header in headers:
+            widths[header] = max(widths[header], len(row.get(header, "")))
+
+    def _format(cells: list[str]) -> str:
+        return "  ".join(cell.ljust(widths[header]) for cell, header in zip(cells, headers))
+
+    lines = [_format(headers), _format(["-" * widths[header] for header in headers])]
+    for row in rows:
+        lines.append(_format([row.get(header, "") for header in headers]))
     return "\n".join(lines)
 
 
 def _safe_name(name: str) -> str:
     cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", name.strip())
     return cleaned.strip("._") or "job"
+
+
+def _xlsx_safe_text(value: str) -> str:
+    return "".join(
+        ch
+        for ch in value
+        if ch in "\t\n\r" or 0x20 <= ord(ch) <= 0xD7FF or 0xE000 <= ord(ch) <= 0xFFFD
+    )
+
+
+def _xlsx_sanitize_rows(rows: list[dict[str, Any]], headers: list[str]) -> list[dict[str, Any]]:
+    sanitized_rows = []
+    for row in rows:
+        sanitized_row: dict[str, Any] = {}
+        for key in headers:
+            value = row.get(key, "")
+            sanitized_row[key] = _xlsx_safe_text(value) if isinstance(value, str) else value
+        sanitized_rows.append(sanitized_row)
+    return sanitized_rows
+
+
+def _write_csv(path: pathlib.Path, rows: list[dict[str, Any]], headers: list[str]) -> None:
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=headers, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+
+def _write_xlsx(
+    path: pathlib.Path,
+    rows: list[dict[str, Any]],
+    headers: list[str],
+    sheet_name: str,
+) -> None:
+    with pandas.ExcelWriter(path, engine="openpyxl") as writer:
+        pandas.DataFrame(_xlsx_sanitize_rows(rows, headers), columns=headers).to_excel(
+            writer, index=False, sheet_name=sheet_name
+        )
+
+
+def _write_tabular_dump(
+    rows: list[dict[str, Any]],
+    headers: list[str],
+    output_dir: str,
+    prefix: str,
+    dump: str | None,
+    sheet_name: str,
+) -> pathlib.Path | None:
+    if dump is None:
+        return None
+    out = pathlib.Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    if dump == "xlsx":
+        path = out / f"{prefix}.xlsx"
+        _write_xlsx(path, rows, headers, sheet_name)
+        return path
+    path = out / f"{prefix}.csv"
+    _write_csv(path, rows, headers)
+    return path
 
 
 def _build_duration_rows(
@@ -235,16 +301,20 @@ def _write_duration_outputs(
     owner: str,
     repo: str,
     output_dir: str,
+    dump: str | None = None,
 ) -> list[pathlib.Path]:
     out = pathlib.Path(output_dir)
     graph_dir = out / f"graphs_{repo}"
     out.mkdir(parents=True, exist_ok=True)
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["job_name", "completed_at", "duration_seconds"])
-        writer.writeheader()
-        writer.writerows(rows)
+    headers = ["job_name", "completed_at", "duration_seconds"]
+    _write_csv(csv_path, rows, headers)
+    paths = [csv_path]
+    if dump == "xlsx":
+        xlsx_path = out / f"workflow_jobs_duration_{repo}.xlsx"
+        _write_xlsx(xlsx_path, rows, headers, "Durations")
+        paths.append(xlsx_path)
     job_series: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         job_series.setdefault(str(row["job_name"]), []).append(row)
@@ -255,20 +325,26 @@ def _write_duration_outputs(
         graphs.append((f"Job duration: {job_name}", svg))
     html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
     save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
-    return [csv_path, *(path for _, path in graphs), html_path]
+    return [*paths, *(path for _, path in graphs), html_path]
 
 
-def _write_fail_rate_csv(
-    rows: list[dict[str, int | str]], output_dir: str, repo: str
-) -> pathlib.Path:
+def _write_fail_rate_outputs(
+    rows: list[dict[str, int | str]],
+    output_dir: str,
+    repo: str,
+    dump: str | None = None,
+) -> list[pathlib.Path]:
     out = pathlib.Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_fail_rate_{repo}.csv"
-    with csv_path.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=["date", *_FAIL_RATE_STATUSES])
-        writer.writeheader()
-        writer.writerows(rows)
-    return csv_path
+    headers = ["date", *_FAIL_RATE_STATUSES]
+    _write_csv(csv_path, rows, headers)
+    paths = [csv_path]
+    if dump == "xlsx":
+        xlsx_path = out / f"workflow_jobs_fail_rate_{repo}.xlsx"
+        _write_xlsx(xlsx_path, rows, headers, "Fail rate")
+        paths.append(xlsx_path)
+    return paths
 
 
 def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
@@ -286,6 +362,12 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     )
     parser.add_argument("--since", default=None, help="Since date (default: 30 days ago).")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output folder.")
+    parser.add_argument(
+        "--dump",
+        choices=["csv", "xlsx"],
+        default=None,
+        help="Also dump the selected tabular report to CSV or XLSX in --output-dir.",
+    )
     parser.add_argument(
         "--gh",
         action="store_true",
@@ -340,7 +422,18 @@ def main(argv: list[str] | None = None) -> int:
     )
     if args.queued:
         rows = _build_queued_rows(runs)
-        print(_build_markdown_table(rows, ["name", "workflow", "created_at", "url"]))
+        headers = ["name", "workflow", "created_at", "url"]
+        print(_build_fixed_width_table(rows, headers))
+        path = _write_tabular_dump(
+            rows,
+            headers,
+            args.output_dir,
+            f"workflow_jobs_queued_{args.repo}",
+            args.dump,
+            "Queued jobs",
+        )
+        if path is not None:
+            print(path)
         return 0
     since = _parse_since_datetime(args.since)
     if args.duration:
@@ -357,6 +450,7 @@ def main(argv: list[str] | None = None) -> int:
             args.owner,
             args.repo,
             args.output_dir,
+            dump=args.dump,
         )
         for path in paths:
             print(path)
@@ -370,17 +464,15 @@ def main(argv: list[str] | None = None) -> int:
         api_url=args.api_url,
         verbose=args.verbose,
     )
-    csv_path = _write_fail_rate_csv(fail_rows, args.output_dir, args.repo)
+    headers = ["date", *_FAIL_RATE_STATUSES]
     print(
-        _build_markdown_table(
+        _build_fixed_width_table(
             [{k: str(v) for k, v in row.items()} for row in fail_rows],
-            [
-                "date",
-                *_FAIL_RATE_STATUSES,
-            ],
+            headers,
         )
     )
-    print(csv_path)
+    for path in _write_fail_rate_outputs(fail_rows, args.output_dir, args.repo, dump=args.dump):
+        print(path)
     return 0
 
 

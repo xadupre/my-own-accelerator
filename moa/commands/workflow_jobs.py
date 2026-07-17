@@ -319,6 +319,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.gh and "--token" in argv:
         parser.error("--gh and --token are mutually exclusive.")
     if args.gh:
+        if os.environ.get("GITHUB_TOKEN"):
+            raise RuntimeError(
+                "--gh cannot be used when GITHUB_TOKEN is set; unset GITHUB_TOKEN "
+                "and run `gh auth login` first."
+            )
         args.token = _fetch_token_from_gh_cli()
     if args.verbose:
         token_origin, token_type = _resolve_token_origin(

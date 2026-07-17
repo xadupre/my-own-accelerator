@@ -1,4 +1,5 @@
 import csv
+import os
 import pathlib
 import tempfile
 from datetime import datetime, timezone
@@ -141,6 +142,19 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual(code, 0)
         self.assertIn("| name | workflow | created_at | url |", out.getvalue())
         self.assertLess(out.getvalue().find("| a |"), out.getvalue().find("| b |"))
+
+    def test_main_gh_rejects_non_empty_github_token_env(self) -> None:
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        os.environ["GITHUB_TOKEN"] = "env_token"
+        try:
+            with patch("moa.commands.workflow_jobs._load_token_cache", return_value={}):
+                with self.assertRaisesRegex(RuntimeError, "gh auth login"):
+                    main(["owner", "repo", "--queued", "--gh"])
+        finally:
+            os.environ.pop("GITHUB_TOKEN", None)
+            os.environ.update(env_backup)
 
     def test_main_fail_rate_writes_csv(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

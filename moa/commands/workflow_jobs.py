@@ -91,6 +91,7 @@ def _load_rows_cache(
     meta: dict[str, Any],
     verbose: bool = False,
 ) -> list[dict[str, Any]] | None:
+    """Load cached rows when the file metadata matches and all rows are dictionaries."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -113,6 +114,7 @@ def _save_rows_cache(
     rows: list[dict[str, Any]],
     verbose: bool = False,
 ) -> None:
+    """Write cache metadata and rows to disk, creating parent directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     _print_verbose_step(verbose, f"writing cache {path}...")
     path.write_text(json.dumps({"meta": meta, "rows": rows}, indent=2), encoding="utf-8")
@@ -129,6 +131,7 @@ def _workflow_runs_cache_path(
     status: str | None,
     stop_before: datetime | None,
 ) -> pathlib.Path:
+    """Build a workflow-runs cache path scoped to owner/repo, status, and since boundary."""
     slug = _repo_cache_slug(owner, repo)
     status_slug = _safe_name(status or "all")
     stamp = (
@@ -142,6 +145,7 @@ def _workflow_runs_cache_path(
 
 
 def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) -> pathlib.Path:
+    """Build a per-run jobs cache path scoped to owner/repo and run identifier."""
     slug = _repo_cache_slug(owner, repo)
     return pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_run_{run_id}_jobs.json"
 

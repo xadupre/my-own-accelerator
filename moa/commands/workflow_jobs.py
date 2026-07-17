@@ -1037,7 +1037,7 @@ def _write_waiting_outputs(
     _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]
-    plotted_rows, outlier_rows = _split_duration_outliers(rows)
+    plotted_rows, outlier_rows = _split_waiting_outliers(rows)
     if outlier_rows:
         _print_verbose_step(verbose, f"writing {outlier_csv_path}...")
         _write_csv(outlier_csv_path, outlier_rows, outlier_headers)

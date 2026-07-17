@@ -1222,12 +1222,13 @@ class TestWorkflowJobs(ExtTestCase):
             with job_csv.open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["name"], "build")
-            self.assertEqual(rows[0]["total_seconds"], "5400")
+            self.assertEqual(rows[0]["total_hours"], "1.5")
             graph = graph_svg.read_text(encoding="utf-8")
             self.assertIn("#e05c5c", graph)
             self.assertIn("#f2cc60", graph)
             self.assertIn(">failure</text>", graph)
             self.assertIn(">cancelled</text>", graph)
+            self.assertIn("f=1.0h, c=0.5h", graph)
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("Workflow fail/cancel cost: build", html)
 
@@ -1586,10 +1587,10 @@ class TestWorkflowJobs(ExtTestCase):
             job_csv_path = pathlib.Path(tmp) / "workflow_jobs_fail_cost_by_job_repo.csv"
             self.assertTrue(csv_path.exists())
             self.assertTrue(job_csv_path.exists())
-            self.assertIn("failure_seconds", out.getvalue())
+            self.assertIn("failure_hours", out.getvalue())
             with csv_path.open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
-            self.assertEqual(rows[0]["total_seconds"], "5400")
+            self.assertEqual(rows[0]["total_hours"], "1.5")
             with job_csv_path.open("r", encoding="utf-8") as f:
                 job_rows = list(csv.DictReader(f))
             self.assertEqual(job_rows[0]["name"], "build")

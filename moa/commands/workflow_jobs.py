@@ -814,6 +814,28 @@ def _write_xlsx(
         )
 
 
+def _seconds_to_hours(seconds: int | str) -> float:
+    return round(float(int(seconds)) / 3600.0, 2)
+
+
+def _fail_cost_rows_to_hours(
+    rows: list[dict[str, int | str]],
+) -> tuple[list[dict[str, int | float | str]], list[str]]:
+    converted: list[dict[str, int | float | str]] = []
+    for row in rows:
+        converted_row: dict[str, int | float | str] = {"date": str(row["date"])}
+        if "name" in row:
+            converted_row["name"] = str(row["name"])
+        converted_row["failure_hours"] = _seconds_to_hours(row["failure_seconds"])
+        converted_row["cancelled_hours"] = _seconds_to_hours(row["cancelled_seconds"])
+        converted_row["total_hours"] = _seconds_to_hours(row["total_seconds"])
+        converted.append(converted_row)
+    headers = ["date", "failure_hours", "cancelled_hours", "total_hours"]
+    if converted and "name" in converted[0]:
+        headers.insert(1, "name")
+    return converted, headers
+
+
 def _write_tabular_dump(
     rows: list[dict[str, Any]],
     headers: list[str],
@@ -1518,20 +1540,20 @@ def _write_fail_cost_outputs(
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_fail_cost_{repo}.csv"
     job_csv_path = out / f"workflow_jobs_fail_cost_by_job_{repo}.csv"
-    headers = ["date", "failure_seconds", "cancelled_seconds", "total_seconds"]
-    job_headers = ["date", "name", "failure_seconds", "cancelled_seconds", "total_seconds"]
+    display_rows, headers = _fail_cost_rows_to_hours(rows)
+    display_job_rows, job_headers = _fail_cost_rows_to_hours(job_rows)
     _print_verbose_step(verbose, f"writing {csv_path}...")
-    _write_csv(csv_path, rows, headers)
+    _write_csv(csv_path, display_rows, headers)
     _print_verbose_step(verbose, f"writing {job_csv_path}...")
-    _write_csv(job_csv_path, job_rows, job_headers)
+    _write_csv(job_csv_path, display_job_rows, job_headers)
     paths = [csv_path, job_csv_path]
     if dump == "xlsx":
         xlsx_path = out / f"workflow_jobs_fail_cost_{repo}.xlsx"
         job_xlsx_path = out / f"workflow_jobs_fail_cost_by_job_{repo}.xlsx"
         _print_verbose_step(verbose, f"writing {xlsx_path}...")
-        _write_xlsx(xlsx_path, rows, headers, "Fail cost")
+        _write_xlsx(xlsx_path, display_rows, headers, "Fail cost")
         _print_verbose_step(verbose, f"writing {job_xlsx_path}...")
-        _write_xlsx(job_xlsx_path, job_rows, job_headers, "Per job")
+        _write_xlsx(job_xlsx_path, display_job_rows, job_headers, "Per job")
         paths.extend([xlsx_path, job_xlsx_path])
     graphs: list[tuple[str, pathlib.Path]] = []
     by_job: dict[str, list[dict[str, Any]]] = {}
@@ -1564,7 +1586,8 @@ def _write_fail_cost_outputs(
         }
         labels = {
             str(row["date"]): (
-                f"f={int(row['failure_seconds'])}s, c={int(row['cancelled_seconds'])}s"
+                f"f={_seconds_to_hours(row['failure_seconds'])}h, "
+                f"c={_seconds_to_hours(row['cancelled_seconds'])}h"
             )
             for row in series
         }
@@ -1802,10 +1825,10 @@ def main(argv: list[str] | None = None) -> int:
             verbose=args.verbose,
             cache_dir=args.output_dir,
         )
-        headers = ["date", "failure_seconds", "cancelled_seconds", "total_seconds"]
+        display_rows, headers = _fail_cost_rows_to_hours(fail_cost_rows)
         print(
             _build_fixed_width_table(
-                [{k: str(v) for k, v in row.items()} for row in fail_cost_rows],
+                [{k: str(v) for k, v in row.items()} for row in display_rows],
                 headers,
             )
         )

@@ -66,7 +66,7 @@ Exactly one option must be chosen:
 * ``--fail-cost`` writes the failed/cancelled compute time lost per day to CSV
   and prints the same data as a fixed-width table. It also writes a
   ``workflow_jobs_fail_cost_by_job_*`` CSV/XLSX dump with per-job/per-day
-  ``failure_seconds``, ``cancelled_seconds``, and ``total_seconds``, and
+  ``failure_hours``, ``cancelled_hours``, and ``total_hours``, and
   generates per-job/day stacked fail-cancel cost SVG graphs plus an HTML report
   under ``graphs_<repo>/``.
 

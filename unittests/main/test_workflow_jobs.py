@@ -379,7 +379,7 @@ class TestWorkflowJobs(ExtTestCase):
             )
             self.assertEqual(mocked.call_count, 1)
 
-    def test_fetch_workflow_runs_ignores_legacy_daily_cache_files(self) -> None:
+    def test_fetch_workflow_runs_invalidates_and_rebuilds_legacy_cache_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             for day, rows in [
                 ("2026-01-01", []),

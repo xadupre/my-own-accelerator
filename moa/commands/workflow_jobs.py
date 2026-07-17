@@ -496,6 +496,48 @@ def _save_cached_run_jobs_to_day(
     _save_rows_cache(path, meta, day_rows, verbose)
 
 
+def _build_duration_row_from_run(
+    run: dict[str, Any], since: datetime, verbose: bool = False
+) -> dict[str, Any] | None:
+    if str(run.get("conclusion", "")).strip().lower() != "success":
+        return None
+    started = _parse_optional_github_datetime(
+        run.get("run_started_at")
+    ) or _parse_optional_github_datetime(run.get("created_at"))
+    completed = _parse_optional_github_datetime(
+        run.get("updated_at")
+    ) or _parse_optional_github_datetime(run.get("completed_at"))
+    if started is None or completed is None:
+        return None
+    if completed < started:
+        if verbose:
+            print(
+                "workflow-jobs: warning: skipping workflow run with completed_at earlier than "
+                f"started_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
+                file=sys.stderr,
+            )
+        return None
+    if completed < since:
+        return None
+    return {
+        "job_name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
+        "completed_at": completed.isoformat(),
+        "duration_seconds": int((completed - started).total_seconds()),
+    }
+
+
+def _build_fail_rate_row_from_run(run: dict[str, Any], since: datetime) -> tuple[str, str] | None:
+    status = str(run.get("conclusion", "")).strip().lower()
+    if status not in _FAIL_RATE_STATUSES:
+        return None
+    completed = _parse_optional_github_datetime(
+        run.get("updated_at")
+    ) or _parse_optional_github_datetime(run.get("completed_at"))
+    if completed is None or completed < since:
+        return None
+    return completed.date().isoformat(), status
+
+
 def _build_queued_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     for run in runs:
@@ -634,6 +676,12 @@ def _build_duration_rows(
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
+        run_row = _build_duration_row_from_run(run, since, verbose)
+        if run_row is not None:
+            rows.append(run_row)
+            if verbose:
+                _print_progress(index, len(runs))
+            continue
         _print_verbose_step(
             verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
         )
@@ -703,6 +751,14 @@ def _build_fail_rate_rows(
     for index, run in enumerate(runs, 1):
         run_id = run.get("id")
         if not isinstance(run_id, int):
+            continue
+        run_row = _build_fail_rate_row_from_run(run, since)
+        if run_row is not None:
+            day, status = run_row
+            stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
+            stats[status] += 1
+            if verbose:
+                _print_progress(index, len(runs))
             continue
         _print_verbose_step(
             verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."

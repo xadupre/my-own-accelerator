@@ -61,7 +61,8 @@ def _print_progress(current: int, total: int, file: Any = None) -> None:
     bar_width = 30
     filled = int(bar_width * current / total) if total else bar_width
     bar = "=" * filled + "-" * (bar_width - filled)
-    end = "\n" if current >= total else "\r"
+    is_tty = hasattr(file, "isatty") and bool(file.isatty())
+    end = "\n" if current >= total or not is_tty else "\r"
     print(f"  [{bar}] {current}/{total}", end=end, file=file, flush=True)
 
 

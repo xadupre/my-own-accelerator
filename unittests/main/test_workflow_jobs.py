@@ -638,6 +638,24 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_waiting_rows_keeps_non_success_started_runs(self) -> None:
+        rows = _build_waiting_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 1,
+                    "name": "build",
+                    "conclusion": "failure",
+                    "created_at": "2026-01-03T10:00:00Z",
+                    "run_started_at": "2026-01-03T10:02:00Z",
+                }
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["waiting_seconds"], 120)
+
     def test_build_duration_rows_verbose_reports_progress(self) -> None:
         err = StringIO()
         with patch("sys.stderr", err):

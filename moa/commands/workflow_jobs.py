@@ -626,8 +626,6 @@ def _build_duration_row_from_run(
 def _build_waiting_row_from_run(
     run: dict[str, Any], since: datetime, verbose: bool = False
 ) -> dict[str, Any] | None:
-    if str(run.get("conclusion", "")).strip().lower() != "success":
-        return None
     created = _parse_optional_github_datetime(run.get("created_at"))
     started = _parse_optional_github_datetime(run.get("run_started_at"))
     if created is None or started is None:
@@ -803,16 +801,22 @@ def _write_tabular_dump(
 def _duration_seconds_value(row: dict[str, Any]) -> float | None:
     raw_duration = row.get("duration_seconds")
     if raw_duration is None:
-        raw_duration = row.get("waiting_seconds")
-    if raw_duration is None:
         raw_duration = row.get("duration")
     if raw_duration is None:
         return None
     return float(raw_duration)
 
 
-def _split_duration_outliers(
+def _waiting_seconds_value(row: dict[str, Any]) -> float | None:
+    raw_duration = row.get("waiting_seconds")
+    if raw_duration is None:
+        return None
+    return float(raw_duration)
+
+
+def _split_time_outliers(
     rows: list[dict[str, Any]],
+    value_getter: Any,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     plotted: list[dict[str, Any]] = []
     outliers: list[dict[str, Any]] = []
@@ -820,9 +824,7 @@ def _split_duration_outliers(
     for row in rows:
         by_name.setdefault(str(row.get("name", "")), []).append(row)
     for series in by_name.values():
-        durations = [
-            duration for row in series if (duration := _duration_seconds_value(row)) is not None
-        ]
+        durations = [duration for row in series if (duration := value_getter(row)) is not None]
         if not durations:
             plotted.extend(series)
             continue
@@ -832,12 +834,24 @@ def _split_duration_outliers(
             continue
         cutoff = series_median * _DURATION_OUTLIER_MULTIPLIER
         for row in series:
-            duration = _duration_seconds_value(row)
+            duration = value_getter(row)
             if duration is not None and duration > cutoff:
                 outliers.append(row)
             else:
                 plotted.append(row)
     return plotted, outliers
+
+
+def _split_duration_outliers(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _split_time_outliers(rows, _duration_seconds_value)
+
+
+def _split_waiting_outliers(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    return _split_time_outliers(rows, _waiting_seconds_value)
 
 
 def _build_duration_rows(
@@ -1053,6 +1067,7 @@ def _write_waiting_outputs(
             f"Workflow waiting time: {job_name}",
             x_axis_label="Creation date",
             y_axis_label="Waiting time (minutes)",
+            seconds_keys=("waiting_seconds",),
         )
         graphs.append((f"Workflow waiting time: {job_name}", svg))
         if verbose:

@@ -133,6 +133,7 @@ def _cache_day_text(day: datetime | str) -> str:
 
 
 def _github_datetime_text(value: datetime) -> str:
+    """Format a datetime for GitHub API filters using UTC with a trailing ``Z``."""
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
@@ -206,8 +207,44 @@ def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) ->
 def _workflow_runs_cache_day_candidates(
     output_dir: str, owner: str, repo: str, day: str
 ) -> list[pathlib.Path]:
+    """Return all daily run-cache files for a given day, regardless of cached status."""
     stamp = _cache_day_text(day).replace("-", "")
-    return sorted(_workflow_jobs_cache_dir(output_dir, owner, repo).glob(f"runs_*_{stamp}.json"))
+    cache_dir = _workflow_jobs_cache_dir(output_dir, owner, repo)
+    if not cache_dir.exists():
+        return []
+    return sorted(cache_dir.glob(f"runs_*_{stamp}.json"))
+
+
+def _load_workflow_runs_day_rows(
+    path: pathlib.Path, owner: str, repo: str, day: str, verbose: bool = False
+) -> list[dict[str, Any]] | None:
+    """Load cached workflow-run rows for one daily cache file.
+
+    The file must match the expected owner, repository, and UTC day metadata.
+    Returns the validated row list when the cache file is usable, otherwise
+    returns ``None``.
+    """
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    meta = payload.get("meta")
+    if not isinstance(meta, dict):
+        return None
+    if (
+        meta.get("kind") != "workflow_runs_day"
+        or meta.get("owner") != owner
+        or meta.get("repo") != repo
+        or meta.get("day") != day
+    ):
+        return None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None
+    _print_verbose_step(verbose, f"using cache {path}")
+    return [row for row in rows if isinstance(row, dict)]
 
 
 def _fetch_workflow_runs(
@@ -307,6 +344,10 @@ def _fetch_workflow_runs(
         if stop_before is not None:
             filtered_runs: list[dict[str, Any]] = []
             for run in current_runs:
+                # Keep a client-side bound as a fallback in case the API ignores the
+                # `created>=...` filter or returns rows without a usable timestamp.
+                # `--since` is an inclusive lower bound, so rows exactly at
+                # `stop_before` remain in the result set.
                 created_at = _parse_optional_github_datetime(run.get("created_at"))
                 if created_at is None or created_at >= stop_before:
                     filtered_runs.append(run)
@@ -328,11 +369,17 @@ def _fetch_workflow_runs(
                 for run in current_runs
                 if (parsed := _parse_optional_github_datetime(run.get("created_at"))) is not None
             ]
-            if older_dates or (dates and min(dates) < stop_before):
+            stop_date = None
+            if older_dates:
+                stop_date = min(older_dates)
+            elif dates:
+                stop_date = min(dates)
+            should_stop = bool(older_dates) or (stop_date is not None and stop_date < stop_before)
+            if should_stop and stop_date is not None:
                 _print_verbose_step(
                     verbose,
                     "stopping workflow runs fetch on page "
-                    f"{page} because min(date)={min(older_dates or dates).isoformat()} "
+                    f"{page} because min(date)={stop_date.isoformat()} "
                     f"is older than since={stop_before.isoformat()}",
                 )
                 break
@@ -409,28 +456,11 @@ def _load_cached_run_jobs_from_day(
     if day is None or not isinstance(run_id, int):
         return None
     for path in _workflow_runs_cache_day_candidates(output_dir, owner, repo, day):
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (FileNotFoundError, OSError, json.JSONDecodeError):
+        rows = _load_workflow_runs_day_rows(path, owner, repo, day, verbose)
+        if rows is None:
             continue
-        if not isinstance(payload, dict):
-            continue
-        meta = payload.get("meta")
-        if not isinstance(meta, dict):
-            continue
-        if (
-            meta.get("kind") != "workflow_runs_day"
-            or meta.get("owner") != owner
-            or meta.get("repo") != repo
-            or meta.get("day") != day
-        ):
-            continue
-        rows = payload.get("rows")
-        if not isinstance(rows, list):
-            continue
-        _print_verbose_step(verbose, f"using cache {path}")
         for cached_run in rows:
-            if not isinstance(cached_run, dict) or cached_run.get("id") != run_id:
+            if cached_run.get("id") != run_id:
                 continue
             jobs = cached_run.get("jobs")
             if isinstance(jobs, list) and all(isinstance(job, dict) for job in jobs):

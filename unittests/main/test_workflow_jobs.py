@@ -307,6 +307,7 @@ class TestWorkflowJobs(ExtTestCase):
                 verbose=True,
                 stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
             )
+        # Older page-2 runs are now discarded by the defensive since-bound filtering.
         self.assertEqual(len(rows), 100)
         self.assertEqual(mocked.call_count, 2)
         self.assertIn("stopping workflow runs fetch on page 2", err.getvalue())
@@ -722,7 +723,11 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(query["created"], [">=2026-01-02T00:00:00Z"])
             self.assertTrue(
                 _workflow_runs_cache_path(
-                    tmp, "owner", "repo", "completed", "2026-01-03"
+                    tmp,
+                    "owner",
+                    "repo",
+                    "completed",
+                    datetime(2026, 1, 3, tzinfo=timezone.utc),
                 ).exists()
             )
 

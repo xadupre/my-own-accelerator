@@ -33,5 +33,6 @@ reviewing, and pull-request activity reporting.
     github_token
     pr_weekly_table
     pr_stats
+    workflow_jobs
     review_local
     review_pr

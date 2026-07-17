@@ -54,6 +54,14 @@ This command writes the Markdown table to
 `dump_pr_stats/pr_weekly_<repo>.md` and caches fetched rows in
 `dump_pr_stats/pr_weekly_<repo>_cache.json` by default.
 
+Command line workflow jobs reports:
+
+```bash
+workflow-jobs xadupre my-own-accelerator --queued
+workflow-jobs xadupre my-own-accelerator --duration
+workflow-jobs xadupre my-own-accelerator --fail-rate
+```
+
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 
 ## Development checks

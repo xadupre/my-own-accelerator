@@ -1,0 +1,31 @@
+workflow-jobs command
+=====================
+
+The command reports GitHub workflow jobs with the same authentication flow as
+other commands (``--token``/``GITHUB_TOKEN``/token cache or ``--gh``):
+
+.. code-block:: bash
+
+    workflow-jobs xadupre my-own-accelerator --queued
+    workflow-jobs xadupre my-own-accelerator --duration --since -60d
+    workflow-jobs xadupre my-own-accelerator --fail-rate --since 2026-01-01
+
+Synopsis:
+
+.. runpython::
+
+    from moa.commands.workflow_jobs import _build_parser
+    parser = _build_parser()
+    parser.prog = f"python -m moa {parser.prog}"
+    parser.print_help()
+
+Options
+-------
+
+Exactly one option must be chosen:
+
+* ``--queued`` prints a table of queued workflow jobs sorted by job name.
+* ``--duration`` writes historical successful job durations to CSV and
+  generates SVG/HTML graphs.
+* ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
+  jobs to CSV and prints the same data as a table.

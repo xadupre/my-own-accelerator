@@ -8,3 +8,4 @@ moa.commands
     pr_stats_graphs
     review_pr
     review_local
+    workflow_jobs

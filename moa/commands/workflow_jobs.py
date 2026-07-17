@@ -1,0 +1,340 @@
+"""Workflow jobs command line with queued, duration, and fail-rate reports."""
+
+from __future__ import annotations
+
+import argparse
+import csv
+import os
+import pathlib
+import re
+import sys
+from datetime import datetime, timedelta, timezone
+from typing import Any
+from urllib import parse
+
+from .pr_stats_graphs import save_graphs_html_report, save_job_duration_line_graph
+from .review_pr import _fetch_json
+from .review_token import (
+    _extract_owner_repo,
+    _fetch_token_from_gh_cli,
+    _resolve_cached_token,
+    _resolve_token_origin,
+)
+from .review_token import (
+    _load_cache as _load_token_cache,
+)
+from .since_utils import parse_relative_since
+
+DEFAULT_OUTPUT_DIR = "dump_pr_stats"
+_FAIL_RATE_STATUSES = ("failure", "cancelled", "skipped", "success")
+
+
+def _default_since() -> str:
+    return (datetime.now(timezone.utc) - timedelta(days=30)).strftime("%Y-%m-%d")
+
+
+def _parse_since_datetime(value: str | None) -> datetime:
+    since_value = (value or _default_since()).strip()
+    relative_dt = parse_relative_since(since_value)
+    if relative_dt is not None:
+        return relative_dt
+    parsed = datetime.fromisoformat(since_value.replace("Z", "+00:00"))
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
+def _fetch_workflow_runs(
+    owner: str,
+    repo: str,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+    status: str | None = None,
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        query: dict[str, Any] = {"per_page": 100, "page": page}
+        if status:
+            query["status"] = status
+        url = f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs?{parse.urlencode(query)}"
+        payload = _fetch_json(url, token)
+        if not isinstance(payload, dict):
+            break
+        runs = payload.get("workflow_runs", [])
+        if not isinstance(runs, list) or not runs:
+            break
+        rows.extend(run for run in runs if isinstance(run, dict))
+        if len(runs) < 100:
+            break
+        page += 1
+    return rows
+
+
+def _fetch_run_jobs(
+    owner: str,
+    repo: str,
+    run_id: int,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page = 1
+    while True:
+        url = (
+            f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?"
+            f"{parse.urlencode({'per_page': 100, 'page': page})}"
+        )
+        payload = _fetch_json(url, token)
+        if not isinstance(payload, dict):
+            break
+        jobs = payload.get("jobs", [])
+        if not isinstance(jobs, list) or not jobs:
+            break
+        rows.extend(job for job in jobs if isinstance(job, dict))
+        if len(jobs) < 100:
+            break
+        page += 1
+    return rows
+
+
+def _build_queued_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for run in runs:
+        if str(run.get("status", "")).strip().lower() != "queued":
+            continue
+        rows.append(
+            {
+                "name": str(run.get("name", "")).strip(),
+                "workflow": str(run.get("display_title", "")).strip(),
+                "created_at": str(run.get("created_at", "")).strip(),
+                "url": str(run.get("html_url", "")).strip(),
+            }
+        )
+    return sorted(rows, key=lambda r: (r["name"].lower(), r["created_at"], r["url"]))
+
+
+def _build_markdown_table(rows: list[dict[str, str]], headers: list[str]) -> str:
+    lines = [
+        "| " + " | ".join(headers) + " |",
+        "| " + " | ".join(["---"] * len(headers)) + " |",
+    ]
+    for row in rows:
+        lines.append("| " + " | ".join(row.get(h, "") for h in headers) + " |")
+    return "\n".join(lines)
+
+
+def _safe_name(name: str) -> str:
+    cleaned = re.sub(r"[^0-9A-Za-z._-]+", "_", name.strip())
+    return cleaned.strip("._") or "job"
+
+
+def _build_duration_rows(
+    owner: str,
+    repo: str,
+    runs: list[dict[str, Any]],
+    since: datetime,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for run in runs:
+        run_id = run.get("id")
+        if not isinstance(run_id, int):
+            continue
+        for job in _fetch_run_jobs(owner, repo, run_id, token=token, api_url=api_url):
+            if str(job.get("conclusion", "")).strip().lower() != "success":
+                continue
+            started_at = str(job.get("started_at", "")).strip()
+            completed_at = str(job.get("completed_at", "")).strip()
+            if not started_at or not completed_at:
+                continue
+            started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+            if completed < since or completed < started:
+                continue
+            rows.append(
+                {
+                    "job_name": str(job.get("name", "")).strip(),
+                    "completed_at": completed.isoformat(),
+                    "duration_seconds": int((completed - started).total_seconds()),
+                }
+            )
+    return sorted(rows, key=lambda r: (str(r["job_name"]).lower(), str(r["completed_at"])))
+
+
+def _build_fail_rate_rows(
+    owner: str,
+    repo: str,
+    runs: list[dict[str, Any]],
+    since: datetime,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+) -> list[dict[str, int | str]]:
+    by_day: dict[str, dict[str, int]] = {}
+    for run in runs:
+        run_id = run.get("id")
+        if not isinstance(run_id, int):
+            continue
+        for job in _fetch_run_jobs(owner, repo, run_id, token=token, api_url=api_url):
+            status = str(job.get("conclusion", "")).strip().lower()
+            completed_at = str(job.get("completed_at", "")).strip()
+            if status not in _FAIL_RATE_STATUSES or not completed_at:
+                continue
+            completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
+            if completed < since:
+                continue
+            day = completed.date().isoformat()
+            stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
+            stats[status] += 1
+    return [{"date": day, **by_day[day]} for day in sorted(by_day)]
+
+
+def _write_duration_outputs(
+    rows: list[dict[str, Any]],
+    owner: str,
+    repo: str,
+    output_dir: str,
+) -> list[pathlib.Path]:
+    out = pathlib.Path(output_dir)
+    graph_dir = out / f"graphs_{repo}"
+    out.mkdir(parents=True, exist_ok=True)
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out / f"workflow_jobs_duration_{repo}.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["job_name", "completed_at", "duration_seconds"])
+        writer.writeheader()
+        writer.writerows(rows)
+    job_series: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        job_series.setdefault(str(row["job_name"]), []).append(row)
+    graphs: list[tuple[str, pathlib.Path]] = []
+    for job_name in sorted(job_series):
+        svg = graph_dir / f"workflow_jobs_duration_{_safe_name(job_name)}.svg"
+        save_job_duration_line_graph(svg, job_series[job_name], f"Job duration: {job_name}")
+        graphs.append((f"Job duration: {job_name}", svg))
+    html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
+    save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
+    return [csv_path, *(path for _, path in graphs), html_path]
+
+
+def _write_fail_rate_csv(
+    rows: list[dict[str, int | str]], output_dir: str, repo: str
+) -> pathlib.Path:
+    out = pathlib.Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+    csv_path = out / f"workflow_jobs_fail_rate_{repo}.csv"
+    with csv_path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["date", *_FAIL_RATE_STATUSES])
+        writer.writeheader()
+        writer.writerows(rows)
+    return csv_path
+
+
+def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="workflow-jobs",
+        description="Collect queued jobs, successful job durations, or fail-rate history.",
+    )
+    parser.add_argument("owner", help="GitHub repository owner")
+    parser.add_argument("repo", help="GitHub repository name")
+    parser.add_argument("--token", default=token_default, help="GitHub personal access token")
+    parser.add_argument(
+        "--api-url",
+        default=os.environ.get("GITHUB_API_URL") or "https://api.github.com",
+        help="GitHub API base URL",
+    )
+    parser.add_argument("--since", default=None, help="Since date (default: 30 days ago).")
+    parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output folder.")
+    parser.add_argument(
+        "--gh",
+        action="store_true",
+        default=False,
+        help="Fetch the token from `gh auth token`. Cannot be combined with --token.",
+    )
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--queued", action="store_true", help="List queued jobs sorted by name.")
+    group.add_argument(
+        "--duration",
+        action="store_true",
+        help="Collect historical durations of successful jobs and generate graphs.",
+    )
+    group.add_argument(
+        "--fail-rate",
+        action="store_true",
+        help="Collect historical counts for failure/cancelled/skipped/success conclusions.",
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", default=False)
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    cache = _load_token_cache()
+    owner, repo = _extract_owner_repo(argv)
+    token_default = os.environ.get("GITHUB_TOKEN") or _resolve_cached_token(cache, owner, repo)
+    parser = _build_parser(token_default=token_default)
+    args = parser.parse_args(argv)
+    if args.gh and "--token" in argv:
+        parser.error("--gh and --token are mutually exclusive.")
+    if args.gh:
+        args.token = _fetch_token_from_gh_cli()
+    if args.verbose:
+        token_origin, token_type = _resolve_token_origin(
+            argv, args.token, os.environ.get("GITHUB_TOKEN"), cache, args.owner, args.repo
+        )
+        print(f"workflow-jobs: token source={token_origin}, type={token_type}.", file=sys.stderr)
+    runs = _fetch_workflow_runs(
+        args.owner,
+        args.repo,
+        token=args.token,
+        api_url=args.api_url,
+        status="queued" if args.queued else None,
+    )
+    if args.queued:
+        rows = _build_queued_rows(runs)
+        print(_build_markdown_table(rows, ["name", "workflow", "created_at", "url"]))
+        return 0
+    since = _parse_since_datetime(args.since)
+    if args.duration:
+        paths = _write_duration_outputs(
+            _build_duration_rows(
+                args.owner,
+                args.repo,
+                runs,
+                since,
+                token=args.token,
+                api_url=args.api_url,
+            ),
+            args.owner,
+            args.repo,
+            args.output_dir,
+        )
+        for path in paths:
+            print(path)
+        return 0
+    fail_rows = _build_fail_rate_rows(
+        args.owner,
+        args.repo,
+        runs,
+        since,
+        token=args.token,
+        api_url=args.api_url,
+    )
+    csv_path = _write_fail_rate_csv(fail_rows, args.output_dir, args.repo)
+    print(
+        _build_markdown_table(
+            [{k: str(v) for k, v in row.items()} for row in fail_rows],
+            [
+                "date",
+                *_FAIL_RATE_STATUSES,
+            ],
+        )
+    )
+    print(csv_path)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

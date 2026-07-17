@@ -1,0 +1,121 @@
+import csv
+import pathlib
+import tempfile
+from datetime import datetime, timezone
+from io import StringIO
+from unittest.mock import patch
+
+from moa.commands.workflow_jobs import (
+    _build_fail_rate_rows,
+    _build_queued_rows,
+    main,
+)
+from moa.ext_test_case import ExtTestCase
+
+
+class TestWorkflowJobs(ExtTestCase):
+    def test_build_queued_rows_sorted_by_name(self) -> None:
+        rows = _build_queued_rows(
+            [
+                {"status": "queued", "name": "zeta", "display_title": "wf-z"},
+                {"status": "completed", "name": "beta", "display_title": "wf-b"},
+                {"status": "queued", "name": "alpha", "display_title": "wf-a"},
+            ]
+        )
+        self.assertEqual([row["name"] for row in rows], ["alpha", "zeta"])
+
+    def test_build_fail_rate_rows(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            return_value=[
+                {"conclusion": "success", "completed_at": "2026-01-03T10:00:00Z"},
+                {"conclusion": "failure", "completed_at": "2026-01-03T10:02:00Z"},
+                {"conclusion": "skipped", "completed_at": "2026-01-04T10:02:00Z"},
+                {"conclusion": "cancelled", "completed_at": "2026-01-04T10:03:00Z"},
+            ],
+        ):
+            rows = _build_fail_rate_rows(
+                "owner",
+                "repo",
+                [{"id": 1}],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure": 1,
+                    "cancelled": 0,
+                    "skipped": 0,
+                    "success": 1,
+                },
+                {
+                    "date": "2026-01-04",
+                    "failure": 0,
+                    "cancelled": 1,
+                    "skipped": 1,
+                    "success": 0,
+                },
+            ],
+        )
+
+    def test_main_queued_prints_table(self) -> None:
+        out = StringIO()
+        with (
+            patch("sys.stdout", out),
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch(
+                "moa.commands.workflow_jobs._fetch_workflow_runs",
+                return_value=[
+                    {
+                        "status": "queued",
+                        "name": "b",
+                        "display_title": "wf-b",
+                        "created_at": "2026-01-02T00:00:00Z",
+                        "html_url": "https://x/b",
+                    },
+                    {
+                        "status": "queued",
+                        "name": "a",
+                        "display_title": "wf-a",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "html_url": "https://x/a",
+                    },
+                ],
+            ),
+        ):
+            code = main(["owner", "repo", "--queued"])
+        self.assertEqual(code, 0)
+        self.assertIn("| name | workflow | created_at | url |", out.getvalue())
+        self.assertLess(out.getvalue().find("| a |"), out.getvalue().find("| b |"))
+
+    def test_main_fail_rate_writes_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+                patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+                patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+                patch(
+                    "moa.commands.workflow_jobs._build_fail_rate_rows",
+                    return_value=[
+                        {
+                            "date": "2026-01-03",
+                            "failure": 1,
+                            "cancelled": 2,
+                            "skipped": 3,
+                            "success": 4,
+                        }
+                    ],
+                ),
+            ):
+                code = main(["owner", "repo", "--fail-rate", "--output-dir", tmp])
+            self.assertEqual(code, 0)
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_fail_rate_repo.csv"
+            self.assertTrue(csv_path.exists())
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["success"], "4")

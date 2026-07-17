@@ -213,8 +213,14 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(day_rows[2][0]["id"], 1)
 
     def test_workflow_runs_cache_path_day_validates_stamp(self) -> None:
+        self.assertEqual(
+            _workflow_runs_cache_path_day(pathlib.Path("runs_completed_20260103.json")),
+            "2026-01-03",
+        )
         with self.assertRaises(ValueError):
             _workflow_runs_cache_path_day(pathlib.Path("runs_completed_today.json"))
+        with self.assertRaises(ValueError):
+            _workflow_runs_cache_path_day(pathlib.Path("runs_completed_20261399.json"))
 
     def test_fetch_workflow_runs_daily_cache_reuses_jobs_saved_in_day_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

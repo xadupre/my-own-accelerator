@@ -204,7 +204,9 @@ def _workflow_runs_cache_path_day(path: pathlib.Path) -> str:
     stamp = path.stem.rsplit("_", 1)[-1]
     if len(stamp) != 8 or not stamp.isdigit():
         raise ValueError(f"Unexpected workflow-runs cache path: {path}")
-    return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
+    day = f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
+    _cache_day_start(day)
+    return day
 
 
 def _cache_day_start(day: str) -> datetime:

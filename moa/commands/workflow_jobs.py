@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import json
 import os
 import pathlib
 import re
@@ -85,6 +86,52 @@ def _date_range_text(rows: list[dict[str, Any]], keys: tuple[str, ...]) -> str:
     return f", min(date)={min(dates).isoformat()}, max(date)={max(dates).isoformat()}"
 
 
+def _load_rows_cache(
+    path: pathlib.Path,
+    meta: dict[str, Any],
+    verbose: bool = False,
+) -> list[dict[str, Any]] | None:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or payload.get("meta") != meta:
+        return None
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        return None
+    cached_rows = [row for row in rows if isinstance(row, dict)]
+    _print_verbose_step(verbose, f"using cache {path}")
+    return cached_rows
+
+
+def _save_rows_cache(
+    path: pathlib.Path,
+    meta: dict[str, Any],
+    rows: list[dict[str, Any]],
+    verbose: bool = False,
+) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    _print_verbose_step(verbose, f"writing cache {path}...")
+    path.write_text(json.dumps({"meta": meta, "rows": rows}, indent=2), encoding="utf-8")
+
+
+def _workflow_runs_cache_path(
+    output_dir: str,
+    owner: str,
+    repo: str,
+    stop_before: datetime,
+) -> pathlib.Path:
+    slug = f"{_safe_name(owner)}_{_safe_name(repo)}"
+    stamp = stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    return pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_runs_{stamp}.json"
+
+
+def _run_jobs_cache_path(output_dir: str, owner: str, repo: str, run_id: int) -> pathlib.Path:
+    slug = f"{_safe_name(owner)}_{_safe_name(repo)}"
+    return pathlib.Path(output_dir) / f"workflow_jobs_cache_{slug}_run_{run_id}_jobs.json"
+
+
 def _fetch_workflow_runs(
     owner: str,
     repo: str,
@@ -93,7 +140,20 @@ def _fetch_workflow_runs(
     status: str | None = None,
     verbose: bool = False,
     stop_before: datetime | None = None,
+    cache_path: pathlib.Path | None = None,
 ) -> list[dict[str, Any]]:
+    meta = {
+        "kind": "workflow_runs",
+        "owner": owner,
+        "repo": repo,
+        "status": status,
+        "stop_before": stop_before.isoformat() if stop_before is not None else None,
+    }
+    if (
+        cache_path is not None
+        and (cached_rows := _load_rows_cache(cache_path, meta, verbose)) is not None
+    ):
+        return cached_rows
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -138,6 +198,8 @@ def _fetch_workflow_runs(
         if len(runs) < 100:
             break
         page += 1
+    if cache_path is not None:
+        _save_rows_cache(cache_path, meta, rows, verbose)
     return rows
 
 
@@ -148,7 +210,14 @@ def _fetch_run_jobs(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     verbose: bool = False,
+    cache_path: pathlib.Path | None = None,
 ) -> list[dict[str, Any]]:
+    meta = {"kind": "run_jobs", "owner": owner, "repo": repo, "run_id": run_id}
+    if (
+        cache_path is not None
+        and (cached_rows := _load_rows_cache(cache_path, meta, verbose)) is not None
+    ):
+        return cached_rows
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
@@ -179,6 +248,8 @@ def _fetch_run_jobs(
         if len(jobs) < 100:
             break
         page += 1
+    if cache_path is not None:
+        _save_rows_cache(cache_path, meta, rows, verbose)
     return rows
 
 
@@ -311,6 +382,7 @@ def _build_duration_rows(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     verbose: bool = False,
+    cache_dir: str | None = None,
 ) -> list[dict[str, Any]]:
     if runs:
         _print_verbose_step(verbose, f"collecting duration history from {len(runs)} run(s)...")
@@ -323,7 +395,17 @@ def _build_duration_rows(
             verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
         )
         for job in _fetch_run_jobs(
-            owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
+            owner,
+            repo,
+            run_id,
+            token=token,
+            api_url=api_url,
+            verbose=verbose,
+            cache_path=(
+                _run_jobs_cache_path(cache_dir, owner, repo, run_id)
+                if cache_dir is not None
+                else None
+            ),
         ):
             if str(job.get("conclusion", "")).strip().lower() != "success":
                 continue
@@ -363,6 +445,7 @@ def _build_fail_rate_rows(
     token: str | None = None,
     api_url: str = "https://api.github.com",
     verbose: bool = False,
+    cache_dir: str | None = None,
 ) -> list[dict[str, int | str]]:
     if runs:
         _print_verbose_step(verbose, f"collecting fail-rate history from {len(runs)} run(s)...")
@@ -375,7 +458,17 @@ def _build_fail_rate_rows(
             verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
         )
         for job in _fetch_run_jobs(
-            owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
+            owner,
+            repo,
+            run_id,
+            token=token,
+            api_url=api_url,
+            verbose=verbose,
+            cache_path=(
+                _run_jobs_cache_path(cache_dir, owner, repo, run_id)
+                if cache_dir is not None
+                else None
+            ),
         ):
             status = str(job.get("conclusion", "")).strip().lower()
             completed_at = str(job.get("completed_at", "")).strip()
@@ -534,6 +627,11 @@ def main(argv: list[str] | None = None) -> int:
         status="queued" if args.queued else "in_progress" if args.running else None,
         verbose=args.verbose,
         stop_before=since,
+        cache_path=(
+            _workflow_runs_cache_path(args.output_dir, args.owner, args.repo, since)
+            if since is not None
+            else None
+        ),
     )
     if args.queued:
         rows = _build_queued_rows(runs)
@@ -587,6 +685,7 @@ def main(argv: list[str] | None = None) -> int:
                 token=args.token,
                 api_url=args.api_url,
                 verbose=args.verbose,
+                cache_dir=args.output_dir,
             ),
             args.owner,
             args.repo,
@@ -606,6 +705,7 @@ def main(argv: list[str] | None = None) -> int:
         token=args.token,
         api_url=args.api_url,
         verbose=args.verbose,
+        cache_dir=args.output_dir,
     )
     headers = ["date", *_FAIL_RATE_STATUSES]
     print(

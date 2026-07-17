@@ -17,6 +17,8 @@ from moa.commands.workflow_jobs import (
     _default_since,
     _fetch_run_jobs,
     _fetch_workflow_runs,
+    _run_jobs_cache_path,
+    _workflow_runs_cache_path,
     _write_duration_outputs,
     main,
 )
@@ -102,6 +104,33 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertIn("min(date)=2026-01-01T00:00:00+00:00", err.getvalue())
         self.assertIn("max(date)=2026-01-09T00:00:00+00:00", err.getvalue())
         self.assertIn("fetching workflow runs page 2", err.getvalue())
+
+    def test_fetch_workflow_runs_writes_and_reuses_output_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", datetime(2026, 1, 1, tzinfo=timezone.utc)
+            )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                return_value={"workflow_runs": [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}]},
+            ) as mocked:
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_path=cache_path,
+                )
+            self.assertEqual(rows, [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}])
+            self.assertTrue(cache_path.exists())
+            self.assertEqual(mocked.call_count, 1)
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=AssertionError):
+                cached_rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_path=cache_path,
+                )
+            self.assertEqual(cached_rows, rows)
 
     def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
         err = StringIO()
@@ -245,6 +274,21 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertIn("min(date)=2026-01-03T10:00:00+00:00", err.getvalue())
         self.assertIn("max(date)=2026-01-03T10:02:00+00:00", err.getvalue())
         self.assertIn("fetching jobs page 2 for run_id=12", err.getvalue())
+
+    def test_fetch_run_jobs_writes_and_reuses_output_cache(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = _run_jobs_cache_path(tmp, "owner", "repo", 12)
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                return_value={"jobs": [{"id": 1, "started_at": "2026-01-03T10:00:00Z"}]},
+            ) as mocked:
+                rows = _fetch_run_jobs("owner", "repo", 12, cache_path=cache_path)
+            self.assertEqual(rows, [{"id": 1, "started_at": "2026-01-03T10:00:00Z"}])
+            self.assertTrue(cache_path.exists())
+            self.assertEqual(mocked.call_count, 1)
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=AssertionError):
+                cached_rows = _fetch_run_jobs("owner", "repo", 12, cache_path=cache_path)
+            self.assertEqual(cached_rows, rows)
 
     def test_build_running_rows(self) -> None:
         with patch(

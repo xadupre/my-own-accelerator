@@ -17,6 +17,7 @@ from moa.commands.workflow_jobs import (
     _build_fail_rate_rows,
     _build_queued_rows,
     _build_running_rows,
+    _build_waiting_rows,
     _default_since,
     _fetch_run_jobs,
     _fetch_workflow_runs,
@@ -27,6 +28,7 @@ from moa.commands.workflow_jobs import (
     _workflow_runs_cache_path,
     _workflow_runs_cache_path_day,
     _write_duration_outputs,
+    _write_waiting_outputs,
     main,
 )
 from moa.ext_test_case import ExtTestCase
@@ -606,6 +608,37 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_waiting_rows_uses_workflow_run_metadata(self) -> None:
+        rows = _build_waiting_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 1,
+                    "name": "build",
+                    "conclusion": "success",
+                    "created_at": "2026-01-03T10:00:00Z",
+                    "run_started_at": "2026-01-03T10:02:00Z",
+                    "pull_requests": [{"number": 42}],
+                }
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "run_id": 1,
+                    "created_at": "2026-01-03T10:00:00+00:00",
+                    "started_at": "2026-01-03T10:02:00+00:00",
+                    "name": "build",
+                    "pr": "42",
+                    "waiting_seconds": 120,
+                    "duration_seconds": 120,
+                }
+            ],
+        )
+
     def test_build_duration_rows_verbose_reports_progress(self) -> None:
         err = StringIO()
         with patch("sys.stderr", err):
@@ -877,6 +910,37 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual(len(row), 1)
         self.assertEqual(row[0]["url"], "https://x/runs/3")
 
+    def test_write_waiting_outputs_writes_csv_and_graphs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = _write_waiting_outputs(
+                [
+                    {
+                        "run_id": 1,
+                        "created_at": "2026-01-01T10:00:00+00:00",
+                        "started_at": "2026-01-01T10:02:00+00:00",
+                        "name": "build",
+                        "pr": "1",
+                        "waiting_seconds": 120,
+                        "duration_seconds": 120,
+                    }
+                ],
+                "owner",
+                "repo",
+                tmp,
+                dump="xlsx",
+            )
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_waiting_repo.csv"
+            xlsx_path = pathlib.Path(tmp) / "workflow_jobs_waiting_repo.xlsx"
+            graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_build.svg"
+            html_path = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_repo.html"
+            self.assertIn(csv_path, paths)
+            self.assertIn(xlsx_path, paths)
+            self.assertIn(graph_svg, paths)
+            self.assertIn(html_path, paths)
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["waiting_seconds"], "120")
+
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()
         with (
@@ -1053,6 +1117,25 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertLessEqual(before - since_arg, timedelta(days=5, seconds=1))
         self.assertGreaterEqual(after - since_arg, timedelta(days=5))
 
+    def test_main_waiting_passes_integer_since_as_day_window(self) -> None:
+        with (
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+            patch(
+                "moa.commands.workflow_jobs._build_waiting_rows", return_value=[]
+            ) as build_rows,
+            patch("moa.commands.workflow_jobs._write_waiting_outputs", return_value=[]),
+        ):
+            before = datetime.now(timezone.utc)
+            code = main(["owner", "repo", "--waiting", "--since", "5"])
+            after = datetime.now(timezone.utc)
+        self.assertEqual(code, 0)
+        since_arg = build_rows.call_args.args[3]
+        self.assertIsInstance(since_arg, datetime)
+        self.assertLessEqual(before - since_arg, timedelta(days=5, seconds=1))
+        self.assertGreaterEqual(after - since_arg, timedelta(days=5))
+
     def test_fetch_workflow_runs_history_uses_subfolder_and_created_filter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             captured_urls: list[str] = []
@@ -1155,5 +1238,19 @@ class TestWorkflowJobs(ExtTestCase):
             patch("moa.commands.workflow_jobs._write_duration_outputs", return_value=[]),
         ):
             code = main(["owner", "repo", "--duration", "--since", "5"])
+        self.assertEqual(code, 0)
+        self.assertEqual(fetch_runs.call_args.kwargs["status"], "completed")
+
+    def test_main_waiting_fetches_completed_runs(self) -> None:
+        with (
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch(
+                "moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]
+            ) as fetch_runs,
+            patch("moa.commands.workflow_jobs._build_waiting_rows", return_value=[]),
+            patch("moa.commands.workflow_jobs._write_waiting_outputs", return_value=[]),
+        ):
+            code = main(["owner", "repo", "--waiting", "--since", "5"])
         self.assertEqual(code, 0)
         self.assertEqual(fetch_runs.call_args.kwargs["status"], "completed")

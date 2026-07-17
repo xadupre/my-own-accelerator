@@ -1,4 +1,4 @@
-"""Workflow jobs command line with queued, duration, and fail-rate reports."""
+"""Workflow jobs command line with queued, running, duration, waiting, and fail-rate reports."""
 
 from __future__ import annotations
 
@@ -623,6 +623,51 @@ def _build_duration_row_from_run(
     return row
 
 
+def _build_waiting_row_from_run(
+    run: dict[str, Any], since: datetime, verbose: bool = False
+) -> dict[str, Any] | None:
+    if str(run.get("conclusion", "")).strip().lower() != "success":
+        return None
+    created = _parse_optional_github_datetime(run.get("created_at"))
+    started = _parse_optional_github_datetime(run.get("run_started_at"))
+    if created is None or started is None:
+        return None
+    if started < created:
+        if verbose:
+            print(
+                "workflow-jobs: warning: skipping workflow run with run_started_at earlier than "
+                f"created_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
+                file=sys.stderr,
+            )
+        return None
+    if started < since:
+        return None
+    run_id = run.get("id")
+    if not isinstance(run_id, int):
+        return None
+    pull_requests = run.get("pull_requests")
+    pr = "-"
+    if isinstance(pull_requests, list) and pull_requests:
+        first_pr = pull_requests[0]
+        if isinstance(first_pr, dict):
+            number = first_pr.get("number")
+            if number is not None:
+                pr = str(number)
+    row = {
+        "run_id": run_id,
+        "created_at": created.isoformat(),
+        "started_at": started.isoformat(),
+        "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
+        "pr": pr,
+        "waiting_seconds": int((started - created).total_seconds()),
+        "duration_seconds": int((started - created).total_seconds()),
+    }
+    url = str(run.get("html_url", "")).strip()
+    if url:
+        row["url"] = url
+    return row
+
+
 def _build_fail_rate_row_from_run(run: dict[str, Any], since: datetime) -> tuple[str, str] | None:
     status = str(run.get("conclusion", "")).strip().lower()
     if status not in _FAIL_RATE_STATUSES:
@@ -759,6 +804,8 @@ def _write_tabular_dump(
 def _duration_seconds_value(row: dict[str, Any]) -> float | None:
     raw_duration = row.get("duration_seconds")
     if raw_duration is None:
+        raw_duration = row.get("waiting_seconds")
+    if raw_duration is None:
         raw_duration = row.get("duration")
     if raw_duration is None:
         return None
@@ -809,6 +856,30 @@ def _build_duration_rows(
     rows: list[dict[str, Any]] = []
     for index, run in enumerate(runs, 1):
         run_row = _build_duration_row_from_run(run, since, verbose)
+        if run_row is not None:
+            rows.append(run_row)
+        if verbose:
+            _print_progress(index, len(runs))
+    return sorted(
+        rows, key=lambda r: (str(r.get("created_at", "")), str(r.get("name", "")).lower())
+    )
+
+
+def _build_waiting_rows(
+    owner: str,
+    repo: str,
+    runs: list[dict[str, Any]],
+    since: datetime,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+    verbose: bool = False,
+    cache_dir: str | None = None,
+) -> list[dict[str, Any]]:
+    if runs:
+        _print_verbose_step(verbose, f"collecting waiting history from {len(runs)} run(s)...")
+    rows: list[dict[str, Any]] = []
+    for index, run in enumerate(runs, 1):
+        run_row = _build_waiting_row_from_run(run, since, verbose)
         if run_row is not None:
             rows.append(run_row)
         if verbose:
@@ -934,6 +1005,65 @@ def _write_duration_outputs(
     return [*paths, *(path for _, path in graphs), html_path]
 
 
+def _write_waiting_outputs(
+    rows: list[dict[str, Any]],
+    owner: str,
+    repo: str,
+    output_dir: str,
+    dump: str | None = None,
+    verbose: bool = False,
+) -> list[pathlib.Path]:
+    out = pathlib.Path(output_dir)
+    graph_dir = out / f"graphs_{repo}"
+    out.mkdir(parents=True, exist_ok=True)
+    graph_dir.mkdir(parents=True, exist_ok=True)
+    csv_path = out / f"workflow_jobs_waiting_{repo}.csv"
+    outlier_csv_path = out / f"workflow_jobs_waiting_outliers_{repo}.csv"
+    headers = ["run_id", "created_at", "started_at", "name", "pr", "waiting_seconds"]
+    outlier_headers = [*headers, "url"]
+    _print_verbose_step(verbose, f"writing {csv_path}...")
+    _write_csv(csv_path, rows, headers)
+    paths = [csv_path]
+    plotted_rows, outlier_rows = _split_duration_outliers(rows)
+    if outlier_rows:
+        _print_verbose_step(verbose, f"writing {outlier_csv_path}...")
+        _write_csv(outlier_csv_path, outlier_rows, outlier_headers)
+        paths.append(outlier_csv_path)
+    if dump == "xlsx":
+        xlsx_path = out / f"workflow_jobs_waiting_{repo}.xlsx"
+        _print_verbose_step(verbose, f"writing {xlsx_path}...")
+        _write_xlsx(xlsx_path, rows, headers, "Waiting")
+        paths.append(xlsx_path)
+        if outlier_rows:
+            outlier_xlsx_path = out / f"workflow_jobs_waiting_outliers_{repo}.xlsx"
+            _print_verbose_step(verbose, f"writing {outlier_xlsx_path}...")
+            _write_xlsx(outlier_xlsx_path, outlier_rows, outlier_headers, "Outliers")
+            paths.append(outlier_xlsx_path)
+    job_series: dict[str, list[dict[str, Any]]] = {}
+    for row in plotted_rows:
+        job_series.setdefault(str(row["name"]), []).append(row)
+    graphs: list[tuple[str, pathlib.Path]] = []
+    graph_names = sorted(job_series)
+    if graph_names:
+        _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
+    for index, job_name in enumerate(graph_names, 1):
+        svg = graph_dir / f"workflow_jobs_waiting_{_safe_name(job_name)}.svg"
+        save_job_duration_line_graph(
+            svg,
+            job_series[job_name],
+            f"Workflow waiting time: {job_name}",
+            x_axis_label="Creation date",
+            y_axis_label="Waiting time (minutes)",
+        )
+        graphs.append((f"Workflow waiting time: {job_name}", svg))
+        if verbose:
+            _print_progress(index, len(graph_names))
+    html_path = graph_dir / f"workflow_jobs_waiting_{repo}.html"
+    _print_verbose_step(verbose, f"writing {html_path}...")
+    save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
+    return [*paths, *(path for _, path in graphs), html_path]
+
+
 def _write_fail_rate_outputs(
     rows: list[dict[str, int | str]],
     output_dir: str,
@@ -958,7 +1088,7 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         prog="workflow-jobs",
         description=(
             "Collect queued jobs, running jobs, successful workflow-run durations, "
-            "or fail-rate history."
+            "successful workflow-run waiting times, or fail-rate history."
         ),
     )
     parser.add_argument("owner", help="GitHub repository owner")
@@ -1000,6 +1130,11 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         help="Collect historical durations of successful jobs and generate graphs.",
     )
     group.add_argument(
+        "--waiting",
+        action="store_true",
+        help="Collect historical waiting times before successful jobs start and generate graphs.",
+    )
+    group.add_argument(
         "--fail-rate",
         action="store_true",
         help="Collect historical counts for failure/cancelled/skipped/success conclusions.",
@@ -1030,14 +1165,18 @@ def main(argv: list[str] | None = None) -> int:
             argv, args.token, os.environ.get("GITHUB_TOKEN"), cache, args.owner, args.repo
         )
         print(f"workflow-jobs: token source={token_origin}, type={token_type}.", file=sys.stderr)
-    since = _parse_since_datetime(args.since) if args.duration or args.fail_rate else None
+    since = (
+        _parse_since_datetime(args.since)
+        if args.duration or args.waiting or args.fail_rate
+        else None
+    )
     status = (
         "queued"
         if args.queued
         else (
             "in_progress"
             if args.running
-            else "completed" if args.duration or args.fail_rate else None
+            else "completed" if args.duration or args.waiting or args.fail_rate else None
         )
     )
     runs = _fetch_workflow_runs(
@@ -1048,7 +1187,7 @@ def main(argv: list[str] | None = None) -> int:
         status=status,
         verbose=args.verbose,
         stop_before=since,
-        cache_dir=args.output_dir if args.duration or args.fail_rate else None,
+        cache_dir=args.output_dir if args.duration or args.waiting or args.fail_rate else None,
     )
     if args.queued:
         rows = _build_queued_rows(runs)
@@ -1095,6 +1234,28 @@ def main(argv: list[str] | None = None) -> int:
         assert since is not None, "`since` must be set when --duration is used."
         paths = _write_duration_outputs(
             _build_duration_rows(
+                args.owner,
+                args.repo,
+                runs,
+                since,
+                token=args.token,
+                api_url=args.api_url,
+                verbose=args.verbose,
+                cache_dir=args.output_dir,
+            ),
+            args.owner,
+            args.repo,
+            args.output_dir,
+            dump=args.dump,
+            verbose=args.verbose,
+        )
+        for path in paths:
+            print(path)
+        return 0
+    if args.waiting:
+        assert since is not None, "`since` must be set when --waiting is used."
+        paths = _write_waiting_outputs(
+            _build_waiting_rows(
                 args.owner,
                 args.repo,
                 runs,

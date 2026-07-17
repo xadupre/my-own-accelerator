@@ -61,6 +61,7 @@ workflow-jobs xadupre my-own-accelerator --queued
 workflow-jobs xadupre my-own-accelerator --queued --dump csv
 workflow-jobs xadupre my-own-accelerator --running
 workflow-jobs xadupre my-own-accelerator --duration --since 60
+workflow-jobs xadupre my-own-accelerator --waiting --since 60
 workflow-jobs xadupre my-own-accelerator --duration --dump xlsx
 workflow-jobs xadupre my-own-accelerator --fail-rate
 ```
@@ -70,7 +71,9 @@ Historical `workflow-jobs` fetches also cache raw runs/jobs JSON in the
 day so repeating the same report can reuse previously collected data. Duration
 graphs exclude workflow durations above three times the per-workflow median and
 write those outliers to separate `workflow_jobs_duration_outliers_*` files with
-the workflow-run URL.
+the workflow-run URL. Waiting-time reports use the same historical run cache and
+write `workflow_jobs_waiting_*` CSV/XLSX/graph outputs based on the queue delay
+between `created_at` and `run_started_at`.
 
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 

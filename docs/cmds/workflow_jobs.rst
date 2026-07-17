@@ -10,6 +10,7 @@ other commands (``--token``/``GITHUB_TOKEN``/token cache or ``--gh``):
     workflow-jobs xadupre my-own-accelerator --queued --dump csv
     workflow-jobs xadupre my-own-accelerator --running
     workflow-jobs xadupre my-own-accelerator --duration --since 60
+    workflow-jobs xadupre my-own-accelerator --waiting --since 60
     workflow-jobs xadupre my-own-accelerator --duration --since -60d --dump xlsx
     workflow-jobs xadupre my-own-accelerator --fail-rate --since 2026-01-01
 
@@ -44,6 +45,14 @@ Exactly one option must be chosen:
   ``workflow_jobs_cache/`` subfolder under ``--output-dir`` and reused on
   repeated calls, with one cache file per day. These cache files are written
   incrementally while pages are being fetched.
+* ``--waiting`` writes historical successful workflow-run queue waiting times to
+  CSV and generates SVG/HTML graphs. The tabular export contains ``run_id``,
+  ``created_at``, ``started_at``, ``name``, ``pr``, and ``waiting_seconds``.
+  With ``--dump xlsx``, it also writes an Excel file. Waiting-time graph
+  outliers above three times the per-workflow median are excluded from the
+  graphs and written to separate ``workflow_jobs_waiting_outliers_*`` files in
+  ``--output-dir`` with a ``url`` column pointing to the workflow run. The
+  fetch/caching behavior is the same as ``--duration``.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
   jobs to CSV and prints the same data as a fixed-width table.
 

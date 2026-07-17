@@ -200,19 +200,20 @@ def _save_cache(path: pathlib.Path, rows: list[dict[str, Any]]) -> None:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
-def _cache_year_key(row: dict[str, Any]) -> str:
-    """Return the year string used to bucket a PR row into a per-year cache file."""
+def _cache_day_key(row: dict[str, Any]) -> str:
+    """Return the ``YYYY-MM-DD`` string used to bucket a PR row into a per-day cache file."""
     created_at = _dt_str(row.get("created_at"))
     if created_at:
         try:
-            return str(_parse_iso_datetime(created_at).year)
+            dt = _parse_iso_datetime(created_at)
+            return dt.strftime("%Y-%m-%d")
         except ValueError:
             pass
     return "unknown"
 
 
 def _load_cache_dir(cache_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
-    """Load all per-year cache files from *cache_dir* and merge them into one dict."""
+    """Load all per-day cache files from *cache_dir* and merge them into one dict."""
     result: dict[str, dict[str, Any]] = {}
     if not cache_dir.is_dir():
         return result
@@ -222,14 +223,14 @@ def _load_cache_dir(cache_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
 
 
 def _save_cache_dir(cache_dir: pathlib.Path, prefix: str, rows: list[dict[str, Any]]) -> None:
-    """Split *rows* by year and write each year's rows to a separate JSON file in *cache_dir*."""
+    """Split *rows* by day and write each day's rows to a separate JSON file in *cache_dir*."""
     cache_dir.mkdir(parents=True, exist_ok=True)
-    by_year: dict[str, list[dict[str, Any]]] = {}
+    by_day: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        by_year.setdefault(_cache_year_key(row), []).append(row)
-    for year, year_rows in by_year.items():
-        year_file = cache_dir / f"{prefix}_cache_{year}.json"
-        _save_cache(year_file, year_rows)
+        by_day.setdefault(_cache_day_key(row), []).append(row)
+    for day, day_rows in by_day.items():
+        day_file = cache_dir / f"{prefix}_cache_{day}.json"
+        _save_cache(day_file, day_rows)
 
 
 def _load_pulls_cache(path: pathlib.Path) -> list[dict[str, Any]] | None:

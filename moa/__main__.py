@@ -8,6 +8,7 @@ from .commands.pr_stats import main as main_pr_stats
 from .commands.pr_weekly_table import main as main_pr_weekly_table
 from .commands.review_local import main as main_local
 from .commands.review_pr import main as main_pr
+from .commands.workflow_jobs import main as main_workflow_jobs
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -20,13 +21,21 @@ def _build_parser() -> argparse.ArgumentParser:
             "  - review-pr      : Review a GitHub pull request and print markdown.\n"
             "  - review-local   : Review local files and print markdown.\n"
             "  - pr-stats       : Build pull request activity reports (CSV, Excel, graphs).\n"
-            "  - pr-weekly-table: Build a weekly PR summary markdown table."
+            "  - pr-weekly-table: Build a weekly PR summary markdown table.\n"
+            "  - workflow-jobs  : Report queued jobs, durations, and fail-rate history."
         ),
     )
     parser.add_argument(
         "command",
         nargs="?",
-        choices=("github-token", "review-pr", "review-local", "pr-stats", "pr-weekly-table"),
+        choices=(
+            "github-token",
+            "review-pr",
+            "review-local",
+            "pr-stats",
+            "pr-weekly-table",
+            "workflow-jobs",
+        ),
         help="Command to run (defaults to review-pr when omitted).",
     )
     return parser
@@ -51,6 +60,8 @@ def main(argv: list[str] | None = None) -> int:
         return main_pr_stats(argv[1:])
     if argv and argv[0] == "pr-weekly-table":
         return main_pr_weekly_table(argv[1:])
+    if argv and argv[0] == "workflow-jobs":
+        return main_workflow_jobs(argv[1:])
     return main_pr(argv)
 
 

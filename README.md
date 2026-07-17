@@ -54,6 +54,35 @@ This command writes the Markdown table to
 `dump_pr_stats/pr_weekly_<repo>.md` and caches fetched rows in
 `dump_pr_stats/pr_weekly_<repo>_cache.json` by default.
 
+Command line workflow jobs reports:
+
+```bash
+workflow-jobs xadupre my-own-accelerator --queued
+workflow-jobs xadupre my-own-accelerator --queued --dump csv
+workflow-jobs xadupre my-own-accelerator --running
+workflow-jobs xadupre my-own-accelerator --duration --since 60
+workflow-jobs xadupre my-own-accelerator --waiting --since 60
+workflow-jobs xadupre my-own-accelerator --duration --dump xlsx
+workflow-jobs xadupre my-own-accelerator --fail-rate
+workflow-jobs xadupre my-own-accelerator --fail-cost --since 7
+```
+
+Historical `workflow-jobs` fetches also cache raw runs/jobs JSON in the
+`workflow_jobs_cache/` subfolder under `--output-dir`, with one cache file per
+day so repeating the same report can reuse previously collected data. Duration
+graphs exclude workflow durations at least three times the per-workflow median
+and write those outliers to separate `workflow_jobs_duration_outliers_*` files
+with the workflow-run URL. Duration and waiting reports also generate hourly
+average graphs split between weekdays and weekends. Waiting-time reports use the
+same historical run cache and write `workflow_jobs_waiting_*` CSV/XLSX/graph
+outputs based on the queue delay between `created_at` and `run_started_at`.
+Fail-rate reports still dump the daily aggregate table and now also write a
+`workflow_jobs_fail_rate_by_job_*` CSV/XLSX plus per-job/day fail-cancel rate
+graphs under `graphs_<repo>/`.
+Fail-cost reports write daily and per-job/per-day failed-or-cancelled compute
+time totals to `workflow_jobs_fail_cost_*` CSV/XLSX files and matching per-job
+graphs under `graphs_<repo>/`.
+
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 
 ## Development checks

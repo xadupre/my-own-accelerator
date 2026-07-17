@@ -23,6 +23,7 @@ from moa.commands.workflow_jobs import (
     _run_jobs_cache_path,
     _workflow_jobs_cache_dir,
     _workflow_runs_cache_path,
+    _workflow_runs_cache_path_day,
     _write_duration_outputs,
     main,
 )
@@ -210,6 +211,10 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(day_rows[0], [])
             self.assertEqual(day_rows[1][0]["id"], 2)
             self.assertEqual(day_rows[2][0]["id"], 1)
+
+    def test_workflow_runs_cache_path_day_validates_stamp(self) -> None:
+        with self.assertRaises(ValueError):
+            _workflow_runs_cache_path_day(pathlib.Path("runs_completed_today.json"))
 
     def test_fetch_workflow_runs_daily_cache_reuses_jobs_saved_in_day_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

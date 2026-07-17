@@ -202,6 +202,8 @@ def _workflow_runs_cache_paths(
 def _workflow_runs_cache_path_day(path: pathlib.Path) -> str:
     """Extract the cached UTC day as ``YYYY-MM-DD`` from a daily cache file path."""
     stamp = path.stem.rsplit("_", 1)[-1]
+    if len(stamp) != 8 or not stamp.isdigit():
+        raise ValueError(f"Unexpected workflow-runs cache path: {path}")
     return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
 
 

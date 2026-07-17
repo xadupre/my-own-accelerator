@@ -21,6 +21,7 @@ from moa.commands.workflow_jobs import (
     _fetch_workflow_runs,
     _parse_since_datetime,
     _run_jobs_cache_path,
+    _workflow_jobs_cache_dir,
     _workflow_runs_cache_path,
     _write_duration_outputs,
     main,
@@ -191,14 +192,14 @@ class TestWorkflowJobs(ExtTestCase):
                 )
             self.assertEqual(len(rows), 2)
             cache_files = sorted(
-                pathlib.Path(tmp).glob("workflow_jobs_cache_owner_repo_runs_all_*.json")
+                _workflow_jobs_cache_dir(tmp, "owner", "repo").glob("runs_all_*.json")
             )
             self.assertEqual(
                 [path.name for path in cache_files],
                 [
-                    "workflow_jobs_cache_owner_repo_runs_all_20260101.json",
-                    "workflow_jobs_cache_owner_repo_runs_all_20260102.json",
-                    "workflow_jobs_cache_owner_repo_runs_all_20260103.json",
+                    "runs_all_20260101.json",
+                    "runs_all_20260102.json",
+                    "runs_all_20260103.json",
                 ],
             )
             day_rows = []
@@ -213,8 +214,9 @@ class TestWorkflowJobs(ExtTestCase):
     def test_fetch_workflow_runs_daily_cache_reuses_jobs_saved_in_day_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             day_path = _workflow_runs_cache_path(
-                tmp, "owner", "repo", None, datetime(2026, 1, 3, tzinfo=timezone.utc)
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 3, tzinfo=timezone.utc)
             )
+            day_path.parent.mkdir(parents=True, exist_ok=True)
             day_path.write_text(
                 json.dumps(
                     {
@@ -222,7 +224,7 @@ class TestWorkflowJobs(ExtTestCase):
                             "kind": "workflow_runs_day",
                             "owner": "owner",
                             "repo": "repo",
-                            "status": None,
+                            "status": "completed",
                             "day": "2026-01-03",
                         },
                         "rows": [
@@ -253,6 +255,7 @@ class TestWorkflowJobs(ExtTestCase):
                     stop_before=datetime(2026, 1, 3, tzinfo=timezone.utc),
                     cache_dir=tmp,
                     now=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    status="completed",
                 )
             with patch(
                 "moa.commands.workflow_jobs._fetch_run_jobs",
@@ -304,7 +307,7 @@ class TestWorkflowJobs(ExtTestCase):
                 verbose=True,
                 stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
             )
-        self.assertEqual(len(rows), 200)
+        self.assertEqual(len(rows), 100)
         self.assertEqual(mocked.call_count, 2)
         self.assertIn("stopping workflow runs fetch on page 2", err.getvalue())
 
@@ -694,3 +697,45 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertIsInstance(since_arg, datetime)
         self.assertLessEqual(before - since_arg, timedelta(days=5, seconds=1))
         self.assertGreaterEqual(after - since_arg, timedelta(days=5))
+
+    def test_fetch_workflow_runs_history_uses_subfolder_and_created_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            captured_urls: list[str] = []
+
+            def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
+                self.assertIsNone(token)
+                captured_urls.append(url)
+                return {"workflow_runs": [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}]}
+
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    status="completed",
+                    stop_before=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                )
+            self.assertEqual(rows, [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}])
+            self.assertEqual(len(captured_urls), 1)
+            query = parse_qs(urlparse(captured_urls[0]).query)
+            self.assertEqual(query["status"], ["completed"])
+            self.assertEqual(query["created"], [">=2026-01-02T00:00:00Z"])
+            self.assertTrue(
+                _workflow_runs_cache_path(
+                    tmp, "owner", "repo", "completed", "2026-01-03"
+                ).exists()
+            )
+
+    def test_main_duration_fetches_completed_runs(self) -> None:
+        with (
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch(
+                "moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]
+            ) as fetch_runs,
+            patch("moa.commands.workflow_jobs._build_duration_rows", return_value=[]),
+            patch("moa.commands.workflow_jobs._write_duration_outputs", return_value=[]),
+        ):
+            code = main(["owner", "repo", "--duration", "--since", "5"])
+        self.assertEqual(code, 0)
+        self.assertEqual(fetch_runs.call_args.kwargs["status"], "completed")

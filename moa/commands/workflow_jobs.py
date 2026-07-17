@@ -10,6 +10,7 @@ import pathlib
 import re
 import sys
 from datetime import datetime, timedelta, timezone
+from statistics import median
 from typing import Any
 from urllib import parse
 from urllib.error import HTTPError
@@ -34,6 +35,7 @@ DEFAULT_OUTPUT_DIR = "dump_pr_stats"
 _FAIL_RATE_STATUSES = ("failure", "cancelled", "skipped", "success")
 _DEFAULT_SINCE_DAYS = 60
 _WORKFLOW_RUNS_DAY_CACHE_VERSION = 2
+_DURATION_OUTLIER_MULTIPLIER = 3
 
 
 def _default_since() -> str:
@@ -749,6 +751,44 @@ def _write_tabular_dump(
     return path
 
 
+def _duration_seconds_value(row: dict[str, Any]) -> float | None:
+    raw_duration = row.get("duration_seconds")
+    if raw_duration is None:
+        raw_duration = row.get("duration")
+    if raw_duration is None:
+        return None
+    return float(raw_duration)
+
+
+def _split_duration_outliers(
+    rows: list[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    plotted: list[dict[str, Any]] = []
+    outliers: list[dict[str, Any]] = []
+    by_name: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        by_name.setdefault(str(row.get("name", "")), []).append(row)
+    for series in by_name.values():
+        durations = [
+            duration for row in series if (duration := _duration_seconds_value(row)) is not None
+        ]
+        if not durations:
+            plotted.extend(series)
+            continue
+        series_median = median(durations)
+        if series_median <= 0:
+            plotted.extend(series)
+            continue
+        cutoff = series_median * _DURATION_OUTLIER_MULTIPLIER
+        for row in series:
+            duration = _duration_seconds_value(row)
+            if duration is not None and duration > cutoff:
+                outliers.append(row)
+            else:
+                plotted.append(row)
+    return plotted, outliers
+
+
 def _build_duration_rows(
     owner: str,
     repo: str,
@@ -849,17 +889,28 @@ def _write_duration_outputs(
     out.mkdir(parents=True, exist_ok=True)
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
+    outlier_csv_path = out / f"workflow_jobs_duration_outliers_{repo}.csv"
     headers = ["run_id", "created_at", "name", "pr", "duration"]
     _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]
+    plotted_rows, outlier_rows = _split_duration_outliers(rows)
+    if outlier_rows:
+        _print_verbose_step(verbose, f"writing {outlier_csv_path}...")
+        _write_csv(outlier_csv_path, outlier_rows, headers)
+        paths.append(outlier_csv_path)
     if dump == "xlsx":
         xlsx_path = out / f"workflow_jobs_duration_{repo}.xlsx"
         _print_verbose_step(verbose, f"writing {xlsx_path}...")
         _write_xlsx(xlsx_path, rows, headers, "Durations")
         paths.append(xlsx_path)
+        if outlier_rows:
+            outlier_xlsx_path = out / f"workflow_jobs_duration_outliers_{repo}.xlsx"
+            _print_verbose_step(verbose, f"writing {outlier_xlsx_path}...")
+            _write_xlsx(outlier_xlsx_path, outlier_rows, headers, "Outliers")
+            paths.append(outlier_xlsx_path)
     job_series: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
+    for row in plotted_rows:
         job_series.setdefault(str(row["name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
     graph_names = sorted(job_series)

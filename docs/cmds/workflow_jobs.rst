@@ -34,6 +34,9 @@ Exactly one option must be chosen:
   generates SVG/HTML graphs from the run list returned by ``/actions/runs``.
   The tabular export contains ``run_id``, ``created_at``, ``name``, ``pr``, and
   ``duration`` (in seconds). With ``--dump xlsx``, it also writes an Excel file.
+  Graph generation excludes duration outliers above three times the per-workflow
+  median and writes those excluded rows to separate ``workflow_jobs_duration_outliers_*``
+  files in ``--output-dir``.
   The fetch stops at ``--since`` (60 days by default). ``--since`` accepts an ISO
   date/datetime, a relative value such as ``-60d``, or an integer day count such
   as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched

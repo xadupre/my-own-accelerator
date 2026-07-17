@@ -22,6 +22,7 @@ from moa.commands.workflow_jobs import (
     _fetch_workflow_runs,
     _parse_since_datetime,
     _run_jobs_cache_path,
+    _split_duration_outliers,
     _workflow_jobs_cache_dir,
     _workflow_runs_cache_path,
     _workflow_runs_cache_path_day,
@@ -754,6 +755,86 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertIn("writing", err.getvalue())
             self.assertIn("generating 1 graph(s)", err.getvalue())
             self.assertIn("1/1", err.getvalue())
+
+    def test_split_duration_outliers_uses_per_name_median(self) -> None:
+        plotted, outliers = _split_duration_outliers(
+            [
+                {
+                    "run_id": 1,
+                    "created_at": "2026-01-01T10:00:00+00:00",
+                    "name": "build",
+                    "pr": "1",
+                    "duration": 100,
+                },
+                {
+                    "run_id": 2,
+                    "created_at": "2026-01-02T10:00:00+00:00",
+                    "name": "build",
+                    "pr": "2",
+                    "duration": 110,
+                },
+                {
+                    "run_id": 3,
+                    "created_at": "2026-01-03T10:00:00+00:00",
+                    "name": "build",
+                    "pr": "3",
+                    "duration": 400,
+                },
+                {
+                    "run_id": 4,
+                    "created_at": "2026-01-01T12:00:00+00:00",
+                    "name": "test",
+                    "pr": "4",
+                    "duration": 50,
+                },
+            ]
+        )
+        self.assertEqual([row["run_id"] for row in plotted], [1, 2, 4])
+        self.assertEqual([row["run_id"] for row in outliers], [3])
+
+    def test_write_duration_outputs_dumps_outliers_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = _write_duration_outputs(
+                [
+                    {
+                        "run_id": 1,
+                        "created_at": "2026-01-01T10:00:00+00:00",
+                        "name": "build",
+                        "pr": "1",
+                        "duration": 100,
+                    },
+                    {
+                        "run_id": 2,
+                        "created_at": "2026-01-02T10:00:00+00:00",
+                        "name": "build",
+                        "pr": "2",
+                        "duration": 110,
+                    },
+                    {
+                        "run_id": 3,
+                        "created_at": "2026-01-03T10:00:00+00:00",
+                        "name": "build",
+                        "pr": "3",
+                        "duration": 400,
+                    },
+                ],
+                "owner",
+                "repo",
+                tmp,
+                dump="xlsx",
+            )
+            outlier_csv = pathlib.Path(tmp) / "workflow_jobs_duration_outliers_repo.csv"
+            outlier_xlsx = pathlib.Path(tmp) / "workflow_jobs_duration_outliers_repo.xlsx"
+            self.assertIn(outlier_csv, paths)
+            self.assertIn(outlier_xlsx, paths)
+            with outlier_csv.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["run_id"], "3")
+            graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_duration_build.svg"
+            self.assertTrue(graph_svg.exists())
+            content = graph_svg.read_text(encoding="utf-8")
+            self.assertNotIn("2026-01-03", content)
 
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()

@@ -1113,7 +1113,9 @@ def _build_fail_rate_job_rows(
             if status in ("failure", "cancelled"):
                 stats[status] = int(stats[status]) + 1
     job_rows = []
-    for day, job_name in sorted(by_job_day, key=lambda key: (key[0], key[1].lower(), key[1])):
+    for day, job_name in sorted(
+        by_job_day, key=lambda day_name: (day_name[0], day_name[1].lower(), day_name[1])
+    ):
         stats = by_job_day[(day, job_name)]
         total = int(stats["total"])
         failures = int(stats["failure"])

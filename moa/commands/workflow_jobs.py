@@ -817,6 +817,8 @@ def _waiting_seconds_value(row: dict[str, Any]) -> float | None:
 def _split_time_outliers(
     rows: list[dict[str, Any]],
     value_getter: Any,
+    *,
+    ignore_non_positive_for_median: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     plotted: list[dict[str, Any]] = []
     outliers: list[dict[str, Any]] = []
@@ -825,6 +827,8 @@ def _split_time_outliers(
         by_name.setdefault(str(row.get("name", "")), []).append(row)
     for series in by_name.values():
         durations = [duration for row in series if (duration := value_getter(row)) is not None]
+        if ignore_non_positive_for_median:
+            durations = [duration for duration in durations if duration > 0]
         if not durations:
             plotted.extend(series)
             continue
@@ -851,7 +855,11 @@ def _split_duration_outliers(
 def _split_waiting_outliers(
     rows: list[dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    return _split_time_outliers(rows, _waiting_seconds_value)
+    return _split_time_outliers(
+        rows,
+        _waiting_seconds_value,
+        ignore_non_positive_for_median=True,
+    )
 
 
 def _build_duration_rows(

@@ -24,6 +24,7 @@ from moa.commands.workflow_jobs import (
     _parse_since_datetime,
     _run_jobs_cache_path,
     _split_duration_outliers,
+    _split_waiting_outliers,
     _workflow_jobs_cache_dir,
     _workflow_runs_cache_path,
     _workflow_runs_cache_path_day,
@@ -861,6 +862,46 @@ class TestWorkflowJobs(ExtTestCase):
         self.assertEqual([row["run_id"] for row in plotted], [1, 2, 4])
         self.assertEqual([row["run_id"] for row in outliers], [3])
 
+    def test_split_waiting_outliers_ignores_zero_waits_for_median(self) -> None:
+        plotted, outliers = _split_waiting_outliers(
+            [
+                {
+                    "run_id": 1,
+                    "created_at": "2026-01-01T10:00:00+00:00",
+                    "started_at": "2026-01-01T10:00:00+00:00",
+                    "name": "build",
+                    "pr": "1",
+                    "waiting_seconds": 0,
+                },
+                {
+                    "run_id": 2,
+                    "created_at": "2026-01-02T10:00:00+00:00",
+                    "started_at": "2026-01-02T10:02:00+00:00",
+                    "name": "build",
+                    "pr": "2",
+                    "waiting_seconds": 120,
+                },
+                {
+                    "run_id": 3,
+                    "created_at": "2026-01-03T10:00:00+00:00",
+                    "started_at": "2026-01-03T10:03:00+00:00",
+                    "name": "build",
+                    "pr": "3",
+                    "waiting_seconds": 180,
+                },
+                {
+                    "run_id": 4,
+                    "created_at": "2026-01-04T10:00:00+00:00",
+                    "started_at": "2026-01-04T10:20:00+00:00",
+                    "name": "build",
+                    "pr": "4",
+                    "waiting_seconds": 1200,
+                },
+            ]
+        )
+        self.assertEqual([row["run_id"] for row in plotted], [1, 2, 3])
+        self.assertEqual([row["run_id"] for row in outliers], [4])
+
     def test_write_duration_outputs_dumps_outliers_separately(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             paths = _write_duration_outputs(
@@ -938,7 +979,7 @@ class TestWorkflowJobs(ExtTestCase):
                         "name": "build",
                         "pr": "1",
                         "waiting_seconds": 120,
-                    }
+                    },
                 ],
                 "owner",
                 "repo",
@@ -961,6 +1002,14 @@ class TestWorkflowJobs(ExtTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             paths = _write_waiting_outputs(
                 [
+                    {
+                        "run_id": 0,
+                        "created_at": "2026-01-01T09:00:00+00:00",
+                        "started_at": "2026-01-01T09:00:00+00:00",
+                        "name": "build",
+                        "pr": "0",
+                        "waiting_seconds": 0,
+                    },
                     {
                         "run_id": 1,
                         "created_at": "2026-01-01T10:00:00+00:00",
@@ -1001,6 +1050,7 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["run_id"], "3")
             self.assertEqual(rows[0]["url"], "https://x/runs/3")
+            self.assertEqual([row["waiting_seconds"] for row in rows], ["1200"])
             graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_build.svg"
             self.assertTrue(graph_svg.exists())
             content = graph_svg.read_text(encoding="utf-8")

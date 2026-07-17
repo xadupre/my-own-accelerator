@@ -1,6 +1,9 @@
+from unittest.mock import patch
+
 from moa.commands.review_token import (
     CONFIG_FILE,
     _classify_token_by_prefix,
+    _fetch_token_from_gh_cli,
     _resolve_token_origin,
 )
 from moa.ext_test_case import ExtTestCase
@@ -73,3 +76,36 @@ class TestReviewToken(ExtTestCase):
             _resolve_token_origin([], "tok", None, cache),
             (str(CONFIG_FILE), "classic"),
         )
+
+    def test_fetch_token_from_gh_cli_success(self) -> None:
+        import subprocess
+
+        mock_result = subprocess.CompletedProcess(
+            args=["gh", "auth", "token"], returncode=0, stdout="ghp_token123\n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_result):
+            token = _fetch_token_from_gh_cli()
+        self.assertEqual(token, "ghp_token123")
+
+    def test_fetch_token_from_gh_cli_failure(self) -> None:
+        import subprocess
+
+        mock_result = subprocess.CompletedProcess(
+            args=["gh", "auth", "token"], returncode=1, stdout="", stderr="not logged in"
+        )
+        with patch("subprocess.run", return_value=mock_result):
+            with self.assertRaises(RuntimeError) as ctx:
+                _fetch_token_from_gh_cli()
+        self.assertIn("gh auth token failed", str(ctx.exception))
+        self.assertIn("not logged in", str(ctx.exception))
+
+    def test_fetch_token_from_gh_cli_empty_token(self) -> None:
+        import subprocess
+
+        mock_result = subprocess.CompletedProcess(
+            args=["gh", "auth", "token"], returncode=0, stdout="   \n", stderr=""
+        )
+        with patch("subprocess.run", return_value=mock_result):
+            with self.assertRaises(RuntimeError) as ctx:
+                _fetch_token_from_gh_cli()
+        self.assertIn("empty token", str(ctx.exception))

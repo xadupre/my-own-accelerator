@@ -4,10 +4,36 @@ from __future__ import annotations
 
 import json
 import pathlib
+import subprocess
 from typing import Any
 
 CONFIG_FILE = pathlib.Path.home() / ".config" / "moa" / "review_pr.json"
 VALUE_FLAGS = {"--token", "--api-url", "--model", "--user", "--prompt"}
+
+
+def _fetch_token_from_gh_cli() -> str:
+    """Fetch the current GitHub token from the ``gh`` CLI.
+
+    Runs ``gh auth token`` and returns its stdout stripped of whitespace.
+
+    :return: GitHub token string.
+    :raises RuntimeError: If ``gh`` is not installed, not authenticated, or
+        returns an empty token.
+    """
+    result = subprocess.run(
+        ["gh", "auth", "token"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        stderr = result.stderr.strip()
+        raise RuntimeError(
+            f"gh auth token failed (exit {result.returncode}): {stderr or '(no output)'}"
+        )
+    token = result.stdout.strip()
+    if not token:
+        raise RuntimeError("gh auth token returned an empty token.")
+    return token
 
 
 def _load_cache() -> dict[str, Any]:

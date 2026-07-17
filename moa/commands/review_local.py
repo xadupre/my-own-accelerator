@@ -10,7 +10,13 @@ from collections.abc import Callable
 from urllib.error import HTTPError, URLError
 
 from .review_pr import DEFAULT_MODEL, _call_copilot_review
-from .review_token import CONFIG_FILE, _load_cache, _resolve_token_origin, _save_cache
+from .review_token import (
+    CONFIG_FILE,
+    _fetch_token_from_gh_cli,
+    _load_cache,
+    _resolve_token_origin,
+    _save_cache,
+)
 
 
 def build_local_files_review_markdown(contents: dict[str, str]) -> str:
@@ -144,6 +150,15 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=False,
         help="Print progress information to stderr.",
     )
+    parser.add_argument(
+        "--gh",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch the GitHub token from the ``gh`` CLI (``gh auth token``). "
+            "Cannot be combined with --token."
+        ),
+    )
     return parser
 
 
@@ -155,6 +170,10 @@ def main(argv: list[str] | None = None) -> int:
     token_default = os.environ.get("GITHUB_TOKEN") or cache.get("token") or None
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
+    if args.gh and "--token" in argv:
+        parser.error("--gh and --token are mutually exclusive.")
+    if args.gh:
+        args.token = _fetch_token_from_gh_cli()
     if args.save and args.token:
         _save_cache({"token": args.token})
     if args.verbose:

@@ -21,6 +21,7 @@ from .review_token import (
     CONFIG_FILE,
     _build_project_token_cache,
     _extract_owner_repo,
+    _fetch_token_from_gh_cli,
     _load_cache,
     _resolve_cached_token,
     _resolve_positional_argv,
@@ -305,6 +306,15 @@ def _build_parser(
         default=False,
         help="Print progress information to stderr.",
     )
+    parser.add_argument(
+        "--gh",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch the GitHub token from the ``gh`` CLI (``gh auth token``). "
+            "Cannot be combined with --token."
+        ),
+    )
     return parser
 
 
@@ -343,6 +353,11 @@ def main(argv: list[str] | None = None) -> int:
         user_default=user_default,
     )
     args = parser.parse_args(argv)
+
+    if args.gh and "--token" in argv:
+        parser.error("--gh and --token are mutually exclusive.")
+    if args.gh:
+        args.token = _fetch_token_from_gh_cli()
 
     if args.copilot_review and not args.token:
         print(

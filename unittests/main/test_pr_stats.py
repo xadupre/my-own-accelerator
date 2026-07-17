@@ -1609,3 +1609,29 @@ class TestPRStats(ExtTestCase):
     def test_build_pr_comments_distribution_empty(self) -> None:
         result = _build_pr_comments_distribution([])
         self.assertEqual(result, {})
+
+    def test_main_gh_flag_fetches_token(self) -> None:
+        out = StringIO()
+        env_backup = {k: os.environ.pop(k) for k in ("GITHUB_TOKEN",) if k in os.environ}
+        try:
+            with (
+                patch("moa.commands.pr_stats.save_pr_activity_report", return_value={}) as mocked,
+                patch("sys.stdout", out),
+                patch("moa.commands.pr_stats._load_token_cache", return_value={}),
+                patch(
+                    "moa.commands.pr_stats._fetch_token_from_gh_cli",
+                    return_value="ghp_from_cli",
+                ),
+            ):
+                code = main(["--gh", "owner", "repo"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked.call_args.kwargs["token"], "ghp_from_cli")
+
+    def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
+        with (patch("moa.commands.pr_stats._load_token_cache", return_value={}),):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--gh", "--token", "explicit_tok", "owner", "repo"])
+        self.assertEqual(ctx.exception.code, 2)

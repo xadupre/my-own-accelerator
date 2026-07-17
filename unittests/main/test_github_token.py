@@ -259,3 +259,28 @@ class TestGitHubToken(ExtTestCase):
     def test_count_permission_entries(self) -> None:
         self.assertEqual(_count_permission_entries("repo, read:org, workflow"), 3)
         self.assertEqual(_count_permission_entries(""), 0)
+
+    def test_main_gh_flag_saves_classic_token(self) -> None:
+        out = StringIO()
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_config = pathlib.Path(tmp) / "review_pr.json"
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.github_token.CONFIG_FILE", fake_config),
+                patch("moa.commands.review_token.CONFIG_FILE", fake_config),
+                patch(
+                    "moa.commands.github_token._fetch_token_from_gh_cli",
+                    return_value="ghp_from_cli",
+                ),
+            ):
+                code = main(["--gh", "--classic"])
+            saved = json.loads(fake_config.read_text())
+
+        self.assertEqual(code, 0)
+        self.assertEqual(saved["token"], "ghp_from_cli")
+        self.assertIn("saved classic token", out.getvalue())
+
+    def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
+        with self.assertRaises(SystemExit) as ctx:
+            main(["--gh", "--token", "explicit_tok", "--classic"])
+        self.assertEqual(ctx.exception.code, 2)

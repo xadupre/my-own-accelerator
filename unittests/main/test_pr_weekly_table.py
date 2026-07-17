@@ -653,13 +653,17 @@ class TestPRWeeklyTable(ExtTestCase):
             ) as mocked_build,
         ):
             with tempfile.TemporaryDirectory() as tmp:
-                code = main([
-                    "--gh",
-                    "--output-file", str(pathlib.Path(tmp) / "out.md"),
-                    "--cache-file", str(pathlib.Path(tmp) / "cache.json"),
-                    "owner",
-                    "repo",
-                ])
+                code = main(
+                    [
+                        "--gh",
+                        "--output-file",
+                        str(pathlib.Path(tmp) / "out.md"),
+                        "--cache-file",
+                        str(pathlib.Path(tmp) / "cache.json"),
+                        "owner",
+                        "repo",
+                    ]
+                )
         self.assertEqual(code, 0)
         self.assertEqual(mocked_build.call_args.kwargs["token"], "ghp_from_cli")
 

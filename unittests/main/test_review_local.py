@@ -277,9 +277,7 @@ class TestReviewLocal(ExtTestCase):
         with tempfile.TemporaryDirectory() as tmp:
             file1 = pathlib.Path(tmp) / "a.py"
             file1.write_text("print('a')", encoding="utf-8")
-            with (
-                patch("moa.commands.review_local._load_cache", return_value={}),
-            ):
+            with (patch("moa.commands.review_local._load_cache", return_value={}),):
                 with self.assertRaises(SystemExit) as ctx:
                     main(["--gh", "--token", "explicit_tok", str(file1)])
         self.assertEqual(ctx.exception.code, 2)

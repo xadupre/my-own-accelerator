@@ -832,9 +832,7 @@ class TestReviewPR(ExtTestCase):
             k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
         }
         try:
-            with (
-                patch("moa.commands.review_pr._load_cache", return_value={}),
-            ):
+            with (patch("moa.commands.review_pr._load_cache", return_value={}),):
                 with self.assertRaises(SystemExit) as ctx:
                     main(["--gh", "--token", "explicit_tok", "owner", "repo", "12"])
         finally:

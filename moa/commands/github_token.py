@@ -8,7 +8,13 @@ import sys
 from urllib import request
 from urllib.error import HTTPError, URLError
 
-from .review_token import CONFIG_FILE, _build_project_token_cache, _fetch_token_from_gh_cli, _load_cache, _save_cache
+from .review_token import (
+    CONFIG_FILE,
+    _build_project_token_cache,
+    _fetch_token_from_gh_cli,
+    _load_cache,
+    _save_cache,
+)
 
 
 def _build_parser() -> argparse.ArgumentParser:

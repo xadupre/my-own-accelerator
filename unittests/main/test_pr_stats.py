@@ -1631,9 +1631,7 @@ class TestPRStats(ExtTestCase):
         self.assertEqual(mocked.call_args.kwargs["token"], "ghp_from_cli")
 
     def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
-        with (
-            patch("moa.commands.pr_stats._load_token_cache", return_value={}),
-        ):
+        with (patch("moa.commands.pr_stats._load_token_cache", return_value={}),):
             with self.assertRaises(SystemExit) as ctx:
                 main(["--gh", "--token", "explicit_tok", "owner", "repo"])
         self.assertEqual(ctx.exception.code, 2)

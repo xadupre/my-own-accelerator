@@ -957,6 +957,55 @@ class TestWorkflowJobs(ExtTestCase):
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["waiting_seconds"], "120")
 
+    def test_write_waiting_outputs_dumps_outliers_separately(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = _write_waiting_outputs(
+                [
+                    {
+                        "run_id": 1,
+                        "created_at": "2026-01-01T10:00:00+00:00",
+                        "started_at": "2026-01-01T10:02:00+00:00",
+                        "name": "build",
+                        "pr": "1",
+                        "waiting_seconds": 120,
+                    },
+                    {
+                        "run_id": 2,
+                        "created_at": "2026-01-02T10:00:00+00:00",
+                        "started_at": "2026-01-02T10:04:00+00:00",
+                        "name": "build",
+                        "pr": "2",
+                        "waiting_seconds": 240,
+                    },
+                    {
+                        "run_id": 3,
+                        "created_at": "2026-01-03T10:00:00+00:00",
+                        "started_at": "2026-01-03T10:20:00+00:00",
+                        "name": "build",
+                        "pr": "3",
+                        "waiting_seconds": 1200,
+                        "url": "https://x/runs/3",
+                    },
+                ],
+                "owner",
+                "repo",
+                tmp,
+                dump="xlsx",
+            )
+            outlier_csv = pathlib.Path(tmp) / "workflow_jobs_waiting_outliers_repo.csv"
+            outlier_xlsx = pathlib.Path(tmp) / "workflow_jobs_waiting_outliers_repo.xlsx"
+            self.assertIn(outlier_csv, paths)
+            self.assertIn(outlier_xlsx, paths)
+            with outlier_csv.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["run_id"], "3")
+            self.assertEqual(rows[0]["url"], "https://x/runs/3")
+            graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_waiting_build.svg"
+            self.assertTrue(graph_svg.exists())
+            content = graph_svg.read_text(encoding="utf-8")
+            self.assertNotIn("2026-01-03", content)
+
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()
         with (

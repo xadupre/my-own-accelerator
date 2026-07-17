@@ -216,6 +216,9 @@ class TestWorkflowJobs(ExtTestCase):
             day_path = _workflow_runs_cache_path(
                 tmp, "owner", "repo", "completed", datetime(2026, 1, 3, tzinfo=timezone.utc)
             )
+            current_day_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 4, tzinfo=timezone.utc)
+            )
             day_path.parent.mkdir(parents=True, exist_ok=True)
             day_path.write_text(
                 json.dumps(
@@ -249,16 +252,31 @@ class TestWorkflowJobs(ExtTestCase):
                 ),
                 encoding="utf-8",
             )
+            current_day_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": "completed",
+                            "day": "2026-01-04",
+                        },
+                        "rows": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
             with patch(
                 "moa.commands.workflow_jobs._fetch_json",
-                side_effect=RuntimeError("Daily cache should be reused."),
+                return_value={"workflow_runs": []},
             ):
                 runs = _fetch_workflow_runs(
                     "owner",
                     "repo",
                     stop_before=datetime(2026, 1, 3, tzinfo=timezone.utc),
                     cache_dir=tmp,
-                    now=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    now=datetime(2026, 1, 4, tzinfo=timezone.utc),
                     status="completed",
                 )
             with patch(
@@ -284,6 +302,66 @@ class TestWorkflowJobs(ExtTestCase):
                     }
                 ],
             )
+
+    def test_fetch_workflow_runs_daily_cache_refreshes_current_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            yesterday_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 2, tzinfo=timezone.utc)
+            )
+            today_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 3, tzinfo=timezone.utc)
+            )
+            yesterday_path.parent.mkdir(parents=True, exist_ok=True)
+            yesterday_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": "completed",
+                            "day": "2026-01-02",
+                        },
+                        "rows": [{"id": 1, "created_at": "2026-01-02T10:00:00Z"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            today_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": "completed",
+                            "day": "2026-01-03",
+                        },
+                        "rows": [{"id": 2, "created_at": "2026-01-03T10:00:00Z"}],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                return_value={"workflow_runs": [{"id": 3, "created_at": "2026-01-03T12:00:00Z"}]},
+            ) as mocked:
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 2, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=datetime(2026, 1, 3, 15, 0, 0, tzinfo=timezone.utc),
+                    status="completed",
+                )
+            self.assertEqual(
+                rows,
+                [
+                    {"id": 1, "created_at": "2026-01-02T10:00:00Z"},
+                    {"id": 3, "created_at": "2026-01-03T12:00:00Z"},
+                ],
+            )
+            self.assertEqual(mocked.call_count, 1)
 
     def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
         err = StringIO()

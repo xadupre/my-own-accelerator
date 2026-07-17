@@ -200,11 +200,13 @@ def _workflow_runs_cache_paths(
 
 
 def _workflow_runs_cache_path_day(path: pathlib.Path) -> str:
+    """Extract the cached UTC day as ``YYYY-MM-DD`` from a daily cache file path."""
     stamp = path.stem.rsplit("_", 1)[-1]
     return f"{stamp[:4]}-{stamp[4:6]}-{stamp[6:8]}"
 
 
 def _cache_day_start(day: str) -> datetime:
+    """Convert a cached ``YYYY-MM-DD`` UTC day to a midnight UTC datetime."""
     return datetime.fromisoformat(f"{day}T00:00:00+00:00")
 
 

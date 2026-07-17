@@ -12,6 +12,7 @@ import pandas
 from moa.commands.workflow_jobs import (
     _build_fail_rate_rows,
     _build_queued_rows,
+    _build_running_rows,
     _fetch_run_jobs,
     _fetch_workflow_runs,
     main,
@@ -114,6 +115,43 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_running_rows(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            return_value=[
+                {
+                    "status": "in_progress",
+                    "name": "build",
+                    "started_at": "2026-01-03T10:00:00Z",
+                    "html_url": "https://x/job-build",
+                },
+                {
+                    "status": "completed",
+                    "name": "done",
+                    "started_at": "2026-01-03T09:00:00Z",
+                    "html_url": "https://x/job-done",
+                },
+            ],
+        ):
+            rows = _build_running_rows(
+                "owner",
+                "repo",
+                [{"id": 1, "display_title": "wf-a"}],
+                now=datetime(2026, 1, 3, 10, 2, 0, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "name": "build",
+                    "workflow": "wf-a",
+                    "started_at": "2026-01-03T10:00:00+00:00",
+                    "duration_seconds": 120,
+                    "url": "https://x/job-build",
+                }
+            ],
+        )
+
     def test_main_queued_prints_fixed_width_table(self) -> None:
         out = StringIO()
         with (
@@ -204,6 +242,35 @@ class TestWorkflowJobs(ExtTestCase):
                 sheets["Fail rate"].to_dict(orient="records")[0]["success"],
                 4,
             )
+
+    def test_main_running_dump_writes_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+                patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+                patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+                patch(
+                    "moa.commands.workflow_jobs._build_running_rows",
+                    return_value=[
+                        {
+                            "name": "build",
+                            "workflow": "wf-a",
+                            "started_at": "2026-01-03T10:00:00+00:00",
+                            "duration_seconds": 120,
+                            "url": "https://x/job-build",
+                        }
+                    ],
+                ),
+            ):
+                code = main(["owner", "repo", "--running", "--dump", "csv", "--output-dir", tmp])
+            self.assertEqual(code, 0)
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_running_repo.csv"
+            self.assertTrue(csv_path.exists())
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["duration_seconds"], "120")
 
     def test_main_gh_rejects_non_empty_github_token_env(self) -> None:
         with (

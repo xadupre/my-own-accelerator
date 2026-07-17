@@ -143,6 +143,44 @@ def _build_queued_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
     return sorted(rows, key=lambda r: (r["name"].lower(), r["created_at"], r["url"]))
 
 
+def _build_running_rows(
+    owner: str,
+    repo: str,
+    runs: list[dict[str, Any]],
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+    verbose: bool = False,
+    now: datetime | None = None,
+) -> list[dict[str, Any]]:
+    if now is None:
+        now = datetime.now(timezone.utc)
+    rows: list[dict[str, Any]] = []
+    for run in runs:
+        run_id = run.get("id")
+        if not isinstance(run_id, int):
+            continue
+        workflow = str(run.get("display_title", "")).strip()
+        for job in _fetch_run_jobs(
+            owner, repo, run_id, token=token, api_url=api_url, verbose=verbose
+        ):
+            if str(job.get("status", "")).strip().lower() != "in_progress":
+                continue
+            started_at = str(job.get("started_at", "")).strip()
+            if not started_at:
+                continue
+            started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            rows.append(
+                {
+                    "name": str(job.get("name", "")).strip(),
+                    "workflow": workflow,
+                    "started_at": started.isoformat(),
+                    "duration_seconds": max(0, int((now - started).total_seconds())),
+                    "url": str(job.get("html_url", "")).strip(),
+                }
+            )
+    return sorted(rows, key=lambda r: (str(r["name"]).lower(), str(r["started_at"])))
+
+
 def _build_fixed_width_table(rows: list[dict[str, str]], headers: list[str]) -> str:
     widths = {header: len(header) for header in headers}
     for row in rows:
@@ -332,7 +370,10 @@ def _write_fail_rate_outputs(
 def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workflow-jobs",
-        description="Collect queued jobs, successful job durations, or fail-rate history.",
+        description=(
+            "Collect queued jobs, running jobs, successful job durations, "
+            "or fail-rate history."
+        ),
     )
     parser.add_argument("owner", help="GitHub repository owner")
     parser.add_argument("repo", help="GitHub repository name")
@@ -358,6 +399,11 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     )
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--queued", action="store_true", help="List queued jobs sorted by name.")
+    group.add_argument(
+        "--running",
+        action="store_true",
+        help="List running jobs with their current duration.",
+    )
     group.add_argument(
         "--duration",
         action="store_true",
@@ -399,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         args.repo,
         token=args.token,
         api_url=args.api_url,
-        status="queued" if args.queued else None,
+        status="queued" if args.queued else "in_progress" if args.running else None,
         verbose=args.verbose,
     )
     if args.queued:
@@ -413,6 +459,32 @@ def main(argv: list[str] | None = None) -> int:
             f"workflow_jobs_queued_{args.repo}",
             args.dump,
             "Queued jobs",
+        )
+        if path is not None:
+            print(path)
+        return 0
+    if args.running:
+        rows = _build_running_rows(
+            args.owner,
+            args.repo,
+            runs,
+            token=args.token,
+            api_url=args.api_url,
+            verbose=args.verbose,
+        )
+        headers = ["name", "workflow", "started_at", "duration_seconds", "url"]
+        print(
+            _build_fixed_width_table(
+                [{k: str(v) for k, v in row.items()} for row in rows], headers
+            )
+        )
+        path = _write_tabular_dump(
+            rows,
+            headers,
+            args.output_dir,
+            f"workflow_jobs_running_{args.repo}",
+            args.dump,
+            "Running jobs",
         )
         if path is not None:
             print(path)

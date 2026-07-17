@@ -75,6 +75,9 @@ with the workflow-run URL. Duration and waiting reports also generate hourly
 average graphs split between weekdays and weekends. Waiting-time reports use the
 same historical run cache and write `workflow_jobs_waiting_*` CSV/XLSX/graph
 outputs based on the queue delay between `created_at` and `run_started_at`.
+Fail-rate reports still dump the daily aggregate table and now also write a
+`workflow_jobs_fail_rate_by_job_*` CSV/XLSX plus per-job/day fail-cancel rate
+graphs under `graphs_<repo>/`.
 
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.
 

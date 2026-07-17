@@ -57,7 +57,11 @@ Exactly one option must be chosen:
   fetch/caching behavior is the same as ``--duration``. It also adds hourly
   average graphs split between weekdays and weekends.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
-  jobs to CSV and prints the same data as a fixed-width table.
+  jobs to CSV and prints the same data as a fixed-width table. It also writes a
+  ``workflow_jobs_fail_rate_by_job_*`` CSV/XLSX dump with per-job/per-day
+  ``failure`` / ``cancelled`` counts, ``total`` runs, and the corresponding
+  fail-cancel rate percentage, and generates per-job/day fail-cancel rate SVG
+  graphs plus an HTML report under ``graphs_<repo>/``.
 
 Additional output options:
 

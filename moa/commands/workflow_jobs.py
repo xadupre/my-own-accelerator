@@ -577,6 +577,10 @@ def _save_cached_run_jobs_to_day(
     _save_rows_cache(path, meta, day_rows, verbose)
 
 
+def _workflow_run_name(run: dict[str, Any]) -> str:
+    return str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip()
+
+
 def _build_duration_row_from_run(
     run: dict[str, Any], since: datetime, verbose: bool = False
 ) -> dict[str, Any] | None:
@@ -613,7 +617,7 @@ def _build_duration_row_from_run(
     row = {
         "run_id": run_id,
         "created_at": created.isoformat(),
-        "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
+        "name": _workflow_run_name(run),
         "pr": pr,
         "duration": int((completed - started).total_seconds()),
     }
@@ -655,7 +659,7 @@ def _build_waiting_row_from_run(
         "run_id": run_id,
         "created_at": created.isoformat(),
         "started_at": started.isoformat(),
-        "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
+        "name": _workflow_run_name(run),
         "pr": pr,
         "waiting_seconds": int((started - created).total_seconds()),
     }
@@ -665,7 +669,9 @@ def _build_waiting_row_from_run(
     return row
 
 
-def _build_fail_rate_row_from_run(run: dict[str, Any], since: datetime) -> tuple[str, str] | None:
+def _build_fail_rate_row_from_run(
+    run: dict[str, Any], since: datetime
+) -> tuple[str, str, str] | None:
     status = str(run.get("conclusion", "")).strip().lower()
     if status not in _FAIL_RATE_STATUSES:
         return None
@@ -674,7 +680,7 @@ def _build_fail_rate_row_from_run(run: dict[str, Any], since: datetime) -> tuple
     ) or _parse_optional_github_datetime(run.get("completed_at"))
     if completed is None or completed < since:
         return None
-    return completed.date().isoformat(), status
+    return completed.date().isoformat(), _workflow_run_name(run), status
 
 
 def _build_queued_rows(runs: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -985,16 +991,14 @@ def _build_fail_rate_rows(
 ) -> list[dict[str, int | str]]:
     if runs:
         _print_verbose_step(verbose, f"collecting fail-rate history from {len(runs)} run(s)...")
-    by_day: dict[str, dict[str, int]] = {}
+    entries: list[tuple[str, str, str]] = []
     for index, run in enumerate(runs, 1):
         run_id = run.get("id")
         if not isinstance(run_id, int):
             continue
         run_row = _build_fail_rate_row_from_run(run, since)
         if run_row is not None:
-            day, status = run_row
-            stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
-            stats[status] += 1
+            entries.append(run_row)
             if verbose:
                 _print_progress(index, len(runs))
             continue
@@ -1022,18 +1026,103 @@ def _build_fail_rate_rows(
         run["jobs"] = jobs
         for job in jobs:
             status = str(job.get("conclusion", "")).strip().lower()
-            completed_at = str(job.get("completed_at", "")).strip()
-            if status not in _FAIL_RATE_STATUSES or not completed_at:
+            completed = _parse_optional_github_datetime(job.get("completed_at"))
+            if completed is None or completed < since or status not in _FAIL_RATE_STATUSES:
                 continue
-            completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-            if completed < since:
-                continue
-            day = completed.date().isoformat()
-            stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
-            stats[status] += 1
+            job_name = str(job.get("name", "")).strip() or _workflow_run_name(run)
+            entries.append((completed.date().isoformat(), job_name, status))
         if verbose:
             _print_progress(index, len(runs))
+    by_day: dict[str, dict[str, int]] = {}
+    for day, _, status in entries:
+        stats = by_day.setdefault(day, {k: 0 for k in _FAIL_RATE_STATUSES})
+        stats[status] += 1
     return [{"date": day, **by_day[day]} for day in sorted(by_day)]
+
+
+def _build_fail_rate_job_rows(
+    owner: str,
+    repo: str,
+    runs: list[dict[str, Any]],
+    since: datetime,
+    token: str | None = None,
+    api_url: str = "https://api.github.com",
+    verbose: bool = False,
+    cache_dir: str | None = None,
+) -> list[dict[str, int | float | str]]:
+    by_job_day: dict[tuple[str, str], dict[str, int | float | str]] = {}
+    for run in runs:
+        run_row = _build_fail_rate_row_from_run(run, since)
+        if run_row is not None:
+            day, job_name, status = run_row
+            stats = by_job_day.setdefault(
+                (day, job_name),
+                {
+                    "date": day,
+                    "name": job_name,
+                    "failure": 0,
+                    "cancelled": 0,
+                    "total": 0,
+                    "fail_cancel_rate": 0.0,
+                },
+            )
+            stats["total"] = int(stats["total"]) + 1
+            if status in ("failure", "cancelled"):
+                stats[status] = int(stats[status]) + 1
+            continue
+        jobs = run.get("jobs")
+        if not isinstance(jobs, list):
+            run_id = run.get("id")
+            if not isinstance(run_id, int):
+                continue
+            jobs = (
+                _load_cached_run_jobs_from_day(cache_dir, owner, repo, run, verbose)
+                if cache_dir is not None
+                else None
+            )
+            if jobs is None:
+                jobs = _fetch_run_jobs(
+                    owner,
+                    repo,
+                    run_id,
+                    token=token,
+                    api_url=api_url,
+                    verbose=verbose,
+                )
+        if not isinstance(jobs, list):
+            continue
+        for job in jobs:
+            status = str(job.get("conclusion", "")).strip().lower()
+            completed = _parse_optional_github_datetime(job.get("completed_at"))
+            if completed is None or completed < since or status not in _FAIL_RATE_STATUSES:
+                continue
+            job_name = str(job.get("name", "")).strip() or _workflow_run_name(run)
+            day = completed.date().isoformat()
+            stats = by_job_day.setdefault(
+                (day, job_name),
+                {
+                    "date": day,
+                    "name": job_name,
+                    "failure": 0,
+                    "cancelled": 0,
+                    "total": 0,
+                    "fail_cancel_rate": 0.0,
+                },
+            )
+            stats["total"] = int(stats["total"]) + 1
+            if status in ("failure", "cancelled"):
+                stats[status] = int(stats[status]) + 1
+    job_rows = []
+    for day, job_name in sorted(by_job_day, key=lambda key: (key[0], key[1].lower(), key[1])):
+        stats = by_job_day[(day, job_name)]
+        total = int(stats["total"])
+        failures = int(stats["failure"])
+        cancelled = int(stats["cancelled"])
+        stats["fail_cancel_rate"] = (
+            round((failures + cancelled) * 100.0 / total, 2) if total else 0.0
+        )
+        job_rows.append(stats)
+    return job_rows
 
 
 def _write_duration_outputs(
@@ -1179,21 +1268,72 @@ def _write_waiting_outputs(
 
 def _write_fail_rate_outputs(
     rows: list[dict[str, int | str]],
+    job_rows: list[dict[str, int | float | str]],
+    owner: str,
     output_dir: str,
     repo: str,
     dump: str | None = None,
+    verbose: bool = False,
 ) -> list[pathlib.Path]:
     out = pathlib.Path(output_dir)
+    graph_dir = out / f"graphs_{repo}"
     out.mkdir(parents=True, exist_ok=True)
+    graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_fail_rate_{repo}.csv"
+    job_csv_path = out / f"workflow_jobs_fail_rate_by_job_{repo}.csv"
     headers = ["date", *_FAIL_RATE_STATUSES]
+    job_headers = ["date", "name", "failure", "cancelled", "total", "fail_cancel_rate"]
+    _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
-    paths = [csv_path]
+    _print_verbose_step(verbose, f"writing {job_csv_path}...")
+    _write_csv(job_csv_path, job_rows, job_headers)
+    paths = [csv_path, job_csv_path]
     if dump == "xlsx":
         xlsx_path = out / f"workflow_jobs_fail_rate_{repo}.xlsx"
+        job_xlsx_path = out / f"workflow_jobs_fail_rate_by_job_{repo}.xlsx"
+        _print_verbose_step(verbose, f"writing {xlsx_path}...")
         _write_xlsx(xlsx_path, rows, headers, "Fail rate")
-        paths.append(xlsx_path)
-    return paths
+        _print_verbose_step(verbose, f"writing {job_xlsx_path}...")
+        _write_xlsx(job_xlsx_path, job_rows, job_headers, "Per job")
+        paths.extend([xlsx_path, job_xlsx_path])
+    graphs: list[tuple[str, pathlib.Path]] = []
+    by_job: dict[str, list[dict[str, Any]]] = {}
+    for row in job_rows:
+        by_job.setdefault(str(row.get("name", "")), []).append(row)
+    graph_names = sorted(
+        job_name
+        for job_name, series in by_job.items()
+        if any(
+            int(row.get("failure", 0)) > 0 or int(row.get("cancelled", 0)) > 0 for row in series
+        )
+    )
+    if graph_names:
+        _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
+    for index, job_name in enumerate(graph_names, 1):
+        svg = graph_dir / f"workflow_jobs_fail_rate_{_safe_name(job_name)}.svg"
+        series = by_job[job_name]
+        values = {str(row["date"]): float(row["fail_cancel_rate"]) for row in series}
+        labels = {
+            str(row["date"]): (
+                f"f={int(row['failure'])}, c={int(row['cancelled'])}, n={int(row['total'])}"
+            )
+            for row in series
+        }
+        save_bar_graph(
+            svg,
+            values,
+            f"Workflow fail/cancel rate: {job_name}",
+            x_axis_label="Date",
+            y_axis_label="Fail/cancel rate (%)",
+            bar_labels=labels,
+        )
+        graphs.append((f"Workflow fail/cancel rate: {job_name}", svg))
+        if verbose:
+            _print_progress(index, len(graph_names))
+    html_path = graph_dir / f"workflow_jobs_fail_rate_{repo}.html"
+    _print_verbose_step(verbose, f"writing {html_path}...")
+    save_graphs_html_report(html_path, f"{owner}/{repo}", graphs)
+    return [*paths, *(path for _, path in graphs), html_path]
 
 
 def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
@@ -1405,7 +1545,25 @@ def main(argv: list[str] | None = None) -> int:
             headers,
         )
     )
-    for path in _write_fail_rate_outputs(fail_rows, args.output_dir, args.repo, dump=args.dump):
+    fail_job_rows = _build_fail_rate_job_rows(
+        args.owner,
+        args.repo,
+        runs,
+        since,
+        token=args.token,
+        api_url=args.api_url,
+        verbose=args.verbose,
+        cache_dir=args.output_dir,
+    )
+    for path in _write_fail_rate_outputs(
+        fail_rows,
+        fail_job_rows,
+        args.owner,
+        args.output_dir,
+        args.repo,
+        dump=args.dump,
+        verbose=args.verbose,
+    ):
         print(path)
     return 0
 

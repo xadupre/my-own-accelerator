@@ -136,6 +136,7 @@ def _build_duration_rows(
     since: datetime,
     token: str | None = None,
     api_url: str = "https://api.github.com",
+    verbose: bool = False,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for run in runs:
@@ -151,7 +152,15 @@ def _build_duration_rows(
                 continue
             started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
             completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-            if completed < since or completed < started:
+            if completed < started:
+                if verbose:
+                    print(
+                        "workflow-jobs: warning: skipping job with completed_at earlier than "
+                        f"started_at (run_id={run_id}, job={job.get('name', '')!r}).",
+                        file=sys.stderr,
+                    )
+                continue
+            if completed < since:
                 continue
             rows.append(
                 {
@@ -306,6 +315,7 @@ def main(argv: list[str] | None = None) -> int:
                 since,
                 token=args.token,
                 api_url=args.api_url,
+                verbose=args.verbose,
             ),
             args.owner,
             args.repo,

@@ -13,6 +13,7 @@ other commands (``--token``/``GITHUB_TOKEN``/token cache or ``--gh``):
     workflow-jobs xadupre my-own-accelerator --waiting --since 60
     workflow-jobs xadupre my-own-accelerator --duration --since -60d --dump xlsx
     workflow-jobs xadupre my-own-accelerator --fail-rate --since 2026-01-01
+    workflow-jobs xadupre my-own-accelerator --fail-cost --since 7
 
 Synopsis:
 
@@ -62,6 +63,12 @@ Exactly one option must be chosen:
   ``failure`` / ``cancelled`` counts, ``total`` runs, and the corresponding
   fail-cancel rate percentage, and generates per-job/day fail-cancel rate SVG
   graphs plus an HTML report under ``graphs_<repo>/``.
+* ``--fail-cost`` writes the failed/cancelled compute time lost per day to CSV
+  and prints the same data as a fixed-width table. It also writes a
+  ``workflow_jobs_fail_cost_by_job_*`` CSV/XLSX dump with per-job/per-day
+  ``failure_seconds``, ``cancelled_seconds``, and ``total_seconds``, and
+  generates per-job/day stacked fail-cancel cost SVG graphs plus an HTML report
+  under ``graphs_<repo>/``.
 
 Additional output options:
 

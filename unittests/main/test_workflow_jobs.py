@@ -15,6 +15,7 @@ from moa.commands.workflow_jobs import (
     _WORKFLOW_RUNS_DAY_CACHE_VERSION,
     _build_average_per_hour_graph_inputs,
     _build_duration_rows,
+    _build_fail_cost_rows,
     _build_fail_rate_job_rows,
     _build_fail_rate_rows,
     _build_queued_rows,
@@ -31,6 +32,7 @@ from moa.commands.workflow_jobs import (
     _workflow_runs_cache_path,
     _workflow_runs_cache_path_day,
     _write_duration_outputs,
+    _write_fail_cost_outputs,
     _write_fail_rate_outputs,
     _write_waiting_outputs,
     main,
@@ -666,6 +668,62 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_fail_cost_rows_uses_workflow_run_metadata(self) -> None:
+        rows, job_rows = _build_fail_cost_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 1,
+                    "name": "build",
+                    "conclusion": "failure",
+                    "created_at": "2026-01-03T10:00:00Z",
+                    "run_started_at": "2026-01-03T10:01:00Z",
+                    "updated_at": "2026-01-03T10:06:00Z",
+                },
+                {
+                    "id": 2,
+                    "name": "build",
+                    "conclusion": "cancelled",
+                    "created_at": "2026-01-03T11:00:00Z",
+                    "run_started_at": "2026-01-03T11:02:00Z",
+                    "updated_at": "2026-01-03T11:04:00Z",
+                },
+                {
+                    "id": 3,
+                    "name": "test",
+                    "conclusion": "success",
+                    "created_at": "2026-01-03T12:00:00Z",
+                    "run_started_at": "2026-01-03T12:01:00Z",
+                    "updated_at": "2026-01-03T12:07:00Z",
+                },
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure_seconds": 300,
+                    "cancelled_seconds": 120,
+                    "total_seconds": 420,
+                }
+            ],
+        )
+        self.assertEqual(
+            job_rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "name": "build",
+                    "failure_seconds": 300,
+                    "cancelled_seconds": 120,
+                    "total_seconds": 420,
+                }
+            ],
+        )
+
     def test_build_waiting_rows_uses_workflow_run_metadata(self) -> None:
         rows = _build_waiting_rows(
             "owner",
@@ -1114,6 +1172,65 @@ class TestWorkflowJobs(ExtTestCase):
             html = html_path.read_text(encoding="utf-8")
             self.assertIn("Workflow fail/cancel rate: build", html)
 
+    def test_write_fail_cost_outputs_writes_per_job_dump_and_graphs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            paths = _write_fail_cost_outputs(
+                [
+                    {
+                        "date": "2026-01-03",
+                        "failure_seconds": 3600,
+                        "cancelled_seconds": 1800,
+                        "total_seconds": 5400,
+                    }
+                ],
+                [
+                    {
+                        "date": "2026-01-03",
+                        "name": "build",
+                        "failure_seconds": 3600,
+                        "cancelled_seconds": 1800,
+                        "total_seconds": 5400,
+                    },
+                    {
+                        "date": "2026-01-04",
+                        "name": "test",
+                        "failure_seconds": 0,
+                        "cancelled_seconds": 0,
+                        "total_seconds": 0,
+                    },
+                ],
+                "owner",
+                tmp,
+                "repo",
+                dump="xlsx",
+            )
+            job_csv = pathlib.Path(tmp) / "workflow_jobs_fail_cost_by_job_repo.csv"
+            job_xlsx = pathlib.Path(tmp) / "workflow_jobs_fail_cost_by_job_repo.xlsx"
+            graph_svg = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_fail_cost_build.svg"
+            html_path = pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_fail_cost_repo.html"
+            self.assertIn(job_csv, paths)
+            self.assertIn(job_xlsx, paths)
+            self.assertIn(graph_svg, paths)
+            self.assertIn(html_path, paths)
+            self.assertTrue(job_csv.exists())
+            self.assertTrue(job_xlsx.exists())
+            self.assertTrue(graph_svg.exists())
+            self.assertTrue(html_path.exists())
+            self.assertFalse(
+                (pathlib.Path(tmp) / "graphs_repo" / "workflow_jobs_fail_cost_test.svg").exists()
+            )
+            with job_csv.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["name"], "build")
+            self.assertEqual(rows[0]["total_seconds"], "5400")
+            graph = graph_svg.read_text(encoding="utf-8")
+            self.assertIn("#e05c5c", graph)
+            self.assertIn("#f2cc60", graph)
+            self.assertIn(">failure</text>", graph)
+            self.assertIn(">cancelled</text>", graph)
+            html = html_path.read_text(encoding="utf-8")
+            self.assertIn("Workflow fail/cancel cost: build", html)
+
     def test_build_duration_row_from_run_keeps_html_url(self) -> None:
         row = _build_duration_rows(
             "owner",
@@ -1432,6 +1549,51 @@ class TestWorkflowJobs(ExtTestCase):
                 job_rows = list(csv.DictReader(f))
             self.assertEqual(job_rows[0]["fail_cancel_rate"], "75.0")
 
+    def test_main_fail_cost_writes_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = StringIO()
+            with (
+                patch("sys.stdout", out),
+                patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+                patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+                patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+                patch(
+                    "moa.commands.workflow_jobs._build_fail_cost_rows",
+                    return_value=(
+                        [
+                            {
+                                "date": "2026-01-03",
+                                "failure_seconds": 3600,
+                                "cancelled_seconds": 1800,
+                                "total_seconds": 5400,
+                            }
+                        ],
+                        [
+                            {
+                                "date": "2026-01-03",
+                                "name": "build",
+                                "failure_seconds": 3600,
+                                "cancelled_seconds": 1800,
+                                "total_seconds": 5400,
+                            }
+                        ],
+                    ),
+                ),
+            ):
+                code = main(["owner", "repo", "--fail-cost", "--output-dir", tmp])
+            self.assertEqual(code, 0)
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_fail_cost_repo.csv"
+            job_csv_path = pathlib.Path(tmp) / "workflow_jobs_fail_cost_by_job_repo.csv"
+            self.assertTrue(csv_path.exists())
+            self.assertTrue(job_csv_path.exists())
+            self.assertIn("failure_seconds", out.getvalue())
+            with csv_path.open("r", encoding="utf-8") as f:
+                rows = list(csv.DictReader(f))
+            self.assertEqual(rows[0]["total_seconds"], "5400")
+            with job_csv_path.open("r", encoding="utf-8") as f:
+                job_rows = list(csv.DictReader(f))
+            self.assertEqual(job_rows[0]["name"], "build")
+
     def test_main_duration_passes_integer_since_as_day_window(self) -> None:
         with (
             patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
@@ -1586,5 +1748,19 @@ class TestWorkflowJobs(ExtTestCase):
             patch("moa.commands.workflow_jobs._write_waiting_outputs", return_value=[]),
         ):
             code = main(["owner", "repo", "--waiting", "--since", "5"])
+        self.assertEqual(code, 0)
+        self.assertEqual(fetch_runs.call_args.kwargs["status"], "completed")
+
+    def test_main_fail_cost_fetches_completed_runs(self) -> None:
+        with (
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch(
+                "moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]
+            ) as fetch_runs,
+            patch("moa.commands.workflow_jobs._build_fail_cost_rows", return_value=([], [])),
+            patch("moa.commands.workflow_jobs._write_fail_cost_outputs", return_value=[]),
+        ):
+            code = main(["owner", "repo", "--fail-cost", "--since", "5"])
         self.assertEqual(code, 0)
         self.assertEqual(fetch_runs.call_args.kwargs["status"], "completed")

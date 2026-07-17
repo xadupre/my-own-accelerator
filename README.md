@@ -64,6 +64,7 @@ workflow-jobs xadupre my-own-accelerator --duration --since 60
 workflow-jobs xadupre my-own-accelerator --waiting --since 60
 workflow-jobs xadupre my-own-accelerator --duration --dump xlsx
 workflow-jobs xadupre my-own-accelerator --fail-rate
+workflow-jobs xadupre my-own-accelerator --fail-cost --since 7
 ```
 
 Historical `workflow-jobs` fetches also cache raw runs/jobs JSON in the
@@ -77,6 +78,9 @@ same historical run cache and write `workflow_jobs_waiting_*` CSV/XLSX/graph
 outputs based on the queue delay between `created_at` and `run_started_at`.
 Fail-rate reports still dump the daily aggregate table and now also write a
 `workflow_jobs_fail_rate_by_job_*` CSV/XLSX plus per-job/day fail-cancel rate
+graphs under `graphs_<repo>/`.
+Fail-cost reports write daily and per-job/per-day failed-or-cancelled compute
+time totals to `workflow_jobs_fail_cost_*` CSV/XLSX files and matching per-job
 graphs under `graphs_<repo>/`.
 
 Replace `xadupre` and `my-own-accelerator` with your GitHub owner and repository name.

@@ -169,6 +169,113 @@ class TestWorkflowJobs(ExtTestCase):
                 rows = _fetch_workflow_runs("owner", "repo", cache_path=cache_path)
             self.assertEqual(len(rows), 101)
 
+    def test_fetch_workflow_runs_writes_one_daily_cache_file_per_day(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            now = datetime(2026, 1, 3, tzinfo=timezone.utc)
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                return_value={
+                    "workflow_runs": [
+                        {"id": 1, "created_at": "2026-01-03T10:00:00Z"},
+                        {"id": 2, "created_at": "2026-01-02T10:00:00Z"},
+                    ]
+                },
+            ):
+                rows = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=now,
+                    api_url="https://api.github.com",
+                )
+            self.assertEqual(len(rows), 2)
+            cache_files = sorted(
+                pathlib.Path(tmp).glob("workflow_jobs_cache_owner_repo_runs_all_*.json")
+            )
+            self.assertEqual(
+                [path.name for path in cache_files],
+                [
+                    "workflow_jobs_cache_owner_repo_runs_all_20260101.json",
+                    "workflow_jobs_cache_owner_repo_runs_all_20260102.json",
+                    "workflow_jobs_cache_owner_repo_runs_all_20260103.json",
+                ],
+            )
+            day_rows = []
+            for path in cache_files:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                self.assertEqual(payload["meta"]["kind"], "workflow_runs_day")
+                day_rows.append(payload["rows"])
+            self.assertEqual(day_rows[0], [])
+            self.assertEqual(day_rows[1][0]["id"], 2)
+            self.assertEqual(day_rows[2][0]["id"], 1)
+
+    def test_fetch_workflow_runs_daily_cache_reuses_jobs_saved_in_day_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            day_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", None, datetime(2026, 1, 3, tzinfo=timezone.utc)
+            )
+            day_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": None,
+                            "day": "2026-01-03",
+                        },
+                        "rows": [
+                            {
+                                "id": 12,
+                                "created_at": "2026-01-03T10:00:00Z",
+                                "jobs": [
+                                    {
+                                        "conclusion": "success",
+                                        "name": "build",
+                                        "started_at": "2026-01-03T10:00:00Z",
+                                        "completed_at": "2026-01-03T10:02:00Z",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=RuntimeError("Daily cache should be reused."),
+            ):
+                runs = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_run_jobs",
+                side_effect=RuntimeError("Embedded day-cache jobs should be reused."),
+            ):
+                rows = _build_duration_rows(
+                    "owner",
+                    "repo",
+                    runs,
+                    datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                )
+            self.assertEqual(
+                rows,
+                [
+                    {
+                        "job_name": "build",
+                        "completed_at": "2026-01-03T10:02:00+00:00",
+                        "duration_seconds": 120,
+                    }
+                ],
+            )
+
     def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
         err = StringIO()
         with (

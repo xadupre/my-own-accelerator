@@ -76,7 +76,7 @@ def _fetch_workflow_runs(
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
-        _print_verbose_step(verbose, f"fetching workflow runs page {page}...")
+        _print_verbose_step(verbose, f"fetching workflow runs page {page}.")
         query: dict[str, Any] = {"per_page": 100, "page": page}
         if status:
             query["status"] = status
@@ -112,7 +112,7 @@ def _fetch_run_jobs(
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
-        _print_verbose_step(verbose, f"fetching jobs page {page} for run_id={run_id}...")
+        _print_verbose_step(verbose, f"fetching jobs page {page} for run_id={run_id}.")
         url = (
             f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?"
             f"{parse.urlencode({'per_page': 100, 'page': page})}"

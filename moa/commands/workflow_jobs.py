@@ -91,7 +91,7 @@ def _load_rows_cache(
     meta: dict[str, Any],
     verbose: bool = False,
 ) -> list[dict[str, Any]] | None:
-    """Load cached rows when the file metadata matches and all rows are dictionaries."""
+    """Load cached rows when the file's ``meta`` dictionary exactly matches the query metadata."""
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except (FileNotFoundError, OSError, json.JSONDecodeError):
@@ -113,13 +113,14 @@ def _save_rows_cache(
     rows: list[dict[str, Any]],
     verbose: bool = False,
 ) -> None:
-    """Write cache metadata and rows to disk, creating parent directories as needed."""
+    """Write query ``meta`` and fetched rows to disk, creating parent directories as needed."""
     path.parent.mkdir(parents=True, exist_ok=True)
     _print_verbose_step(verbose, f"writing cache {path}...")
     path.write_text(json.dumps({"meta": meta, "rows": rows}, indent=2), encoding="utf-8")
 
 
 def _repo_cache_slug(owner: str, repo: str) -> str:
+    """Create a filesystem-safe owner/repo identifier for cache filenames."""
     return f"{_safe_name(owner)}_{_safe_name(repo)}"
 
 

@@ -58,6 +58,8 @@ def _print_verbose_step(verbose: bool, message: str) -> None:
 
 def _parse_since_datetime(value: str | None) -> datetime:
     since_value = (value or _default_since()).strip()
+    if since_value.isdigit():
+        return datetime.now(timezone.utc) - timedelta(days=int(since_value))
     relative_dt = parse_relative_since(since_value)
     if relative_dt is not None:
         return relative_dt
@@ -579,7 +581,11 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=os.environ.get("GITHUB_API_URL") or "https://api.github.com",
         help="GitHub API base URL",
     )
-    parser.add_argument("--since", default=None, help="Since date (default: 60 days ago).")
+    parser.add_argument(
+        "--since",
+        default=None,
+        help="Since date, relative offset, or integer day count (default: 60 days ago).",
+    )
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR, help="Output folder.")
     parser.add_argument(
         "--dump",

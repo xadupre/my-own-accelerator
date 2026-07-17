@@ -2,7 +2,7 @@ import csv
 import os
 import pathlib
 import tempfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import StringIO
 from unittest.mock import patch
 from urllib.error import HTTPError
@@ -17,6 +17,7 @@ from moa.commands.workflow_jobs import (
     _default_since,
     _fetch_run_jobs,
     _fetch_workflow_runs,
+    _parse_since_datetime,
     _run_jobs_cache_path,
     _workflow_runs_cache_path,
     _write_duration_outputs,
@@ -31,6 +32,13 @@ class TestWorkflowJobs(ExtTestCase):
         delta = datetime.now(timezone.utc).date() - default_since
         self.assertGreaterEqual(delta.days, 59)
         self.assertLessEqual(delta.days, 60)
+
+    def test_parse_since_integer_means_days_ago(self) -> None:
+        before = datetime.now(timezone.utc)
+        parsed = _parse_since_datetime("7")
+        after = datetime.now(timezone.utc)
+        self.assertLessEqual(before - parsed, timedelta(days=7, seconds=1))
+        self.assertGreaterEqual(after - parsed, timedelta(days=7))
 
     def test_fetch_workflow_runs_retries_without_token_on_403(self) -> None:
         err = StringIO()
@@ -512,3 +520,22 @@ class TestWorkflowJobs(ExtTestCase):
             with csv_path.open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(rows[0]["success"], "4")
+
+    def test_main_duration_passes_integer_since_as_day_window(self) -> None:
+        with (
+            patch("moa.commands.workflow_jobs._load_token_cache", return_value={}),
+            patch("moa.commands.workflow_jobs._resolve_cached_token", return_value=None),
+            patch("moa.commands.workflow_jobs._fetch_workflow_runs", return_value=[]),
+            patch(
+                "moa.commands.workflow_jobs._build_duration_rows", return_value=[]
+            ) as build_rows,
+            patch("moa.commands.workflow_jobs._write_duration_outputs", return_value=[]),
+        ):
+            before = datetime.now(timezone.utc)
+            code = main(["owner", "repo", "--duration", "--since", "5"])
+            after = datetime.now(timezone.utc)
+        self.assertEqual(code, 0)
+        since_arg = build_rows.call_args.args[3]
+        self.assertIsInstance(since_arg, datetime)
+        self.assertLessEqual(before - since_arg, timedelta(days=5, seconds=1))
+        self.assertGreaterEqual(after - since_arg, timedelta(days=5))

@@ -9,7 +9,7 @@ other commands (``--token``/``GITHUB_TOKEN``/token cache or ``--gh``):
     workflow-jobs xadupre my-own-accelerator --queued
     workflow-jobs xadupre my-own-accelerator --queued --dump csv
     workflow-jobs xadupre my-own-accelerator --running
-    workflow-jobs xadupre my-own-accelerator --duration --since -60d
+    workflow-jobs xadupre my-own-accelerator --duration --since 60
     workflow-jobs xadupre my-own-accelerator --duration --since -60d --dump xlsx
     workflow-jobs xadupre my-own-accelerator --fail-rate --since 2026-01-01
 
@@ -32,9 +32,11 @@ Exactly one option must be chosen:
   current duration in seconds.
 * ``--duration`` writes historical successful job durations to CSV and
   generates SVG/HTML graphs. With ``--dump xlsx``, it also writes an Excel file.
-  The fetch stops at ``--since`` (60 days by default), and ``--verbose`` shows
-  ``min(date)`` / ``max(date)`` for each fetched page. Historical run/job fetches
-  are also cached as JSON files in ``--output-dir`` and reused on repeated calls.
+  The fetch stops at ``--since`` (60 days by default). ``--since`` accepts an ISO
+  date/datetime, a relative value such as ``-60d``, or an integer day count such
+  as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched
+  page. Historical run/job fetches are also cached as JSON files in
+  ``--output-dir`` and reused on repeated calls.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
   jobs to CSV and prints the same data as a fixed-width table.
 

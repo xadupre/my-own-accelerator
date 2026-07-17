@@ -77,9 +77,10 @@ def save_job_duration_line_graph(
     """Saves a job-duration SVG line chart.
 
     The chart plots one point per entry in *series* using ``duration_seconds``
-    converted to minutes and uses the ``completed_at`` date portion for
-    x-axis labels. When enough values are available, a moving-average line
-    (``moving_avg_window``) is rendered in addition to the raw series.
+    (or ``duration``) converted to minutes and uses the ``completed_at`` or
+    ``created_at`` date portion for x-axis labels. When enough values are
+    available, a moving-average line (``moving_avg_window``) is rendered in
+    addition to the raw series.
     """
     width = 800
     height = 420
@@ -105,8 +106,11 @@ def save_job_duration_line_graph(
         path.write_text(svg, encoding="utf-8")
         return
 
-    values = [float(pt.get("duration_seconds", 0)) / 60 for pt in series]
-    x_labels_raw = [str(pt.get("completed_at", ""))[:10] for pt in series]
+    values = []
+    for pt in series:
+        raw_duration = pt.get("duration_seconds", pt.get("duration", 0))
+        values.append(float(0 if raw_duration is None else raw_duration) / 60)
+    x_labels_raw = [str(pt.get("completed_at", pt.get("created_at", "")))[:10] for pt in series]
     max_val = max(values) if values else 1
     if max_val == 0:
         max_val = 1

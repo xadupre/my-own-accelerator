@@ -30,12 +30,14 @@ Exactly one option must be chosen:
 * ``--queued`` prints a fixed-width table of queued workflow jobs sorted by job name.
 * ``--running`` prints a fixed-width table of running workflow jobs with their
   current duration in seconds.
-* ``--duration`` writes historical successful job durations to CSV and
-  generates SVG/HTML graphs. With ``--dump xlsx``, it also writes an Excel file.
+* ``--duration`` writes historical successful workflow-run durations to CSV and
+  generates SVG/HTML graphs from the run list returned by ``/actions/runs``.
+  The tabular export contains ``run_id``, ``created_at``, ``name``, ``pr``, and
+  ``duration`` (in seconds). With ``--dump xlsx``, it also writes an Excel file.
   The fetch stops at ``--since`` (60 days by default). ``--since`` accepts an ISO
   date/datetime, a relative value such as ``-60d``, or an integer day count such
   as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched
-  page. Historical run/job fetches are also cached as JSON files in the
+  page. Historical run fetches are also cached as JSON files in the
   ``workflow_jobs_cache/`` subfolder under ``--output-dir`` and reused on
   repeated calls, with one cache file per day. These cache files are written
   incrementally while pages are being fetched.

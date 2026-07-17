@@ -519,10 +519,23 @@ def _build_duration_row_from_run(
         return None
     if completed < since:
         return None
+    run_id = run.get("id")
+    if not isinstance(run_id, int):
+        return None
+    pull_requests = run.get("pull_requests")
+    pr = "-"
+    if isinstance(pull_requests, list) and pull_requests:
+        first_pr = pull_requests[0]
+        if isinstance(first_pr, dict):
+            number = first_pr.get("number")
+            if number is not None:
+                pr = str(number)
     return {
-        "job_name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
-        "completed_at": completed.isoformat(),
-        "duration_seconds": int((completed - started).total_seconds()),
+        "run_id": run_id,
+        "created_at": started.isoformat(),
+        "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
+        "pr": pr,
+        "duration": int((completed - started).total_seconds()),
     }
 
 
@@ -673,66 +686,12 @@ def _build_duration_rows(
         _print_verbose_step(verbose, f"collecting duration history from {len(runs)} run(s)...")
     rows: list[dict[str, Any]] = []
     for index, run in enumerate(runs, 1):
-        run_id = run.get("id")
-        if not isinstance(run_id, int):
-            continue
         run_row = _build_duration_row_from_run(run, since, verbose)
         if run_row is not None:
             rows.append(run_row)
-            if verbose:
-                _print_progress(index, len(runs))
-            continue
-        _print_verbose_step(
-            verbose, f"fetching jobs for run {index}/{len(runs)} (run_id={run_id})..."
-        )
-        jobs = (
-            _load_cached_run_jobs_from_day(cache_dir, owner, repo, run, verbose)
-            if cache_dir is not None
-            else None
-        )
-        if jobs is None:
-            jobs = _fetch_run_jobs(
-                owner,
-                repo,
-                run_id,
-                token=token,
-                api_url=api_url,
-                verbose=verbose,
-            )
-            if cache_dir is not None:
-                _save_cached_run_jobs_to_day(
-                    cache_dir, owner, repo, run, jobs, verbose, status="completed"
-                )
-        run["jobs"] = jobs
-        for job in jobs:
-            if str(job.get("conclusion", "")).strip().lower() != "success":
-                continue
-            started_at = str(job.get("started_at", "")).strip()
-            completed_at = str(job.get("completed_at", "")).strip()
-            if not started_at or not completed_at:
-                continue
-            started = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
-            completed = datetime.fromisoformat(completed_at.replace("Z", "+00:00"))
-            if completed < started:
-                if verbose:
-                    print(
-                        "workflow-jobs: warning: skipping job with completed_at earlier than "
-                        f"started_at (run_id={run_id}, job={job.get('name', '')!r}).",
-                        file=sys.stderr,
-                    )
-                continue
-            if completed < since:
-                continue
-            rows.append(
-                {
-                    "job_name": str(job.get("name", "")).strip(),
-                    "completed_at": completed.isoformat(),
-                    "duration_seconds": int((completed - started).total_seconds()),
-                }
-            )
         if verbose:
             _print_progress(index, len(runs))
-    return sorted(rows, key=lambda r: (str(r["job_name"]).lower(), str(r["completed_at"])))
+    return sorted(rows, key=lambda r: (str(r["name"]).lower(), str(r["created_at"])))
 
 
 def _build_fail_rate_rows(
@@ -811,7 +770,7 @@ def _write_duration_outputs(
     out.mkdir(parents=True, exist_ok=True)
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
-    headers = ["job_name", "completed_at", "duration_seconds"]
+    headers = ["run_id", "created_at", "name", "pr", "duration"]
     _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]
@@ -822,15 +781,15 @@ def _write_duration_outputs(
         paths.append(xlsx_path)
     job_series: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
-        job_series.setdefault(str(row["job_name"]), []).append(row)
+        job_series.setdefault(str(row["name"]), []).append(row)
     graphs: list[tuple[str, pathlib.Path]] = []
     graph_names = sorted(job_series)
     if graph_names:
         _print_verbose_step(verbose, f"generating {len(graph_names)} graph(s)...")
     for index, job_name in enumerate(graph_names, 1):
         svg = graph_dir / f"workflow_jobs_duration_{_safe_name(job_name)}.svg"
-        save_job_duration_line_graph(svg, job_series[job_name], f"Job duration: {job_name}")
-        graphs.append((f"Job duration: {job_name}", svg))
+        save_job_duration_line_graph(svg, job_series[job_name], f"Workflow duration: {job_name}")
+        graphs.append((f"Workflow duration: {job_name}", svg))
         if verbose:
             _print_progress(index, len(graph_names))
     html_path = graph_dir / f"workflow_jobs_duration_{repo}.html"
@@ -862,7 +821,7 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="workflow-jobs",
         description=(
-            "Collect queued jobs, running jobs, successful job durations, "
+            "Collect queued jobs, running jobs, successful workflow-run durations, "
             "or fail-rate history."
         ),
     )

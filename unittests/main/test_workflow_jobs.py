@@ -230,7 +230,11 @@ class TestWorkflowJobs(ExtTestCase):
                         "rows": [
                             {
                                 "id": 12,
+                                "name": "build",
+                                "conclusion": "success",
                                 "created_at": "2026-01-03T10:00:00Z",
+                                "run_started_at": "2026-01-03T10:00:00Z",
+                                "updated_at": "2026-01-03T10:02:00Z",
                                 "jobs": [
                                     {
                                         "conclusion": "success",
@@ -272,9 +276,11 @@ class TestWorkflowJobs(ExtTestCase):
                 rows,
                 [
                     {
-                        "job_name": "build",
-                        "completed_at": "2026-01-03T10:02:00+00:00",
-                        "duration_seconds": 120,
+                        "run_id": 12,
+                        "created_at": "2026-01-03T10:00:00+00:00",
+                        "name": "build",
+                        "pr": "-",
+                        "duration": 120,
                     }
                 ],
             )
@@ -359,31 +365,30 @@ class TestWorkflowJobs(ExtTestCase):
         )
 
     def test_build_duration_rows_uses_workflow_run_metadata_without_fetching_jobs(self) -> None:
-        with patch(
-            "moa.commands.workflow_jobs._fetch_run_jobs",
-            side_effect=RuntimeError("Run-level metadata should avoid job fetches."),
-        ):
-            rows = _build_duration_rows(
-                "owner",
-                "repo",
-                [
-                    {
-                        "id": 1,
-                        "name": "build",
-                        "conclusion": "success",
-                        "run_started_at": "2026-01-03T10:00:00Z",
-                        "updated_at": "2026-01-03T10:02:00Z",
-                    }
-                ],
-                datetime(2026, 1, 1, tzinfo=timezone.utc),
-            )
+        rows = _build_duration_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 1,
+                    "name": "build",
+                    "conclusion": "success",
+                    "run_started_at": "2026-01-03T10:00:00Z",
+                    "updated_at": "2026-01-03T10:02:00Z",
+                    "pull_requests": [{"number": 42}],
+                }
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
         self.assertEqual(
             rows,
             [
                 {
-                    "job_name": "build",
-                    "completed_at": "2026-01-03T10:02:00+00:00",
-                    "duration_seconds": 120,
+                    "run_id": 1,
+                    "created_at": "2026-01-03T10:00:00+00:00",
+                    "name": "build",
+                    "pr": "42",
+                    "duration": 120,
                 }
             ],
         )
@@ -425,30 +430,31 @@ class TestWorkflowJobs(ExtTestCase):
 
     def test_build_duration_rows_verbose_reports_progress(self) -> None:
         err = StringIO()
-        with (
-            patch("sys.stderr", err),
-            patch(
-                "moa.commands.workflow_jobs._fetch_run_jobs",
-                return_value=[
-                    {
-                        "conclusion": "success",
-                        "name": "build",
-                        "started_at": "2026-01-03T10:00:00Z",
-                        "completed_at": "2026-01-03T10:02:00Z",
-                    }
-                ],
-            ),
-        ):
+        with patch("sys.stderr", err):
             rows = _build_duration_rows(
                 "owner",
                 "repo",
-                [{"id": 1}, {"id": 2}],
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "success",
+                        "run_started_at": "2026-01-03T10:00:00Z",
+                        "updated_at": "2026-01-03T10:02:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "name": "test",
+                        "conclusion": "success",
+                        "run_started_at": "2026-01-04T10:00:00Z",
+                        "updated_at": "2026-01-04T10:03:00Z",
+                    },
+                ],
                 datetime(2026, 1, 1, tzinfo=timezone.utc),
                 verbose=True,
             )
         self.assertEqual(len(rows), 2)
         self.assertIn("collecting duration history from 2 run(s)", err.getvalue())
-        self.assertIn("fetching jobs for run 1/2 (run_id=1)", err.getvalue())
         self.assertIn("2/2", err.getvalue())
 
     def test_fetch_run_jobs_verbose_reports_pages(self) -> None:
@@ -572,9 +578,11 @@ class TestWorkflowJobs(ExtTestCase):
                 paths = _write_duration_outputs(
                     [
                         {
-                            "job_name": "build",
-                            "completed_at": "2026-01-03T10:02:00+00:00",
-                            "duration_seconds": 120,
+                            "run_id": 1,
+                            "created_at": "2026-01-03T10:00:00+00:00",
+                            "name": "build",
+                            "pr": "42",
+                            "duration": 120,
                         }
                     ],
                     "owner",

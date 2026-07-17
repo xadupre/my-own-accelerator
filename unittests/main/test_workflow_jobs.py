@@ -552,6 +552,25 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
+    def test_build_duration_rows_prefers_run_started_at_for_duration(self) -> None:
+        rows = _build_duration_rows(
+            "owner",
+            "repo",
+            [
+                {
+                    "id": 1,
+                    "name": "build",
+                    "conclusion": "success",
+                    "created_at": "2026-01-01T00:00:00Z",
+                    "run_started_at": "2026-01-12T09:00:00Z",
+                    "updated_at": "2026-01-12T10:45:00Z",
+                }
+            ],
+            datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        self.assertEqual(rows[0]["created_at"], "2026-01-01T00:00:00+00:00")
+        self.assertEqual(rows[0]["duration"], 6300)
+
     def test_build_fail_rate_rows_uses_workflow_run_metadata_without_fetching_jobs(self) -> None:
         with patch(
             "moa.commands.workflow_jobs._fetch_run_jobs",

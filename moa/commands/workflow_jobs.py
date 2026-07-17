@@ -583,16 +583,17 @@ def _build_duration_row_from_run(
     if str(run.get("conclusion", "")).strip().lower() != "success":
         return None
     created = _parse_optional_github_datetime(run.get("created_at"))
+    started = _parse_optional_github_datetime(run.get("run_started_at")) or created
     completed = _parse_optional_github_datetime(
         run.get("updated_at")
     ) or _parse_optional_github_datetime(run.get("completed_at"))
-    if created is None or completed is None:
+    if created is None or started is None or completed is None:
         return None
-    if completed < created:
+    if completed < started:
         if verbose:
             print(
                 "workflow-jobs: warning: skipping workflow run with updated_at earlier than "
-                f"created_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
+                f"run_started_at (run_id={run.get('id')!r}, name={run.get('name', '')!r}).",
                 file=sys.stderr,
             )
         return None
@@ -614,7 +615,7 @@ def _build_duration_row_from_run(
         "created_at": created.isoformat(),
         "name": str(run.get("name", "")).strip() or str(run.get("display_title", "")).strip(),
         "pr": pr,
-        "duration": int((completed - created).total_seconds()),
+        "duration": int((completed - started).total_seconds()),
     }
     url = str(run.get("html_url", "")).strip()
     if url:

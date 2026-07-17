@@ -123,7 +123,10 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(rows, [{"id": 1, "created_at": "2026-01-03T00:00:00Z"}])
             self.assertTrue(cache_path.exists())
             self.assertEqual(mocked.call_count, 1)
-            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=AssertionError):
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=RuntimeError("Cache should be used."),
+            ):
                 cached_rows = _fetch_workflow_runs(
                     "owner",
                     "repo",
@@ -286,7 +289,10 @@ class TestWorkflowJobs(ExtTestCase):
             self.assertEqual(rows, [{"id": 1, "started_at": "2026-01-03T10:00:00Z"}])
             self.assertTrue(cache_path.exists())
             self.assertEqual(mocked.call_count, 1)
-            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=AssertionError):
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                side_effect=RuntimeError("Cache should be used."),
+            ):
                 cached_rows = _fetch_run_jobs("owner", "repo", 12, cache_path=cache_path)
             self.assertEqual(cached_rows, rows)
 

@@ -135,7 +135,7 @@ def _workflow_runs_cache_path(
     slug = _repo_cache_slug(owner, repo)
     status_slug = _safe_name(status or "all")
     stamp = (
-        stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        stop_before.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S") + "Z"
         if stop_before is not None
         else "live"
     )

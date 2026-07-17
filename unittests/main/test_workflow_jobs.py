@@ -668,38 +668,42 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
-    def test_build_fail_cost_rows_uses_workflow_run_metadata(self) -> None:
-        rows, job_rows = _build_fail_cost_rows(
-            "owner",
-            "repo",
-            [
-                {
-                    "id": 1,
-                    "name": "build",
-                    "conclusion": "failure",
-                    "created_at": "2026-01-03T10:00:00Z",
-                    "run_started_at": "2026-01-03T10:01:00Z",
-                    "updated_at": "2026-01-03T10:06:00Z",
-                },
-                {
-                    "id": 2,
-                    "name": "build",
-                    "conclusion": "cancelled",
-                    "created_at": "2026-01-03T11:00:00Z",
-                    "run_started_at": "2026-01-03T11:02:00Z",
-                    "updated_at": "2026-01-03T11:04:00Z",
-                },
-                {
-                    "id": 3,
-                    "name": "test",
-                    "conclusion": "success",
-                    "created_at": "2026-01-03T12:00:00Z",
-                    "run_started_at": "2026-01-03T12:01:00Z",
-                    "updated_at": "2026-01-03T12:07:00Z",
-                },
-            ],
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-        )
+    def test_build_fail_cost_rows_falls_back_to_run_metadata_when_no_jobs(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            return_value=[],
+        ):
+            rows, job_rows = _build_fail_cost_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "failure",
+                        "created_at": "2026-01-03T10:00:00Z",
+                        "run_started_at": "2026-01-03T10:01:00Z",
+                        "updated_at": "2026-01-03T10:06:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "name": "build",
+                        "conclusion": "cancelled",
+                        "created_at": "2026-01-03T11:00:00Z",
+                        "run_started_at": "2026-01-03T11:02:00Z",
+                        "updated_at": "2026-01-03T11:04:00Z",
+                    },
+                    {
+                        "id": 3,
+                        "name": "test",
+                        "conclusion": "success",
+                        "created_at": "2026-01-03T12:00:00Z",
+                        "run_started_at": "2026-01-03T12:01:00Z",
+                        "updated_at": "2026-01-03T12:07:00Z",
+                    },
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
         self.assertEqual(
             rows,
             [
@@ -720,6 +724,81 @@ class TestWorkflowJobs(ExtTestCase):
                     "failure_seconds": 300,
                     "cancelled_seconds": 120,
                     "total_seconds": 420,
+                }
+            ],
+        )
+
+    def test_build_fail_cost_rows_prefers_per_job_data(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            side_effect=[
+                [
+                    {
+                        "name": "compile",
+                        "conclusion": "failure",
+                        "started_at": "2026-01-03T10:01:00Z",
+                        "completed_at": "2026-01-03T10:04:00Z",
+                    },
+                    {
+                        "name": "lint",
+                        "conclusion": "success",
+                        "started_at": "2026-01-03T10:01:00Z",
+                        "completed_at": "2026-01-03T10:02:00Z",
+                    },
+                ],
+                [
+                    {
+                        "name": "compile",
+                        "conclusion": "cancelled",
+                        "started_at": "2026-01-03T11:02:00Z",
+                        "completed_at": "2026-01-03T11:03:30Z",
+                    },
+                ],
+            ],
+        ):
+            rows, job_rows = _build_fail_cost_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "failure",
+                        "created_at": "2026-01-03T10:00:00Z",
+                        "run_started_at": "2026-01-03T10:01:00Z",
+                        "updated_at": "2026-01-03T10:06:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "name": "build",
+                        "conclusion": "cancelled",
+                        "created_at": "2026-01-03T11:00:00Z",
+                        "run_started_at": "2026-01-03T11:02:00Z",
+                        "updated_at": "2026-01-03T11:04:00Z",
+                    },
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 90,
+                    "total_seconds": 270,
+                }
+            ],
+        )
+        self.assertEqual(
+            job_rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "name": "compile",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 90,
+                    "total_seconds": 270,
                 }
             ],
         )

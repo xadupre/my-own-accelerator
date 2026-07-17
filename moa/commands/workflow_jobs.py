@@ -1222,18 +1222,21 @@ def _build_fail_cost_rows(
         job_stats["total_seconds"] = int(job_stats["total_seconds"]) + seconds
 
     for index, run in enumerate(runs, 1):
-        run_row = _build_fail_cost_row_from_run(run, since, verbose)
-        if run_row is not None:
-            _add_entry(*run_row)
-            if verbose:
-                _print_progress(index, len(runs))
-            continue
         status = str(run.get("conclusion", "")).strip().lower()
         run_id = run.get("id")
         if status not in _FAIL_COST_STATUSES or not isinstance(run_id, int):
             if verbose:
                 _print_progress(index, len(runs))
             continue
+        # Quick time-window pre-filter using run-level timing when available.
+        run_timings = _workflow_run_timings(run, verbose)
+        if run_timings is not None:
+            _, _, run_completed = run_timings
+            if run_completed < since:
+                if verbose:
+                    _print_progress(index, len(runs))
+                continue
+        # Always prefer per-job breakdown for accurate cost attribution per job.
         jobs = run.get("jobs")
         if not isinstance(jobs, list):
             jobs = (
@@ -1257,6 +1260,7 @@ def _build_fail_cost_rows(
                 _save_cached_run_jobs_to_day(
                     cache_dir, owner, repo, run, jobs, verbose, status="completed"
                 )
+        job_entries_added = False
         if isinstance(jobs, list):
             run["jobs"] = jobs
             for job in jobs:
@@ -1278,6 +1282,16 @@ def _build_fail_cost_rows(
                     job_status,
                     int((completed - started).total_seconds()),
                 )
+                job_entries_added = True
+        # Fall back to run-level timing when no per-job entries were produced.
+        if not job_entries_added and run_timings is not None:
+            _, run_started, run_completed = run_timings
+            _add_entry(
+                run_completed.date().isoformat(),
+                _workflow_run_name(run),
+                status,
+                int((run_completed - run_started).total_seconds()),
+            )
         if verbose:
             _print_progress(index, len(runs))
     day_rows = [by_day[day] for day in sorted(by_day)]

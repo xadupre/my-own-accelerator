@@ -455,6 +455,7 @@ class TestWorkflowJobs(ExtTestCase):
             )
         self.assertEqual(len(rows), 2)
         self.assertIn("collecting duration history from 2 run(s)", err.getvalue())
+        self.assertNotIn("fetching jobs for run 1/2 (run_id=1)", err.getvalue())
         self.assertIn("2/2", err.getvalue())
 
     def test_fetch_run_jobs_verbose_reports_pages(self) -> None:

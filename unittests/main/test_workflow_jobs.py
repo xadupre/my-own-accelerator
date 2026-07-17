@@ -841,14 +841,14 @@ class TestWorkflowJobs(ExtTestCase):
                     "created_at": "2026-01-02T10:00:00+00:00",
                     "name": "build",
                     "pr": "2",
-                    "duration": 110,
+                    "duration": 100,
                 },
                 {
                     "run_id": 3,
                     "created_at": "2026-01-03T10:00:00+00:00",
                     "name": "build",
                     "pr": "3",
-                    "duration": 400,
+                    "duration": 300,
                 },
                 {
                     "run_id": 4,
@@ -895,7 +895,7 @@ class TestWorkflowJobs(ExtTestCase):
                     "started_at": "2026-01-04T10:20:00+00:00",
                     "name": "build",
                     "pr": "4",
-                    "waiting_seconds": 1200,
+                    "waiting_seconds": 540,
                 },
             ]
         )
@@ -938,6 +938,11 @@ class TestWorkflowJobs(ExtTestCase):
             outlier_xlsx = pathlib.Path(tmp) / "workflow_jobs_duration_outliers_repo.xlsx"
             self.assertIn(outlier_csv, paths)
             self.assertIn(outlier_xlsx, paths)
+            csv_path = pathlib.Path(tmp) / "workflow_jobs_duration_repo.csv"
+            with csv_path.open("r", encoding="utf-8") as f:
+                duration_rows = list(csv.DictReader(f))
+            self.assertEqual(duration_rows[0]["url"], "")
+            self.assertEqual(duration_rows[-1]["url"], "https://x/runs/3")
             with outlier_csv.open("r", encoding="utf-8") as f:
                 rows = list(csv.DictReader(f))
             self.assertEqual(len(rows), 1)

@@ -839,7 +839,7 @@ def _split_time_outliers(
         cutoff = series_median * _DURATION_OUTLIER_MULTIPLIER
         for row in series:
             duration = value_getter(row)
-            if duration is not None and duration > cutoff:
+            if duration is not None and duration >= cutoff:
                 outliers.append(row)
             else:
                 plotted.append(row)
@@ -987,8 +987,8 @@ def _write_duration_outputs(
     graph_dir.mkdir(parents=True, exist_ok=True)
     csv_path = out / f"workflow_jobs_duration_{repo}.csv"
     outlier_csv_path = out / f"workflow_jobs_duration_outliers_{repo}.csv"
-    headers = ["run_id", "created_at", "name", "pr", "duration"]
-    outlier_headers = [*headers, "url"]
+    headers = ["run_id", "created_at", "name", "pr", "duration", "url"]
+    outlier_headers = headers
     _print_verbose_step(verbose, f"writing {csv_path}...")
     _write_csv(csv_path, rows, headers)
     paths = [csv_path]

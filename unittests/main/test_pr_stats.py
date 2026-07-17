@@ -1053,11 +1053,12 @@ class TestPRStats(ExtTestCase):
                 "conclusion": "failure",
             }
         ]
+        job_map = {101: jobs_run_101, 102: jobs_run_102}
         with (
             patch("moa.commands.pr_stats._fetch_json", return_value=runs_payload),
             patch(
                 "moa.commands.pr_stats._fetch_workflow_run_jobs",
-                side_effect=[jobs_run_101, jobs_run_102],
+                side_effect=lambda o, r, run_id, tok=None, api=None: job_map[run_id],
             ),
         ):
             results = _collect_pr_job_info_batch(
@@ -1217,6 +1218,49 @@ class TestPRStats(ExtTestCase):
             "workflow run #101 for PR #22 is older than 2 weeks but has no jobs",
             err.getvalue(),
         )
+
+    def test_collect_pr_job_info_batch_early_exit(self) -> None:
+        """Batch stops fetching pages once all target SHAs found and a page has no targets."""
+        page1 = {
+            "workflow_runs": [
+                {"id": 201, "head_sha": "sha1", "pull_requests": [{"number": 30}]},
+            ]
+            + [{"id": 300 + i, "head_sha": f"other{i}", "pull_requests": []} for i in range(99)]
+        }
+        page2 = {
+            "workflow_runs": [
+                {"id": 401 + i, "head_sha": f"old{i}", "pull_requests": []} for i in range(100)
+            ]
+        }
+        jobs_run_201 = [
+            {
+                "name": "build",
+                "started_at": "2026-01-01T00:00:00Z",
+                "completed_at": "2026-01-01T00:01:00Z",
+                "conclusion": "success",
+            }
+        ]
+        pages = [page1, page2]
+        fetch_json_calls: list[str] = []
+
+        def fake_fetch_json(url: str, token: str | None = None) -> dict:
+            fetch_json_calls.append(url)
+            page_index = len(fetch_json_calls) - 1
+            if page_index < len(pages):
+                return pages[page_index]
+            return {"workflow_runs": []}
+
+        with (
+            patch("moa.commands.pr_stats._fetch_json", side_effect=fake_fetch_json),
+            patch(
+                "moa.commands.pr_stats._fetch_workflow_run_jobs",
+                return_value=jobs_run_201,
+            ),
+        ):
+            results = _collect_pr_job_info_batch("o", "r", {30: "sha1"})
+        # Two pages were fetched: page1 (found sha1) + page2 (no target → exit).
+        self.assertEqual(len(fetch_json_calls), 2)
+        self.assertEqual(results[30][0], 60)
 
     def test_build_job_duration_sheet_rows(self) -> None:
         pr_rows = [

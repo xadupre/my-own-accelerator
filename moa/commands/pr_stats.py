@@ -12,6 +12,7 @@ import pathlib
 import re
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from urllib import parse, request
@@ -52,6 +53,8 @@ SVG_X_AXIS_LABEL_ROTATION = _SVG_X_AXIS_LABEL_ROTATION
 # Keep GraphQL batch sizes moderate to avoid oversized query payloads.
 PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
+# Maximum number of concurrent workflow-job fetch requests.
+MAX_PARALLEL_JOB_FETCHES = 8
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -542,6 +545,8 @@ def _collect_pr_job_info_batch(
     run_by_id: dict[int, dict[str, Any]] = {}
     base = f"{api_url.rstrip('/')}/repos/{owner}/{repo}"
     page = 1
+    # Track which target SHAs we have not yet encountered in the workflow runs pages.
+    remaining_shas = set(by_sha.keys())
     try:
         while True:
             if verbose:
@@ -561,9 +566,13 @@ def _collect_pr_job_info_batch(
                 break
             if any(not isinstance(item, dict) for item in workflow_runs):
                 raise ValueError("Unexpected workflow runs payload returned by API.")
+            page_had_target = False
             for run in workflow_runs:
                 head_sha = str(run.get("head_sha", ""))
                 pull_numbers = by_sha.get(head_sha, [])
+                if pull_numbers:
+                    page_had_target = True
+                    remaining_shas.discard(head_sha)
                 if not pull_numbers:
                     continue
                 run_id = int(run.get("id", 0))
@@ -579,6 +588,10 @@ def _collect_pr_job_info_batch(
                     if run_pull_numbers and pull_number not in run_pull_numbers:
                         continue
                     run_ids_by_pr.setdefault(pull_number, set()).add(run_id)
+            # Early exit: all target SHAs have been encountered and the most recent
+            # page contained no target-SHA runs, so older pages won't have them either.
+            if not remaining_shas and not page_had_target:
+                break
             if len(workflow_runs) < PAGE_SIZE:
                 break
             page += 1
@@ -587,6 +600,19 @@ def _collect_pr_job_info_batch(
         return {}
     results: dict[int, tuple[int, list[dict[str, Any]]]] = {}
     pr_numbers = sorted(run_ids_by_pr)
+    if not pr_numbers:
+        return results
+    # Fetch jobs for all runs in parallel to reduce wall-clock time.
+    all_run_ids = sorted({run_id for ids in run_ids_by_pr.values() for run_id in ids})
+    jobs_by_run_id: dict[int, list[dict[str, Any]]] = {}
+    with ThreadPoolExecutor(max_workers=MAX_PARALLEL_JOB_FETCHES) as executor:
+        future_to_run: dict[Any, int] = {
+            executor.submit(_fetch_workflow_run_jobs, owner, repo, run_id, token, api_url): run_id
+            for run_id in all_run_ids
+        }
+        for future in as_completed(future_to_run):
+            run_id = future_to_run[future]
+            jobs_by_run_id[run_id] = future.result()
     for idx, pull_number in enumerate(pr_numbers, 1):
         if verbose:
             run_count = len(run_ids_by_pr[pull_number])
@@ -600,7 +626,7 @@ def _collect_pr_job_info_batch(
         successful_jobs: list[dict[str, Any]] = []
         for run_id in sorted(run_ids_by_pr[pull_number]):
             run = run_by_id.get(run_id, {"id": run_id})
-            jobs = _fetch_workflow_run_jobs(owner, repo, run_id, token, api_url)
+            jobs = jobs_by_run_id.get(run_id, [])
             if not jobs:
                 _warn_if_old_run_has_no_jobs(run, pull_number)
                 continue

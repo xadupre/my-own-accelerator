@@ -55,6 +55,8 @@ PR_COMMENT_BATCH_SIZE = 20
 GRAPHQL_PAGE_SIZE = 100
 # Maximum number of concurrent workflow-job fetch requests.
 MAX_PARALLEL_JOB_FETCHES = 8
+# Matches a bare ISO date (YYYY-MM-DD) used to detect date-only strings in _parse_iso_datetime.
+_ISO_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 
 
 def _print_progress(current: int, total: int, file: Any = None) -> None:
@@ -106,7 +108,7 @@ def _parse_iso_datetime(value: str) -> datetime:
     if not cleaned:
         raise ValueError("Datetime value cannot be empty.")
     if "T" not in cleaned:
-        if not re.match(r"^\d{4}-\d{2}-\d{2}", cleaned):
+        if not _ISO_DATE_RE.match(cleaned):
             raise ValueError(f"Invalid isoformat string: {value!r}")
         cleaned = f"{cleaned}T00:00:00Z"
     parsed = datetime.fromisoformat(cleaned.replace("Z", "+00:00"))
@@ -206,7 +208,9 @@ def _load_pulls_cache(path: pathlib.Path) -> list[dict[str, Any]] | None:
         return None
     if not isinstance(payload, list):
         return None
-    return [item for item in payload if isinstance(item, dict)]
+    if any(not isinstance(item, dict) for item in payload):
+        return None
+    return payload
 
 
 def _save_pulls_cache(path: pathlib.Path, pulls: list[dict[str, Any]]) -> None:

@@ -1539,7 +1539,18 @@ class TestPRStats(ExtTestCase):
         self.assertIn("[", output)
         self.assertIn("]", output)
         self.assertIn("1/5", output)
-        # Intermediate step ends with carriage return, not newline
+        # Non-interactive streams should get line-based updates.
+        self.assertTrue(output.endswith("\n"))
+
+    def test_print_progress_tty_intermediate_step_ends_with_carriage_return(self) -> None:
+        class _TTYBuffer(StringIO):
+            def isatty(self) -> bool:
+                return True
+
+        buf = _TTYBuffer()
+        _print_progress(1, 5, file=buf)
+        output = buf.getvalue()
+        self.assertIn("1/5", output)
         self.assertTrue(output.endswith("\r"))
 
     def test_print_progress_final_step_ends_with_newline(self) -> None:

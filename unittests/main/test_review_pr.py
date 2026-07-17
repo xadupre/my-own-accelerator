@@ -792,3 +792,51 @@ class TestReviewPR(ExtTestCase):
             call_kwargs["extra_prompts"],
             ["What are the security implications?", "Any performance concerns?"],
         )
+
+    def test_main_gh_flag_fetches_token(self) -> None:
+        out = StringIO()
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with (
+                patch(
+                    "moa.commands.review_pr.review_pull_request",
+                    return_value="# review",
+                ) as mocked,
+                patch("sys.stdout", out),
+                patch("moa.commands.review_pr._load_cache", return_value={}),
+                patch(
+                    "moa.commands.review_pr._fetch_token_from_gh_cli",
+                    return_value="ghp_from_cli",
+                ),
+            ):
+                code = main(["--gh", "owner", "repo", "12"])
+        finally:
+            os.environ.update(env_backup)
+
+        self.assertEqual(code, 0)
+        mocked.assert_called_once_with(
+            owner="owner",
+            repo="repo",
+            pull_request=12,
+            token="ghp_from_cli",
+            api_url="https://api.github.com",
+            copilot_review=False,
+            model=DEFAULT_MODEL,
+            extra_prompts=None,
+        )
+
+    def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
+        env_backup = {
+            k: os.environ.pop(k) for k in ("GITHUB_TOKEN", "GITHUB_API_URL") if k in os.environ
+        }
+        try:
+            with (
+                patch("moa.commands.review_pr._load_cache", return_value={}),
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    main(["--gh", "--token", "explicit_tok", "owner", "repo", "12"])
+        finally:
+            os.environ.update(env_backup)
+        self.assertEqual(ctx.exception.code, 2)

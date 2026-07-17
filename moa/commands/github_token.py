@@ -8,7 +8,7 @@ import sys
 from urllib import request
 from urllib.error import HTTPError, URLError
 
-from .review_token import CONFIG_FILE, _build_project_token_cache, _load_cache, _save_cache
+from .review_token import CONFIG_FILE, _build_project_token_cache, _fetch_token_from_gh_cli, _load_cache, _save_cache
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -33,6 +33,15 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="List cached tokens and exit.",
+    )
+    parser.add_argument(
+        "--gh",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch the GitHub token from the ``gh`` CLI (``gh auth token``). "
+            "Cannot be combined with --token."
+        ),
     )
     parser.add_argument(
         "-v",
@@ -143,10 +152,15 @@ def main(argv: list[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.gh and "--token" in argv:
+        parser.error("--gh and --token are mutually exclusive.")
+    if args.gh:
+        args.token = _fetch_token_from_gh_cli()
+
     # --show-permissions requires --token, unless --list is used (in which
     # case permissions are queried for each cached token).
     if args.show_permissions and not args.token and not args.list:
-        parser.error("--token is required with --show-permissions.")
+        parser.error("--token or --gh is required with --show-permissions.")
 
     # --list cannot be combined with token-saving options.
     # Providing --token alongside --list is only valid when --show-permissions
@@ -159,7 +173,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # A token is required except when only listing.
     if not args.list and not args.token:
-        parser.error("--token is required unless --list is specified.")
+        parser.error("--token or --gh is required unless --list is specified.")
 
     # Token-saving: runs when not listing and the caller explicitly asked to
     # save (via --owner/--repo/--classic) or did not request --show-permissions

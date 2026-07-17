@@ -18,6 +18,7 @@ from .copilot_models import DEFAULT_MODEL, _send_chat_request
 from .pr_stats import _fetch_paginated
 from .review_token import (
     _extract_owner_repo,
+    _fetch_token_from_gh_cli,
     _resolve_cached_token,
     _resolve_token_origin,
 )
@@ -559,6 +560,15 @@ def _build_parser(token_default: str | None = None) -> argparse.ArgumentParser:
         default=False,
         help="Print progress information to stderr.",
     )
+    parser.add_argument(
+        "--gh",
+        action="store_true",
+        default=False,
+        help=(
+            "Fetch the GitHub token from the ``gh`` CLI (``gh auth token``). "
+            "Cannot be combined with --token."
+        ),
+    )
     return parser
 
 
@@ -572,6 +582,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser = _build_parser(token_default=token_default)
     args = parser.parse_args(argv)
+    if args.gh and "--token" in argv:
+        parser.error("--gh and --token are mutually exclusive.")
+    if args.gh:
+        args.token = _fetch_token_from_gh_cli()
     cache_path = (
         pathlib.Path(args.cache_file) if args.cache_file else _default_cache_path(args.repo)
     )

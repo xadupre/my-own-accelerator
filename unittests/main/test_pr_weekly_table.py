@@ -636,3 +636,38 @@ class TestPRWeeklyTable(ExtTestCase):
             code = main(["owner", "repo"])
         self.assertEqual(code, 1)
         self.assertIn("Unable to build weekly PR table (IncompleteRead)", err.getvalue())
+
+    def test_main_gh_flag_fetches_token(self) -> None:
+        out = StringIO()
+        with (
+            patch("sys.stdout", out),
+            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+            patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+            patch(
+                "moa.commands.pr_weekly_table._fetch_token_from_gh_cli",
+                return_value="ghp_from_cli",
+            ),
+            patch(
+                "moa.commands.pr_weekly_table.build_weekly_pr_summary_rows",
+                return_value=[],
+            ) as mocked_build,
+        ):
+            with tempfile.TemporaryDirectory() as tmp:
+                code = main([
+                    "--gh",
+                    "--output-file", str(pathlib.Path(tmp) / "out.md"),
+                    "--cache-file", str(pathlib.Path(tmp) / "cache.json"),
+                    "owner",
+                    "repo",
+                ])
+        self.assertEqual(code, 0)
+        self.assertEqual(mocked_build.call_args.kwargs["token"], "ghp_from_cli")
+
+    def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
+        with (
+            patch.dict("os.environ", {"GITHUB_TOKEN": ""}),
+            patch("moa.commands.pr_weekly_table._load_token_cache", return_value={}),
+        ):
+            with self.assertRaises(SystemExit) as ctx:
+                main(["--gh", "--token", "explicit_tok", "owner", "repo"])
+        self.assertEqual(ctx.exception.code, 2)

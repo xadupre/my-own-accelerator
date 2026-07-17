@@ -244,3 +244,42 @@ class TestReviewLocal(ExtTestCase):
             f"review-local: token source={CONFIG_FILE}, type=classic.",
             err.getvalue(),
         )
+
+    def test_main_gh_flag_fetches_token(self) -> None:
+        out = StringIO()
+        env_token_backup = os.environ.pop("GITHUB_TOKEN", None)
+        try:
+            with tempfile.TemporaryDirectory() as tmp:
+                file1 = pathlib.Path(tmp) / "a.py"
+                file1.write_text("print('a')", encoding="utf-8")
+                with (
+                    patch(
+                        "moa.commands.review_local.review_local_files",
+                        return_value="# review",
+                    ) as mocked,
+                    patch("sys.stdout", out),
+                    patch("moa.commands.review_local._load_cache", return_value={}),
+                    patch(
+                        "moa.commands.review_local._fetch_token_from_gh_cli",
+                        return_value="ghp_from_cli",
+                    ),
+                ):
+                    code = main(["--gh", str(file1)])
+        finally:
+            if env_token_backup is not None:
+                os.environ["GITHUB_TOKEN"] = env_token_backup
+        self.assertEqual(code, 0)
+        mocked.assert_called_once()
+        call_kwargs = mocked.call_args.kwargs
+        self.assertEqual(call_kwargs["token"], "ghp_from_cli")
+
+    def test_main_gh_and_token_are_mutually_exclusive(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            file1 = pathlib.Path(tmp) / "a.py"
+            file1.write_text("print('a')", encoding="utf-8")
+            with (
+                patch("moa.commands.review_local._load_cache", return_value={}),
+            ):
+                with self.assertRaises(SystemExit) as ctx:
+                    main(["--gh", "--token", "explicit_tok", str(file1)])
+        self.assertEqual(ctx.exception.code, 2)

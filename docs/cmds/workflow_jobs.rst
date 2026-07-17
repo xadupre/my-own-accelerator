@@ -37,6 +37,7 @@ Exactly one option must be chosen:
   as ``60``. ``--verbose`` shows ``min(date)`` / ``max(date)`` for each fetched
   page. Historical run/job fetches are also cached as JSON files in
   ``--output-dir`` and reused on repeated calls.
+  These cache files are written incrementally while pages are being fetched.
 * ``--fail-rate`` writes historical counts for failed/cancelled/skipped/success
   jobs to CSV and prints the same data as a fixed-width table.
 

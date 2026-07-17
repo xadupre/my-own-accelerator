@@ -1,4 +1,5 @@
 import csv
+import json
 import os
 import pathlib
 import tempfile
@@ -6,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from io import StringIO
 from unittest.mock import patch
 from urllib.error import HTTPError
+from urllib.parse import parse_qs, urlparse
 
 import pandas
 
@@ -142,6 +144,30 @@ class TestWorkflowJobs(ExtTestCase):
                     cache_path=cache_path,
                 )
             self.assertEqual(cached_rows, rows)
+
+    def test_fetch_workflow_runs_updates_output_cache_during_pagination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", None, datetime(2026, 1, 1, tzinfo=timezone.utc)
+            )
+
+            def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
+                self.assertIsNone(token)
+                page = parse_qs(urlparse(url).query)["page"][0]
+                if page == "1":
+                    return {
+                        "workflow_runs": [
+                            {"id": i, "created_at": "2026-01-03T00:00:00Z"} for i in range(100)
+                        ]
+                    }
+                self.assertTrue(cache_path.exists())
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                self.assertEqual(len(cached["rows"]), 100)
+                return {"workflow_runs": [{"id": 101, "created_at": "2026-01-02T00:00:00Z"}]}
+
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
+                rows = _fetch_workflow_runs("owner", "repo", cache_path=cache_path)
+            self.assertEqual(len(rows), 101)
 
     def test_fetch_workflow_runs_stops_when_page_reaches_since(self) -> None:
         err = StringIO()
@@ -303,6 +329,28 @@ class TestWorkflowJobs(ExtTestCase):
             ):
                 cached_rows = _fetch_run_jobs("owner", "repo", 12, cache_path=cache_path)
             self.assertEqual(cached_rows, rows)
+
+    def test_fetch_run_jobs_updates_output_cache_during_pagination(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            cache_path = _run_jobs_cache_path(tmp, "owner", "repo", 12)
+
+            def fake_fetch_json(url: str, token: str | None) -> dict[str, object]:
+                self.assertIsNone(token)
+                page = parse_qs(urlparse(url).query)["page"][0]
+                if page == "1":
+                    return {
+                        "jobs": [
+                            {"id": i, "started_at": "2026-01-03T10:00:00Z"} for i in range(100)
+                        ]
+                    }
+                self.assertTrue(cache_path.exists())
+                cached = json.loads(cache_path.read_text(encoding="utf-8"))
+                self.assertEqual(len(cached["rows"]), 100)
+                return {"jobs": [{"id": 101, "started_at": "2026-01-04T10:00:00Z"}]}
+
+            with patch("moa.commands.workflow_jobs._fetch_json", side_effect=fake_fetch_json):
+                rows = _fetch_run_jobs("owner", "repo", 12, cache_path=cache_path)
+            self.assertEqual(len(rows), 101)
 
     def test_build_running_rows(self) -> None:
         with patch(

@@ -196,6 +196,8 @@ def _fetch_workflow_runs(
             break
         current_runs = [run for run in runs if isinstance(run, dict)]
         rows.extend(current_runs)
+        if cache_path is not None:
+            _save_rows_cache(cache_path, meta, rows, verbose)
         _print_verbose_step(
             verbose,
             f"fetched {len(current_runs)} workflow run(s) from page {page}"
@@ -260,6 +262,8 @@ def _fetch_run_jobs(
             break
         current_jobs = [job for job in jobs if isinstance(job, dict)]
         rows.extend(current_jobs)
+        if cache_path is not None:
+            _save_rows_cache(cache_path, meta, rows, verbose)
         _print_verbose_step(
             verbose,
             f"fetched {len(current_jobs)} job(s) from page {page} for run_id={run_id}"

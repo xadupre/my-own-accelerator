@@ -200,7 +200,7 @@ def _workflow_runs_cache_paths(
 
 
 def _workflow_runs_cache_path_day(path: pathlib.Path) -> str:
-    """Extract the cached UTC day as ``YYYY-MM-DD`` from a daily cache file path."""
+    """Extract ``YYYY-MM-DD`` from a cache path like ``runs_completed_YYYYMMDD.json``."""
     stamp = path.stem.rsplit("_", 1)[-1]
     if len(stamp) != 8 or not stamp.isdigit():
         raise ValueError(f"Unexpected workflow-runs cache path: {path}")
@@ -290,10 +290,10 @@ def _fetch_workflow_runs(
         cache_paths = _workflow_runs_cache_paths(
             cache_dir, owner, repo, status, stop_before, now=now
         )
-        requested_days = [_workflow_runs_cache_path_day(path) for path in cache_paths]
+        cache_days = [(path, _workflow_runs_cache_path_day(path)) for path in cache_paths]
+        requested_days = [day for _, day in cache_days]
         missing_days: list[str] = []
-        for day_path in cache_paths:
-            day = _workflow_runs_cache_path_day(day_path)
+        for day_path, day in cache_days:
             day_meta = _workflow_runs_day_meta(owner, repo, status, day)
             day_rows = _load_rows_cache(day_path, day_meta, verbose)
             if day_rows is None:

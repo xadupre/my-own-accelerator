@@ -76,7 +76,7 @@ def _fetch_workflow_runs(
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
-        _print_verbose_step(verbose, f"fetching workflow runs page {page}.")
+        _print_verbose_step(verbose, f"fetching workflow runs page {page}")
         query: dict[str, Any] = {"per_page": 100, "page": page}
         if status:
             query["status"] = status
@@ -94,7 +94,7 @@ def _fetch_workflow_runs(
         if not isinstance(runs, list) or not runs:
             break
         rows.extend(run for run in runs if isinstance(run, dict))
-        _print_verbose_step(verbose, f"fetched {len(runs)} workflow run(s) from page {page}.")
+        _print_verbose_step(verbose, f"fetched {len(runs)} workflow run(s) from page {page}")
         if len(runs) < 100:
             break
         page += 1
@@ -112,7 +112,7 @@ def _fetch_run_jobs(
     rows: list[dict[str, Any]] = []
     page = 1
     while True:
-        _print_verbose_step(verbose, f"fetching jobs page {page} for run_id={run_id}.")
+        _print_verbose_step(verbose, f"fetching jobs page {page} for run_id={run_id}")
         url = (
             f"{api_url.rstrip('/')}/repos/{owner}/{repo}/actions/runs/{run_id}/jobs?"
             f"{parse.urlencode({'per_page': 100, 'page': page})}"
@@ -131,7 +131,7 @@ def _fetch_run_jobs(
             break
         rows.extend(job for job in jobs if isinstance(job, dict))
         _print_verbose_step(
-            verbose, f"fetched {len(jobs)} job(s) from page {page} for run_id={run_id}."
+            verbose, f"fetched {len(jobs)} job(s) from page {page} for run_id={run_id}"
         )
         if len(jobs) < 100:
             break

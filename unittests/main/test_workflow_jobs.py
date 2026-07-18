@@ -876,7 +876,9 @@ class TestWorkflowJobs(ExtTestCase):
                 )
             with patch(
                 "moa.commands.workflow_jobs._fetch_run_jobs",
-                side_effect=RuntimeError("Embedded day-cache jobs must be reused without API call."),
+                side_effect=RuntimeError(
+                    "Embedded day-cache jobs must be reused without API call."
+                ),
             ):
                 rows, job_rows = _build_fail_cost_rows(
                     "owner",

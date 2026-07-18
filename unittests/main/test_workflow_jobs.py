@@ -668,38 +668,42 @@ class TestWorkflowJobs(ExtTestCase):
             ],
         )
 
-    def test_build_fail_cost_rows_uses_workflow_run_metadata(self) -> None:
-        rows, job_rows = _build_fail_cost_rows(
-            "owner",
-            "repo",
-            [
-                {
-                    "id": 1,
-                    "name": "build",
-                    "conclusion": "failure",
-                    "created_at": "2026-01-03T10:00:00Z",
-                    "run_started_at": "2026-01-03T10:01:00Z",
-                    "updated_at": "2026-01-03T10:06:00Z",
-                },
-                {
-                    "id": 2,
-                    "name": "build",
-                    "conclusion": "cancelled",
-                    "created_at": "2026-01-03T11:00:00Z",
-                    "run_started_at": "2026-01-03T11:02:00Z",
-                    "updated_at": "2026-01-03T11:04:00Z",
-                },
-                {
-                    "id": 3,
-                    "name": "test",
-                    "conclusion": "success",
-                    "created_at": "2026-01-03T12:00:00Z",
-                    "run_started_at": "2026-01-03T12:01:00Z",
-                    "updated_at": "2026-01-03T12:07:00Z",
-                },
-            ],
-            datetime(2026, 1, 1, tzinfo=timezone.utc),
-        )
+    def test_build_fail_cost_rows_falls_back_to_run_metadata_when_no_jobs(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            return_value=[],
+        ):
+            rows, job_rows = _build_fail_cost_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "failure",
+                        "created_at": "2026-01-03T10:00:00Z",
+                        "run_started_at": "2026-01-03T10:01:00Z",
+                        "updated_at": "2026-01-03T10:06:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "name": "build",
+                        "conclusion": "cancelled",
+                        "created_at": "2026-01-03T11:00:00Z",
+                        "run_started_at": "2026-01-03T11:02:00Z",
+                        "updated_at": "2026-01-03T11:04:00Z",
+                    },
+                    {
+                        "id": 3,
+                        "name": "test",
+                        "conclusion": "success",
+                        "created_at": "2026-01-03T12:00:00Z",
+                        "run_started_at": "2026-01-03T12:01:00Z",
+                        "updated_at": "2026-01-03T12:07:00Z",
+                    },
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
         self.assertEqual(
             rows,
             [
@@ -720,6 +724,189 @@ class TestWorkflowJobs(ExtTestCase):
                     "failure_seconds": 300,
                     "cancelled_seconds": 120,
                     "total_seconds": 420,
+                }
+            ],
+        )
+
+    def test_build_fail_cost_rows_prefers_per_job_data(self) -> None:
+        with patch(
+            "moa.commands.workflow_jobs._fetch_run_jobs",
+            side_effect=[
+                [
+                    {
+                        "name": "compile",
+                        "conclusion": "failure",
+                        "started_at": "2026-01-03T10:01:00Z",
+                        "completed_at": "2026-01-03T10:04:00Z",
+                    },
+                    {
+                        "name": "lint",
+                        "conclusion": "success",
+                        "started_at": "2026-01-03T10:01:00Z",
+                        "completed_at": "2026-01-03T10:02:00Z",
+                    },
+                ],
+                [
+                    {
+                        "name": "compile",
+                        "conclusion": "cancelled",
+                        "started_at": "2026-01-03T11:02:00Z",
+                        "completed_at": "2026-01-03T11:03:30Z",
+                    },
+                ],
+            ],
+        ):
+            rows, job_rows = _build_fail_cost_rows(
+                "owner",
+                "repo",
+                [
+                    {
+                        "id": 1,
+                        "name": "build",
+                        "conclusion": "failure",
+                        "created_at": "2026-01-03T10:00:00Z",
+                        "run_started_at": "2026-01-03T10:01:00Z",
+                        "updated_at": "2026-01-03T10:06:00Z",
+                    },
+                    {
+                        "id": 2,
+                        "name": "build",
+                        "conclusion": "cancelled",
+                        "created_at": "2026-01-03T11:00:00Z",
+                        "run_started_at": "2026-01-03T11:02:00Z",
+                        "updated_at": "2026-01-03T11:04:00Z",
+                    },
+                ],
+                datetime(2026, 1, 1, tzinfo=timezone.utc),
+            )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 90,
+                    "total_seconds": 270,
+                }
+            ],
+        )
+        self.assertEqual(
+            job_rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "name": "compile",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 90,
+                    "total_seconds": 270,
+                }
+            ],
+        )
+
+    def test_build_fail_cost_rows_reuses_jobs_from_day_cache_on_second_call(self) -> None:
+        """Jobs saved to the day cache on the first call must not trigger re-fetching."""
+        with tempfile.TemporaryDirectory() as tmp:
+            day_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 3, tzinfo=timezone.utc)
+            )
+            current_day_path = _workflow_runs_cache_path(
+                tmp, "owner", "repo", "completed", datetime(2026, 1, 4, tzinfo=timezone.utc)
+            )
+            day_path.parent.mkdir(parents=True, exist_ok=True)
+            day_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": "completed",
+                            "day": "2026-01-03",
+                        },
+                        "rows": [
+                            {
+                                "id": 99,
+                                "name": "build",
+                                "conclusion": "failure",
+                                "created_at": "2026-01-03T10:00:00Z",
+                                "run_started_at": "2026-01-03T10:01:00Z",
+                                "updated_at": "2026-01-03T10:06:00Z",
+                                "jobs": [
+                                    {
+                                        "name": "compile",
+                                        "conclusion": "failure",
+                                        "started_at": "2026-01-03T10:01:00Z",
+                                        "completed_at": "2026-01-03T10:04:00Z",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            current_day_path.write_text(
+                json.dumps(
+                    {
+                        "meta": {
+                            "kind": "workflow_runs_day",
+                            "version": _WORKFLOW_RUNS_DAY_CACHE_VERSION,
+                            "owner": "owner",
+                            "repo": "repo",
+                            "status": "completed",
+                            "day": "2026-01-04",
+                        },
+                        "rows": [],
+                    }
+                ),
+                encoding="utf-8",
+            )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_json",
+                return_value={"workflow_runs": []},
+            ):
+                runs = _fetch_workflow_runs(
+                    "owner",
+                    "repo",
+                    stop_before=datetime(2026, 1, 3, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                    now=datetime(2026, 1, 4, tzinfo=timezone.utc),
+                    status="completed",
+                )
+            with patch(
+                "moa.commands.workflow_jobs._fetch_run_jobs",
+                side_effect=RuntimeError(
+                    "Embedded day-cache jobs must be reused without API call."
+                ),
+            ):
+                rows, job_rows = _build_fail_cost_rows(
+                    "owner",
+                    "repo",
+                    runs,
+                    datetime(2026, 1, 1, tzinfo=timezone.utc),
+                    cache_dir=tmp,
+                )
+        self.assertEqual(
+            rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 0,
+                    "total_seconds": 180,
+                }
+            ],
+        )
+        self.assertEqual(
+            job_rows,
+            [
+                {
+                    "date": "2026-01-03",
+                    "name": "compile",
+                    "failure_seconds": 180,
+                    "cancelled_seconds": 0,
+                    "total_seconds": 180,
                 }
             ],
         )
